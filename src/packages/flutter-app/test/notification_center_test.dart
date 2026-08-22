@@ -552,6 +552,105 @@ void main() {
 
   });
 
+  // Swipe-to-dismiss, on the page only. Same act as the ✕ reached a second
+  // way, so the interesting cases are the ones the gesture makes different:
+  // the row is off screen before the server has answered.
+  group('swipe to dismiss', () {
+    /// Drags [text]'s row from its end edge toward the start — the delete
+    /// direction — far enough to pass the dismiss threshold.
+    Future<void> swipeAway(WidgetTester tester, String text) async {
+      await tester.drag(find.text(text), const Offset(-600, 0));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('swiping deletes that row and leaves the rest', (tester) async {
+      final service = await _pump(
+          tester, [_priceDrop(id: 'a'), _ops(id: 'b')]);
+
+      await swipeAway(tester, 'System degraded');
+
+      expect(service.deletedIds, ['b']);
+      expect(find.text('System degraded'), findsNothing);
+      expect(find.text('BOS → CDG'), findsOneWidget);
+    });
+
+    testWidgets('the row is gone before the server answers', (tester) async {
+      // The gesture already moved it off screen; parking it mid-swipe for a
+      // network round trip would contradict what the swipe promised.
+      final service = await _pump(tester, [_priceDrop(id: 'a')]);
+
+      await swipeAway(tester, 'BOS → CDG');
+
+      expect(service.deletedIds, ['a']);
+      expect(find.text('No notifications yet'), findsOneWidget);
+    });
+
+    testWidgets('a failed swipe brings the row BACK and says why',
+        (tester) async {
+      final service = await _pump(
+          tester, [_priceDrop(id: 'a'), _ops(id: 'b')]);
+      service.deleteError = Exception('nope');
+
+      await swipeAway(tester, 'BOS → CDG');
+
+      // The whole risk of removing optimistically: a swipe that silently
+      // failed would leave the traveler certain it was gone.
+      expect(service.deletedIds, isEmpty);
+      expect(find.text('BOS → CDG'), findsOneWidget);
+      expect(find.text('System degraded'), findsOneWidget);
+      expect(find.textContaining('Could not dismiss'), findsOneWidget);
+    });
+
+    testWidgets('a restored row can be swiped again', (tester) async {
+      // The real proof the restore works. A Dismissible stays dismissed for
+      // the life of its State, so bringing the row back under the same key
+      // gives it a state that refuses to swipe (and asserts on the way).
+      final service = await _pump(tester, [_priceDrop(id: 'a')]);
+      service.deleteError = Exception('nope');
+      await swipeAway(tester, 'BOS → CDG');
+      expect(find.text('BOS → CDG'), findsOneWidget);
+
+      service.deleteError = null;
+      await swipeAway(tester, 'BOS → CDG');
+
+      expect(tester.takeException(), isNull);
+      expect(service.deletedIds, ['a']);
+      expect(find.text('No notifications yet'), findsOneWidget);
+    });
+
+    testWidgets('swiping the last row lands on the empty state',
+        (tester) async {
+      await _pump(tester, [_priceDrop(id: 'a')]);
+
+      await swipeAway(tester, 'BOS → CDG');
+
+      expect(find.text('No notifications yet'), findsOneWidget);
+      expect(find.text('Clear all'), findsNothing);
+    });
+
+    testWidgets('swiping the other way does nothing — that stroke is back',
+        (tester) async {
+      final service = await _pump(tester, [_priceDrop(id: 'a')]);
+
+      await tester.drag(find.text('BOS → CDG'), const Offset(600, 0));
+      await tester.pumpAndSettle();
+
+      // startToEnd is iOS's edge-back gesture; a delete there would sometimes
+      // eat a notification on the way out of the screen.
+      expect(service.deletedIds, isEmpty);
+      expect(find.text('BOS → CDG'), findsOneWidget);
+    });
+
+    testWidgets('the ✕ still works on the page alongside it', (tester) async {
+      final service = await _pump(tester, [_priceDrop(id: 'a')]);
+
+      await tester.tap(find.byTooltip('Dismiss'));
+      await tester.pumpAndSettle();
+
+      expect(service.deletedIds, ['a']);
+    });
+  });
+
   group('clear all', () {
     testWidgets('clear-all footer hidden on an empty feed, shown with rows',
         (tester) async {

@@ -169,11 +169,68 @@ class NotificationCenterScreen extends ConsumerStatefulWidget {
 
 class _NotificationCenterScreenState
     extends ConsumerState<NotificationCenterScreen> {
+  /// Rows swiped away that the fetched feed still contains.
+  ///
+  /// [Dismissible] requires its child to be gone from the tree by the build
+  /// after it reports a dismissal — leave it there and the framework asserts.
+  /// But the feed is a [FutureProvider] whose contents only change when the
+  /// refetch lands, so something has to bridge those two facts. This set is
+  /// that bridge: the row leaves on the swipe and comes **back** if the server
+  /// refuses.
+  ///
+  /// Ids are not pruned once the refetch confirms them — the entry is
+  /// harmless after that (the row is genuinely gone) and the set dies with the
+  /// screen.
+  final Set<String> _swiped = {};
+
+  /// How many times each row has been restored after a failed swipe.
+  ///
+  /// A [Dismissible] that has reported a dismissal stays dismissed for the
+  /// life of its [State], so putting the row back under the SAME key rebuilds
+  /// that same state and trips *"a dismissed Dismissible widget is still part
+  /// of the tree"*. Bumping the generation gives the restored row a new key,
+  /// and with it a fresh state that has never been dismissed.
+  ///
+  /// Per id rather than one global counter, so one row's failure doesn't
+  /// discard every other row's Dismissible state.
+  final Map<String, int> _swipeGeneration = {};
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback(
         (_) => markNotificationsSeen(ref, alive: () => mounted));
+  }
+
+  /// Swipe's delete: optimistic, unlike the ✕'s spinner-then-refetch.
+  ///
+  /// The gesture has already moved the row off screen by the time this runs,
+  /// so there is no honest way to show it "pending" — the alternative,
+  /// `confirmDismiss`, parks the row mid-swipe under the user's thumb for the
+  /// length of a network round trip. Removing first and restoring on failure
+  /// is the pattern that matches what the gesture already promised.
+  ///
+  /// The failure path is what keeps it honest: the row comes back and the
+  /// snackbar says why, because a swipe that silently failed would leave the
+  /// traveler certain a notification was gone while the server still has it.
+  Future<void> _swipeAway(AppNotification n) async {
+    setState(() => _swiped.add(n.id));
+    final l10n = context.l10n;
+    try {
+      await ref.read(notificationsApiServiceProvider).delete(n.id);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _swiped.remove(n.id);
+        // New key for the restored row — see [_swipeGeneration].
+        _swipeGeneration.update(n.id, (v) => v + 1, ifAbsent: () => 1);
+      });
+      showSnack(context, l10n.notifDismissFailed(friendlyError(l10n, e)));
+      return;
+    }
+    if (!mounted) return;
+    ref.invalidate(notificationsProvider);
+    ref.invalidate(notificationsUnreadCountProvider);
   }
 
   void _openSettings() {
@@ -214,7 +271,15 @@ class _NotificationCenterScreenState
             ],
           ),
         ),
-        data: (list) {
+        data: (fetched) {
+          // Swiped rows are subtracted before anything else reads the feed, so
+          // "is the feed empty" and "should the clear-all footer show" both
+          // answer about what is on screen rather than what the last refetch
+          // happened to return.
+          final list = [
+            for (final n in fetched)
+              if (!_swiped.contains(n.id)) n
+          ];
           if (list.isEmpty) {
             return PageContainer(
               child: EmptyState(
@@ -252,7 +317,13 @@ class _NotificationCenterScreenState
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        ..._feedChildren(context, list),
+                        // Swipe is the page's alone: it is the touch
+                        // presentation, and a drag gesture inside the
+                        // popover would fight the menu overlay it sits in.
+                        ..._feedChildren(context, list,
+                            onSwipeDismiss: _swipeAway,
+                            swipeGeneration: (id) =>
+                                _swipeGeneration[id] ?? 0),
                         const _ClearAllFooter(),
                       ],
                     ),
@@ -362,15 +433,34 @@ List<Widget> _feedChildren(
   BuildContext context,
   List<AppNotification> list, {
   VoidCallback? onBeforeNavigate,
+
+  /// Non-null on the page, which wraps each row in a [Dismissible]. Null in
+  /// the popover, where the rows are identical but un-swipeable.
+  Future<void> Function(AppNotification)? onSwipeDismiss,
+
+  /// Supplied with [onSwipeDismiss] — how many times this row has been
+  /// restored after a failed swipe, which its Dismissible key needs.
+  int Function(String id)? swipeGeneration,
 }) {
   final l10n = context.l10n;
   List<Widget> rows(List<AppNotification> section) => [
         for (var i = 0; i < section.length; i++) ...[
           if (i > 0) const Divider(height: 1),
-          _NotificationRow(
-            notification: section[i],
-            onBeforeNavigate: onBeforeNavigate,
-          ),
+          if (onSwipeDismiss == null)
+            _NotificationRow(
+              notification: section[i],
+              onBeforeNavigate: onBeforeNavigate,
+            )
+          else
+            _SwipeToDismiss(
+              notification: section[i],
+              generation: swipeGeneration?.call(section[i].id) ?? 0,
+              onDismissed: onSwipeDismiss,
+              child: _NotificationRow(
+                notification: section[i],
+                onBeforeNavigate: onBeforeNavigate,
+              ),
+            ),
         ],
       ];
 
@@ -393,6 +483,93 @@ List<Widget> _feedChildren(
       ...rows(earlier),
     ],
   ];
+}
+
+/// The swipe field: the row's own card surface pulled toward the **saturated**
+/// member of the error pair, rather than replaced by a red panel.
+///
+/// Which role carries the chroma swaps between brightnesses, and getting that
+/// backwards is silent: in light it is `error` (a dark red) with
+/// `errorContainer` as the pale tint, and in **dark those trade places** —
+/// `error` is the pale one. Blending the pale role over the Aegean night
+/// canvas lightens it toward slate, producing a field that reads *disabled*
+/// rather than *destructive*. Verified by rendering both, not by reading the
+/// role names.
+///
+/// The two alphas differ for the same reason: a light card needs only a touch
+/// of a dark red to go rose, while a near-black canvas needs most of one
+/// before it reads as red at all.
+///
+/// Tinting rather than substituting keeps the field in the surface family — it
+/// reads as this row going wrong, not as a foreign panel — and leaves the
+/// destructive meaning to be carried at full strength by the icon, which is
+/// small enough to afford it. That is the status vocabulary's own rule: the
+/// glyph takes the severity colour.
+Color _swipeFieldColor(ThemeData theme) {
+  final scheme = theme.colorScheme;
+  final isDark = theme.brightness == Brightness.dark;
+  return Color.alphaBlend(
+    (isDark ? scheme.errorContainer : scheme.error)
+        .withValues(alpha: isDark ? 0.62 : 0.22),
+    theme.cardTheme.color ?? scheme.surface,
+  );
+}
+
+/// Swipe-away wrapper for one feed row, on the page only.
+///
+/// **One direction, not `horizontal`.** A delete on the start→end stroke would
+/// share a gesture with iOS's edge-back swipe, so backing out of this screen
+/// would sometimes eat a notification instead. End→start is also the platform
+/// convention for destroy-in-a-list, so the affordance needs no teaching.
+///
+/// No confirmation, matching the ✕ it duplicates: the two are the same act
+/// reached two ways, and gating one but not the other would make the gesture
+/// feel like the more dangerous of them when it is not.
+class _SwipeToDismiss extends StatelessWidget {
+  final AppNotification notification;
+
+  /// Restore count for this row — part of the key, so a row brought back
+  /// after a failed swipe gets a Dismissible that has never been dismissed.
+  final int generation;
+
+  final Future<void> Function(AppNotification) onDismissed;
+  final Widget child;
+
+  const _SwipeToDismiss({
+    required this.notification,
+    required this.generation,
+    required this.onDismissed,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Dismissible(
+      // The notification's own id, not its position: rows are re-created on
+      // every refetch, so a positional key would let a dismissal land on
+      // whichever row inherited the index. The generation suffix is what makes
+      // a restored row usable again.
+      key: ValueKey('notif-dismiss-${notification.id}-$generation'),
+      direction: DismissDirection.endToStart,
+      // A tinted field, not a red slab — see [_swipeFieldColor]. A
+      // full-strength destructive panel sliding out from under every swipe is
+      // the loudest thing in an app whose register is engraved-not-shouted,
+      // and it would be shouting at a gesture the traveler chose on purpose.
+      background: ColoredBox(
+        color: _swipeFieldColor(Theme.of(context)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+          child: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: Icon(Icons.delete_outline, size: 20, color: scheme.error),
+          ),
+        ),
+      ),
+      onDismissed: (_) => onDismissed(notification),
+      child: child,
+    );
+  }
 }
 
 /// Sentence-case Inter section label — row-header register (weight, not size,
