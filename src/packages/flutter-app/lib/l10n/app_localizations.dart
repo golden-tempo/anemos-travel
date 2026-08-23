@@ -4418,6 +4418,12 @@ abstract class AppLocalizations {
   /// **'{greeting}, {name}'**
   String homeGreetingNamed(String greeting, String name);
 
+  /// Home's greeting when the time-of-day one will not set on one line — a phone, a long name, or a large text scale. Must stay MUCH shorter than homeGreetingNamed: it is what carries names the full dress cannot, so a translation that merely trims a word defeats it.
+  ///
+  /// In en, this message translates to:
+  /// **'Hello {name}'**
+  String homeGreetingShort(String name);
+
   /// No description provided for @homeGreetingSubtitle.
   ///
   /// In en, this message translates to:

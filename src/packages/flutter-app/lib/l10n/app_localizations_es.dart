@@ -2635,6 +2635,11 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
+  String homeGreetingShort(String name) {
+    return 'Hola $name';
+  }
+
+  @override
   String get homeGreetingSubtitle => '¿Adónde vamos ahora?';
 
   @override

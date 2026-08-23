@@ -1774,6 +1774,15 @@
       }
     }
   },
+  "homeGreetingShort": "Hello {name}",
+  "@homeGreetingShort": {
+    "description": "Home's greeting when the time-of-day one will not set on one line — a phone, a long name, or a large text scale. Must stay MUCH shorter than homeGreetingNamed: it is what carries names the full dress cannot, so a translation that merely trims a word defeats it.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "homeGreetingSubtitle": "Where are we off to next?",
   "homeHeroTitle": "Plan less. Travel more.",
   "homeHeroSubtitle": "Describe the trip you're dreaming of and I'll build the full itinerary — places, days, and routes.",
