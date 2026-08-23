@@ -350,6 +350,22 @@ class _PlanStrip extends StatelessWidget {
   }
 }
 
+/// Width at or above which Home greets with the time of day rather than a
+/// plain "Hello".
+///
+/// Browser-measured against the real face at the headline tier's 39px: the
+/// prefix "Good afternoon, " alone is 262px, which leaves 81px for a name on a
+/// 375px phone — about four characters. "Good afternoon, Brian" (346px) was
+/// already wrapping and "Good afternoon, Alexander" (420px) was never close.
+/// 464 is that prefix plus room for a twelve-letter name, and the padding is
+/// the page's own lg on each side.
+///
+/// Every phone lands below this and gets "Hello {name}", which measures 178px
+/// for Brian and still fits Konstantinos at 297px. A long name on a wide
+/// screen can still take two lines — that is today's behavior on a surface
+/// with room to spare, and not what this is here to fix.
+const double _kGreetingFullDressField = 464 + AppSpacing.lg * 2;
+
 class _GreetingHeader extends StatelessWidget {
   final String? displayName;
 
@@ -361,17 +377,36 @@ class _GreetingHeader extends StatelessWidget {
     final l10n = context.l10n;
     final firstName = displayName?.trim().split(RegExp(r'\s+')).first;
     final greeting = greetingText(l10n, greetingForHour(DateTime.now().hour));
+    // The page's one display moment: headlineMedium is the display face via
+    // the theme, a step above the old headlineSmall.
+    final style = theme.textTheme.headlineMedium;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          (firstName == null || firstName.isEmpty)
-              ? greeting
-              : l10n.homeGreetingNamed(greeting, firstName),
-          // The page's one display moment: headlineMedium is the display
-          // face via the theme, a step above the old headlineSmall.
-          style: theme.textTheme.headlineMedium,
-        ),
+        if (firstName == null || firstName.isEmpty)
+          Text(greeting, style: style)
+        else
+          // The time-of-day greeting keeps its place where there is room for
+          // it, and gives way to a plain "Hello" where there is not — the same
+          // short-spelling idiom ChatPanel uses for its composer hint and the
+          // Plan tab's opening uses for its chips.
+          //
+          // A WIDTH gate, not a measurement of the composed string. Measuring
+          // is tempting, because which greeting fits truly does depend on the
+          // name — but this suite loads no fonts, so a TextPainter here reads
+          // the fixed-width test font and decides the full dress wraps at
+          // 800px, which is how the first cut of this silently rendered
+          // "Hello Brian" to every test that asked for the time-of-day one.
+          // A width threshold is the same answer the rest of the app gives,
+          // and it is the same answer in a test as on a phone.
+          LayoutBuilder(
+            builder: (context, constraints) => Text(
+              constraints.maxWidth >= _kGreetingFullDressField
+                  ? l10n.homeGreetingNamed(greeting, firstName)
+                  : l10n.homeGreetingShort(firstName),
+              style: style,
+            ),
+          ),
         const SizedBox(height: AppSpacing.xs),
         Text(
           l10n.homeGreetingSubtitle,

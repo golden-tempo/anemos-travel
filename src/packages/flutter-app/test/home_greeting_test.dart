@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart' show Size;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -100,6 +101,23 @@ void main() {
       final greeting = _englishGreetingNow(tester);
       expect(find.text('$greeting, Brian'), findsOneWidget);
       expect(find.text('Where are we off to next?'), findsOneWidget);
+    });
+
+    testWidgets('a phone-width field greets with Hello instead', (tester) async {
+      // The whole point of the width gate: "Good afternoon, Brian" is 346px
+      // against the 343px a 375pt phone leaves, so it wrapped to two lines.
+      // Asserting the STRING, never a measurement — this suite loads no fonts,
+      // so its text metrics are fiction and the widths above were taken in the
+      // browser instead.
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await _pumpHome(tester, _user('Brian Dowe'));
+
+      expect(find.text('Hello Brian'), findsOneWidget);
+      final greeting = _englishGreetingNow(tester);
+      expect(find.textContaining('$greeting,'), findsNothing);
     });
 
     testWidgets('falls back to a bare greeting when display name is empty',

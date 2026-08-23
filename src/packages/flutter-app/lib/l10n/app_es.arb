@@ -734,6 +734,7 @@
   "homeGreetingAfternoon": "Buenas tardes",
   "homeGreetingEvening": "Buenas noches",
   "homeGreetingNamed": "{greeting}, {name}",
+  "homeGreetingShort": "Hola {name}",
   "homeGreetingSubtitle": "¿Adónde vamos ahora?",
   "homeHeroTitle": "Planea menos. Viaja más.",
   "homeHeroSubtitle": "Cuéntame el viaje que sueñas y armaré el itinerario completo — lugares, días y rutas.",
