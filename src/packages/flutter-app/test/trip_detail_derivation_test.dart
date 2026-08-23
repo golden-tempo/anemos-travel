@@ -264,16 +264,18 @@ void main() {
     test('locationDates: visible (arrival-adjusted) ranges + nights suffix',
         () {
       final d = _compute();
-      // Paris days 1-2 → Sep 1 – Sep 2, one night; keyed per item position.
+      // Paris runs until Rome's day-3 arrival (the boundary rule) — Sep 1 –
+      // Sep 3, two nights; keyed per item position.
       expect(d.locationDates[0], d.locationDates[1]);
-      expect(d.locationDates[0]?.range, 'Sep 1 – Sep 2');
-      expect(d.locationDates[0]?.nights, _l10n.tripLegNights(1));
-      // Rome renders from its ARRIVAL (previous leg's visible end, Sep 2) —
+      expect(d.locationDates[0]?.range, 'Sep 1 – Sep 3');
+      expect(d.locationDates[0]?.nights, _l10n.tripLegNights(2));
+      // Rome runs from its own day-3 arrival to the revisit's day-5 one —
       // the visibleLegRanges rule the header chips and stay todos share.
-      expect(d.locationDates[2]?.range, 'Sep 2 – Sep 4');
+      expect(d.locationDates[2]?.range, 'Sep 3 – Sep 5');
       expect(d.locationDates[2]?.nights, _l10n.tripLegNights(2));
-      expect(d.locationDates[4]?.range, 'Sep 4 – Sep 5');
-      expect(d.locationDates[4]?.nights, _l10n.tripLegNights(1));
+      // The Paris revisit arrives the day the trip ends: a bare date chip.
+      expect(d.locationDates[4]?.range, 'Sep 5');
+      expect(d.locationDates[4]?.nights, isNull);
       // Group date chips are the same chips, keyed by first item position.
       expect(d.groups[0].dateRange, d.locationDates[0]);
       expect(d.groups[2].dateRange, d.locationDates[4]);
@@ -826,8 +828,8 @@ void main() {
       // The two runs are genuinely different stays on screen, so the merged
       // section has no single range to show. A head may only date a label that
       // owns exactly one leg; anything else has to stay silent.
-      expect(d.groups[0].dateRange?.range, 'Sep 1 – Sep 2');
-      expect(d.groups[2].dateRange?.range, 'Sep 4 – Sep 5');
+      expect(d.groups[0].dateRange?.range, 'Sep 1 – Sep 3');
+      expect(d.groups[2].dateRange?.range, 'Sep 5');
       expect(d.groups[0].dateRange, isNot(d.groups[2].dateRange));
       // Rome owns exactly one leg — the case a head CAN date.
       final rome = [
@@ -835,7 +837,7 @@ void main() {
           if (d.legLabels[i] == 'Rome') i,
       ];
       expect(rome, [1]);
-      expect(d.groups[1].dateRange?.range, 'Sep 2 – Sep 4');
+      expect(d.groups[1].dateRange?.range, 'Sep 3 – Sep 5');
     });
   });
 

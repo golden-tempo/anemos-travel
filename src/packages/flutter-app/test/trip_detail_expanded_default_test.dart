@@ -103,18 +103,16 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await _pump(tester, twoCityTrip());
 
-    // Headers still lead each group with their date ranges.
+    // Headers still lead each group with their date ranges. Under the
+    // boundary rule (specs/leg-departure-dates) Paris runs until Rome's
+    // day-2 arrival and Rome through the trip's end — one night each, the
+    // honest split of a 3-day two-city trip.
     expect(find.text('Paris'), findsOneWidget);
     expect(find.text('Rome'), findsOneWidget);
-    // Scoping revealed what the old global finder hid: the counted range
-    // belongs to ROME (Paris's single day-1 item makes it a zero-night leg
-    // with a bare date chip). Rome runs to Jun 12, the trip's end date, not
-    // to its own last item day — the last-leg anchor, because the day the
-    // traveler journeys home carries no places. Before it, this 3-day trip
-    // rendered a 2-day span and lost Jun 12 entirely.
-    expect(chipTextIn('Paris', 'Jun 10'), findsOneWidget);
-    expect(chipTextIn('Rome', 'Jun 10 – Jun 12'), findsOneWidget);
-    expect(chipTextIn('Rome', '· 2 nights'), findsOneWidget);
+    expect(chipTextIn('Paris', 'Jun 10 – Jun 11'), findsOneWidget);
+    expect(chipTextIn('Paris', '· 1 night'), findsOneWidget);
+    expect(chipTextIn('Rome', 'Jun 11 – Jun 12'), findsOneWidget);
+    expect(chipTextIn('Rome', '· 1 night'), findsOneWidget);
 
     // Every group's items and embedded booking rows are visible on landing
     // — no expand step.
