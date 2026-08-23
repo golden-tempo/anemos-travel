@@ -67,8 +67,8 @@ typedef _DayRibbon = ({
   int? checkIn,
 
   /// Legs whose check-in and check-out are both this date — a zero-night
-  /// stop, the interim state a `set_leg_dates` squeeze leaves behind. Drawn
-  /// as a centred pip so a squeezed city is visible rather than absent.
+  /// stop (two cities sharing one arrival day). Drawn as a centred pip so a
+  /// zero-night city is visible rather than absent.
   List<int> stops,
 });
 
@@ -578,8 +578,8 @@ class _TripCalendarSheetBodyState extends State<TripCalendarSheetBody> {
     }
 
     // A zero-night stop has no half of its own to sit in — it is drawn as a
-    // centred pip over whatever else claims the day, so a city squeezed to
-    // nothing is visibly still on the itinerary instead of silently gone.
+    // centred pip over whatever else claims the day, so a city holding zero
+    // nights is visibly still on the itinerary instead of silently gone.
     final pip = ribbon.stops.isEmpty ? null : ribbon.stops.first;
 
     return Stack(

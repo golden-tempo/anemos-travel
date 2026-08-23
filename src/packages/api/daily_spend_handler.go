@@ -96,8 +96,9 @@ func dailySpendHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		nights := nightsBetween(*l.Start, *l.End)
 		if nights <= 0 {
-			// A zero-night stop is a pass-through (or a squeezed leg mid-edit).
-			// There is no day of eating to plan for and no total to file.
+			// A zero-night stop is a pass-through — the next city arrives the
+			// same day. There is no day of eating to plan for and no total to
+			// file.
 			continue
 		}
 		wanted = append(wanted, pending{key: l.Key, label: l.Label, nights: nights})

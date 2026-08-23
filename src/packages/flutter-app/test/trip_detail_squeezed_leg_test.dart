@@ -87,12 +87,14 @@ Future<List<Map<String, dynamic>>> _pumpAndCapture(
 
 void main() {
   testWidgets(
-      'a squeezed leg renders as a zero-night stop at its arrival, '
-      'and downstream flight dates cascade', (WidgetTester tester) async {
-    // Medellín ran through Sep 6 but Quito's single item still departs Sep 5
-    // — the inverted interim state a set_leg_dates squeeze leaves behind.
-    // Quito must read as a zero-night stop at the arrival (Sep 6), never a
-    // check-in before the inbound flight lands.
+      'an out-of-order item strands; booking dates follow the rendered spans',
+      (WidgetTester tester) async {
+    // Medellín holds a stray day-6 item while Quito's own item sits on day 5
+    // — the shape the old derivation answered by collapsing Quito to a
+    // zero-night stop at Sep 6. Under the boundary rule
+    // (specs/leg-departure-dates) each leg runs to the next arrival: the
+    // stray item strands outside Medellín's window and every booking date
+    // rides the spans the page renders.
     final derived = await _pumpAndCapture(
       tester,
       _trip([
@@ -106,16 +108,15 @@ void main() {
 
     final quitoStay =
         derived.singleWhere((t) => t['todo_key'] == 'stay:quito');
-    expect(quitoStay['depart_date'], '2026-09-06');
+    expect(quitoStay['depart_date'], '2026-09-05');
     expect(quitoStay['return_date'], '2026-09-06');
-    expect(quitoStay['subtitle'], 'Sep 6');
+    expect(quitoStay['subtitle'], 'Sep 5 – Sep 6');
 
     expect(
         derived.singleWhere(
             (t) => t['todo_key'] == 'transport:medellín>>quito')['depart_date'],
-        '2026-09-06');
-    // The cascade: the onward flight rides Quito's VISIBLE end, not its
-    // stale raw departure day (Sep 5).
+        '2026-09-05');
+    // The onward flight rides Quito's VISIBLE end — Galápagos's arrival day.
     expect(
         derived.singleWhere((t) =>
             t['todo_key'] == 'transport:quito>>galápagos')['depart_date'],
@@ -126,16 +127,17 @@ void main() {
     expect(galStay['depart_date'], '2026-09-06');
     expect(galStay['return_date'], '2026-09-07');
 
-    // Headers: no stale bare "Sep 5" chip anywhere; the squeezed leg shows
-    // its bare arrival (zero nights -> no counter) and the next leg follows
-    // from it with a night count.
-    expect(find.text('Sep 5'), findsNothing);
-    expect(chipTextIn('Quito', 'Sep 6'), findsOneWidget);
+    // Headers: every leg carries a real range and a night count — the
+    // stray item collapses nothing.
+    expect(chipTextIn('Medellín', 'Sep 1 – Sep 5'), findsOneWidget);
+    expect(chipTextIn('Medellín', '· 4 nights'), findsOneWidget);
+    expect(chipTextIn('Quito', 'Sep 5 – Sep 6'), findsOneWidget);
+    expect(chipTextIn('Quito', '· 1 night'), findsOneWidget);
     expect(chipTextIn('Galápagos', 'Sep 6 – Sep 7'), findsOneWidget);
     expect(chipTextIn('Galápagos', '· 1 night'), findsOneWidget);
   });
 
-  testWidgets('consecutive squeezed legs chain onto the same arrival',
+  testWidgets('each leg hands off at the next arrival, out of order or not',
       (WidgetTester tester) async {
     final derived = await _pumpAndCapture(
       tester,
@@ -147,27 +149,27 @@ void main() {
       ]),
     );
 
-    for (final key in ['stay:quito', 'stay:guayaquil']) {
-      final stay = derived.singleWhere((t) => t['todo_key'] == key);
-      expect(stay['depart_date'], '2026-09-06', reason: key);
-      expect(stay['return_date'], '2026-09-06', reason: key);
-    }
+    final quitoStay = derived.singleWhere((t) => t['todo_key'] == 'stay:quito');
+    expect(quitoStay['depart_date'], '2026-09-04');
+    expect(quitoStay['return_date'], '2026-09-05');
+    final guayaquilStay =
+        derived.singleWhere((t) => t['todo_key'] == 'stay:guayaquil');
+    expect(guayaquilStay['depart_date'], '2026-09-05');
+    expect(guayaquilStay['return_date'], '2026-09-07');
     expect(
         derived.singleWhere(
             (t) => t['todo_key'] == 'transport:medellín>>quito')['depart_date'],
-        '2026-09-06');
+        '2026-09-04');
     expect(
         derived.singleWhere((t) =>
             t['todo_key'] == 'transport:quito>>guayaquil')['depart_date'],
-        '2026-09-06');
-    expect(find.text('Sep 4'), findsNothing);
-    expect(find.text('Sep 5'), findsNothing);
+        '2026-09-05');
   });
 
-  testWidgets('a confirmed stay is never collapsed by the squeeze clamp',
+  testWidgets('a confirmed stay is never collapsed by a neighbour\'s items',
       (WidgetTester tester) async {
-    // Quito carries an explicit confirmed stay (Sep 3–5); even with Medellín
-    // running through Sep 6, the traveler's own dates win.
+    // Quito carries an explicit confirmed stay (Sep 3–5); Medellín's stray
+    // day-6 item strands rather than moving the traveler's own dates.
     final derived = await _pumpAndCapture(
       tester,
       _trip(

@@ -51,7 +51,7 @@ export '../widgets/trip_map_destinations.dart' show groupLabelText;
 /// City-header date-chip parts, kept separate so the header can align them as
 /// columns across rows: [range] renders left-aligned after the calendar icon,
 /// [nights] (the localized "· N nights" suffix) renders flush right. Null
-/// [nights] = zero-night squeezed leg — no nights widget renders at all.
+/// [nights] = zero-night leg — no nights widget renders at all.
 typedef LegDateChip = ({String range, String? nights});
 
 /// One city group as built by [TripDerivation.compute] and consumed by the
@@ -435,7 +435,7 @@ class TripDerivation {
   /// confirmed stay; under a leg, confirmed stays covering one of the leg's
   /// raw-range nights ([rawRanges] is index-aligned with [legs] — both run
   /// the same tripLegs split). Checkout-exclusive on both sides, so a
-  /// zero-night squeezed leg and an undated leg plot none. Stable List
+  /// zero-night leg and an undated leg plot none. Stable List
   /// identity per (derivation, key).
   List<Accommodation> legFilteredStays(String? legKey) {
     if (legKey == null) return confirmedStays;

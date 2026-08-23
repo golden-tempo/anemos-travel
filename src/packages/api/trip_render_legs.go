@@ -22,8 +22,12 @@ package main
 //     (the Dart-only _allocateDays fallback, ported) > none.
 //   - first-leg anchor: the first leg WITH a span, when that span is
 //     item-derived, pulls its start back to the trip start.
-//   - arrival chain + zero-night collapse: GO rule — legs without a span are
-//     skipped and never reset the chain.
+//   - boundary rule (specs/leg-departure-dates): a leg runs until the NEXT
+//     spanned leg's arrival — arrival(i) = leg i's first item day (stay
+//     check-in / auto start), span(i) = [arrival(i), arrival(i+1)], the last
+//     leg ending at the trip end. A leg's end does not depend on its own
+//     items, so moving a place inside a city cannot change any city's dates.
+//     GO rule — legs without a span are skipped and never break the chain.
 //
 // Not yet wired to any consumer — stage 1a/1b repoint the payload and the
 // existing plan_leg_dates.go summaries onto this module.
@@ -46,20 +50,32 @@ const otherPlacesLabel = "Other places"
 // RenderLeg is one city leg as the trip page renders it. Start/End are civil
 // dates (UTC midnights); nil when the leg has no calendar span. DateSource
 // says which rule produced the span: "stay", "items", "auto", or "" (none).
+// ZeroNight marks the genuine shared-arrival case: the next leg's arrival is
+// on (or before) this leg's own, so the traveler arrives and moves on the
+// same day.
 type RenderLeg struct {
-	Key         string     `json:"key"`
-	Label       string     `json:"label"`
-	Hub         *string    `json:"hub"`
-	Start       *time.Time `json:"start_date"`
-	End         *time.Time `json:"end_date"`
-	DateSource  string     `json:"date_source"`
-	ZeroNight   bool       `json:"zero_night"`
-	FirstPos    int32      `json:"first_position"`
-	LastPos     int32      `json:"last_position"`
-	Lat         *float64   `json:"lat"`
-	Lng         *float64   `json:"lng"`
-	itemDays    []int32    // dated items' day numbers, derivation-internal
-	stayMatched bool       // span came from a confirmed stay
+	Key        string     `json:"key"`
+	Label      string     `json:"label"`
+	Hub        *string    `json:"hub"`
+	Start      *time.Time `json:"start_date"`
+	End        *time.Time `json:"end_date"`
+	DateSource string     `json:"date_source"`
+	ZeroNight  bool       `json:"zero_night"`
+	FirstPos   int32      `json:"first_position"`
+	LastPos    int32      `json:"last_position"`
+	Lat        *float64   `json:"lat"`
+	Lng        *float64   `json:"lng"`
+	// itemsPastEnd names the residue the boundary rule can leave: an item
+	// dated after the day its leg now ends (the leg's end comes from the NEXT
+	// leg's arrival, so an out-of-order item no longer widens the span — it
+	// strands). Derivation-internal on purpose, but never silent: checkLegShape
+	// (trip_review.go) turns it into a Trip Health finding, and the
+	// specs/leg-departure-dates ticket-2 warning line reads it too. Only ever
+	// set on "items"-sourced legs — a stay's item overflow predates this rule
+	// and an auto leg has no dated items.
+	itemsPastEnd bool
+	itemDays     []int32 // dated items' day numbers, derivation-internal
+	stayMatched  bool    // span came from a confirmed stay
 }
 
 // renderHubOf resolves the locality an item groups under: its day-trip hub
@@ -174,7 +190,10 @@ func computeTripLegs(trip store.Trip, items []store.ItineraryItem, stays []store
 		}
 	}
 
-	// 3. Per-leg own span: stay > item days > auto slice > none.
+	// 3. Per-leg own span: stay > item days > auto slice > none. An
+	// item-derived END here is provisional — the leg's own last item day —
+	// and holds only for the leg that renders last on a trip with no end
+	// date; step 5 resolves every other end from the NEXT leg's arrival.
 	tripStart := trip.StartDate.Time
 	for i := range legs {
 		leg := &legs[i]
@@ -227,60 +246,94 @@ func computeTripLegs(trip store.Trip, items []store.ItineraryItem, stays []store
 		}
 	}
 
-	// 5. Arrival chain + zero-night collapse: a leg renders from its arrival
-	// (the previous spanned leg's VISIBLE end) when that comes first, and
-	// collapses to a zero-night stop at the arrival when the previous leg has
-	// run past its own last day. Spanless legs are skipped and never reset
-	// the chain; confirmed stays never collapse.
-	var prevEnd *time.Time
+	// 5. The boundary rule (specs/leg-departure-dates): a leg runs until the
+	// NEXT spanned leg's arrival — its own start: stay check-in, first item
+	// day, or auto start. A leg's end is written by its NEIGHBOUR, never by
+	// its own last item day, so "Friday is my last planned day, Saturday I
+	// fly" renders three nights with Saturday empty, and moving a place
+	// inside a city cannot change any city's dates.
+	//
+	// Two carve-outs, both pre-existing:
+	//   - A confirmed stay's checkout is explicit and never moves. A gap
+	//     after one therefore closes from the OTHER side — the next leg's
+	//     start pulls back to the checkout — because a gap between legs is
+	//     unrepresentable on the page under either rule.
+	//   - Spanless legs are skipped and never break the chain (GO rule; the
+	//     client resets instead — the documented pre-cutover divergence).
+	//
+	// ZeroNight now means exactly one thing: the next leg's arrival is on or
+	// before this leg's own (two cities sharing an arrival day), so the span
+	// pinches to [arrival, arrival]. The old overrun collapse — the previous
+	// leg's last item day running past this leg's — is unreachable: an
+	// out-of-order item no longer widens its own leg, it STRANDS (step 7),
+	// and contradictory explicit stay dates render as the overlap they are.
+	var spanned []int
 	for i := range legs {
+		if legs[i].Start != nil && legs[i].End != nil {
+			spanned = append(spanned, i)
+		}
+	}
+	for k, i := range spanned {
 		leg := &legs[i]
-		if leg.Start == nil || leg.End == nil {
+		if k > 0 {
+			if prev := legs[spanned[k-1]]; prev.stayMatched && prev.End.Before(*leg.Start) {
+				s := *prev.End
+				leg.Start = &s
+			}
+		}
+		if leg.stayMatched {
 			continue
 		}
-		if prevEnd != nil {
-			if prevEnd.Before(*leg.Start) {
-				s := *prevEnd
-				leg.Start = &s
-			} else if prevEnd.After(*leg.End) && !leg.stayMatched {
-				s := *prevEnd
-				leg.Start, leg.End = &s, &s
+		if k+1 < len(spanned) {
+			arrival := *legs[spanned[k+1]].Start
+			if arrival.After(*leg.Start) {
+				e := arrival
+				leg.End = &e
+			} else {
+				e := *leg.Start
+				leg.End = &e
 				leg.ZeroNight = true
 			}
 		}
-		prevEnd = leg.End
 	}
 
-	// 6. Last-leg anchor, the mirror of step 4: the leg that renders LAST,
-	// when item-derived, ends at the trip end. The traveler is in the final
-	// city until the day they travel home, and that day carries no items — the
-	// planner reserves it for the journey — so the item-derived end runs a day
-	// or more short. Without this a 2-night stay whose departure day is empty
-	// renders "1 night" and drags the return-home booking date back with it.
-	//
-	// Walks from the tail exactly as step 4 walks from the head, so it lands on
-	// whichever leg renders last, hubless runs included (step 4 would equally
-	// anchor one at the head). "items" excludes confirmed stays — their
-	// checkout is explicit — and auto slices, which already end at the trip's
-	// end: step 4's carve-outs exactly.
-	//
-	// Runs AFTER the chain, and never on a collapsed leg. Both matter: a leg
-	// the chain squeezed to a zero-night stop is an interim overrun state, and
-	// stretching it to the trip's end would invent the very nights the squeeze
-	// says are gone (and contradict its own ZeroNight flag). The last leg's end
-	// feeds nothing downstream, so moving it here cannot disturb the chain.
-	if trip.EndDate.Valid {
+	// 6. The tail case of the same rule, kept as its own pass the way step 4
+	// holds the head case: the leg that renders LAST, when item-derived, ends
+	// at the trip end. The traveler is in the final city until the day they
+	// travel home, and that day carries no items — the planner reserves it
+	// for the journey — so the provisional item-derived end runs a day or
+	// more short. "items" excludes confirmed stays — their checkout is
+	// explicit — and auto slices, which already end at the trip's end: step
+	// 4's carve-outs exactly. Stretch-only: an item dated past the trip's end
+	// still renders where it is (checkDates owns flagging it). No ZeroNight
+	// check is needed here — the flag needs a NEXT spanned leg, so the tail
+	// leg can never carry it.
+	if trip.EndDate.Valid && len(spanned) > 0 {
 		tripEnd := trip.EndDate.Time
-		for i := len(legs) - 1; i >= 0; i-- {
+		leg := &legs[spanned[len(spanned)-1]]
+		if leg.DateSource == "items" && tripEnd.After(*leg.End) {
+			e := tripEnd
+			leg.End = &e
+		}
+	}
+
+	// 7. Name what the rule can strand: an item dated after the day its leg
+	// now ends. Under the old derivation the leg widened to cover it (loudly
+	// collapsing the neighbour); under this one the span stays plausible, so
+	// the disagreement must be carried out of the derivation explicitly or it
+	// becomes invisible — checkLegShape (trip_review.go) surfaces it.
+	if trip.StartDate.Valid {
+		for i := range legs {
 			leg := &legs[i]
-			if leg.End == nil {
+			if leg.DateSource != "items" || leg.End == nil {
 				continue
 			}
-			if leg.DateSource == "items" && !leg.ZeroNight && tripEnd.After(*leg.End) {
-				e := tripEnd
-				leg.End = &e
+			for _, d := range leg.itemDays {
+				if tripStart.AddDate(0, 0, int(d)-1).After(*leg.End) {
+					leg.itemsPastEnd = true
+					break
+				}
 			}
-			break
 		}
 	}
 
