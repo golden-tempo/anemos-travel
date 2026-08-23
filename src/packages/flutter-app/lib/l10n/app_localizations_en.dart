@@ -891,6 +891,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get bookingRowAddDetails => 'Add details…';
 
   @override
+  String get bookingRowMoveTo => 'Move to…';
+
+  @override
+  String get bookingMoveToTitle => 'Move to';
+
+  @override
+  String get bookingsReservations => 'Reservations';
+
+  @override
   String get bookingRowOptions => 'Booking options';
 
   @override

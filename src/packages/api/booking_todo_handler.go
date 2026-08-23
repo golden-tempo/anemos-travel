@@ -65,10 +65,16 @@ type BookingTodoResponse struct {
 	// flight home" — an inference that would be wrong in exactly the case the
 	// server already handles, where a key collision demotes a home leg to
 	// inter_city and no relabel will ever reach it.
-	Role     *string `json:"role,omitempty"`
-	Booked   bool    `json:"booked"`
-	Auto     bool    `json:"auto"`
-	Position int     `json:"position"`
+	Role *string `json:"role,omitempty"`
+	// The city this booking belongs to (00074, specs/booking-city-grouping):
+	// explicit and authoritative — written by the traveler's "Move to…", the
+	// agent's `city` param, or the sync-time date fallback when exactly one
+	// leg's range covers depart_date. The client groups `other`-kind rows
+	// under the matching city section by it; absent = "Other bookings".
+	CityLabel *string `json:"city_label,omitempty"`
+	Booked    bool    `json:"booked"`
+	Auto      bool    `json:"auto"`
+	Position  int     `json:"position"`
 }
 
 func toBookingTodoResponse(t store.BookingTodo) BookingTodoResponse {
@@ -87,6 +93,7 @@ func toBookingTodoResponse(t store.BookingTodo) BookingTodoResponse {
 		Mode:        t.Mode,
 		DerivedMode: t.DerivedMode,
 		Role:        strPtrOrNil(strPtrVal(t.Role)),
+		CityLabel:   t.CityLabel,
 		Booked:      t.Booked,
 		Auto:        t.Auto,
 		Position:    int(t.Position),
@@ -373,6 +380,10 @@ func syncBookingTodosHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Before the response is read back, so the list the client renders already
+	// carries any city the date fallback could name (00074).
+	fillBookingTodoCityLabels(r.Context(), q, trip, tripID)
+
 	writeBookingTodos(w, r, tripID)
 }
 
@@ -563,8 +574,13 @@ func addBookingTodoHandler(w http.ResponseWriter, r *http.Request) {
 // Mode is a third, standalone lane (transport rows only, auto included): it
 // stores the per-leg override and rebuilds provider + search_url to match,
 // without ever touching booked/auto — it cannot be combined with other fields.
+// CityLabel is a fourth standalone lane (custom rows only): the "Move to…"
+// writer. "" moves the row back to "Other bookings" — the explicit clear
+// COALESCE cannot carry (the 00071 lesson), which is why it does not ride
+// UpdateBookingTodo.
 type PatchBookingTodoRequest struct {
 	Mode        *string `json:"mode"`
+	CityLabel   *string `json:"city_label"`
 	Booked      *bool   `json:"booked"`
 	Kind        *string `json:"kind"`
 	Title       *string `json:"title"`
@@ -608,7 +624,8 @@ func patchBookingTodoHandler(w http.ResponseWriter, r *http.Request) {
 		// inputs (never persisted, as everywhere else); everything that would
 		// actually edit content — or flip booked — is rejected alongside mode.
 		if req.Kind != nil || req.Title != nil || req.Subtitle != nil ||
-			req.ReturnDate != nil || req.SearchURL != nil || req.Booked != nil {
+			req.ReturnDate != nil || req.SearchURL != nil || req.Booked != nil ||
+			req.CityLabel != nil {
 			writeJSONError(w, http.StatusBadRequest, "mode cannot be combined with other fields")
 			return
 		}
@@ -630,6 +647,26 @@ func patchBookingTodoHandler(w http.ResponseWriter, r *http.Request) {
 			Mode:      &mode,
 			Provider:  strPtrOrNil(provider),
 			SearchUrl: strPtrOrNil(url),
+		})
+	} else if req.CityLabel != nil {
+		// The "Move to…" lane (00074): where the row FILES, orthogonal to its
+		// content and booked state, so it travels alone like mode does.
+		if req.hasContentEdit() || req.Booked != nil {
+			writeJSONError(w, http.StatusBadRequest, "city_label cannot be combined with other fields")
+			return
+		}
+		label := strings.TrimSpace(*req.CityLabel)
+		if _, err := boundedString("city_label", label, maxNameLen); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		// "" normalizes to NULL so "no city" keeps exactly one representation
+		// (the trip-summary precedent). auto rows 404 below: a derived leg's
+		// city is its identity, not a tag.
+		todo, err = store.New(dbPool).SetBookingTodoCityLabel(r.Context(), store.SetBookingTodoCityLabelParams{
+			ID:        todoID,
+			TripID:    tripID,
+			CityLabel: strPtrOrNil(label),
 		})
 	} else if !req.hasContentEdit() {
 		// Booked-only: must stay on SetBookingTodoBooked — UpdateBookingTodo
