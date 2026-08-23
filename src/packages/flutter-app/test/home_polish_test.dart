@@ -241,8 +241,9 @@ void main() {
       (WidgetTester tester) async {
     await _pumpHome(tester, surface: const Size(360, 690));
 
-    await tester.drag(
-        find.byType(SingleChildScrollView), const Offset(0, -240));
+    // Home's scroll container is the lazy ListView (perf audit finding 1);
+    // the drag target moved with it, the behaviour under test did not.
+    await tester.drag(find.byType(ListView), const Offset(0, -240));
     await tester.pumpAndSettle();
     final position =
         tester.state<ScrollableState>(find.byType(Scrollable).first).position;

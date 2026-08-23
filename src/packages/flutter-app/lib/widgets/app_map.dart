@@ -312,6 +312,45 @@ Widget appMapAttribution() {
   );
 }
 
+/// Mounts its live-map child only while this subtree is allowed to tick.
+///
+/// [TickerMode] is the app's one "this subtree is visible" signal: AppShell
+/// disables it for every tab its IndexedStack is not showing, and Flutter's
+/// own Overlay disables it for a route kept alive under an opaque pushed
+/// route. A [FlutterMap] under a disabled TickerMode is invisible by
+/// construction yet still fully live — two tile layers fetching, tile
+/// listeners, decoded tiles competing for the shared ImageCache, and (on
+/// web) DOM an extension content script pins into the cycle-collected
+/// graph. The gate swaps the map for a same-size [appMapBackground] fill —
+/// the exact canvas an unloaded map paints — so a hidden surface keeps its
+/// layout to the pixel and gets its map back, camera re-derived from
+/// options, the frame it turns visible again.
+///
+/// For STATIC bands only (fixed camera fit, non-interactive): remounting
+/// one is pixel-identical, so nothing is lost. An interactive map would
+/// lose the traveler's pan/zoom on every tab switch, which is why the
+/// trip-detail, atlas, and guide maps deliberately do not sit behind this
+/// gate.
+class AppMapVisibilityGate extends StatelessWidget {
+  final Widget child;
+
+  const AppMapVisibilityGate({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!TickerMode.of(context)) {
+      // SizedBox.expand, not a bare ColoredBox: a childless box sizes to
+      // constraints.smallest, so any host that hands the band a loose width
+      // would get a zero-wide placeholder — a layout shift exactly where
+      // this widget promises none. FlutterMap fills whatever it is given;
+      // its stand-in must do the same.
+      return const SizedBox.expand(
+          child: ColoredBox(color: appMapBackground));
+    }
+    return child;
+  }
+}
+
 /// A small circular control overlaid on the map (zoom in/out, reset, expand).
 /// Dark and translucent so it reads as a frosted chip over satellite imagery.
 ///
