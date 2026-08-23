@@ -10,15 +10,21 @@ import '../utils/leg_ranges.dart';
 import 'trip_map.dart';
 import 'trip_map_destinations.dart';
 
-/// A gradient card's map band: the cached trip's overview map (numbered
-/// destination pins + route line, the trip-detail visual) rendered as a
-/// static preview above the card's title row. Collapses to nothing while the
-/// cache read resolves, on a miss (MRU eviction, fresh device), and when
-/// nothing on the trip is mappable — the host card then renders exactly as it
-/// would without the band. Fed by [cachedTripDetailProvider], so it is
-/// cache-ONLY: the band decorates what other screens loaded, it never
-/// fetches. Hosts: Home's recent-trip card and the shared TripHeroCard (both
-/// the "Up next" and "Happening now" heroes).
+/// A hero card's map band: the trip's overview map (numbered destination pins
+/// + route line, the trip-detail visual) rendered as a static preview above
+/// the card's title row. Collapses to nothing while the trip resolves, when it
+/// cannot be got at all, and when nothing on the trip is mappable — the host
+/// card then renders exactly as it would without the band.
+///
+/// Fed by [tripDetailForBandProvider]: the device's cached detail, or one
+/// fetch when that is cold. It used to be cache-ONLY, which meant a device
+/// that had never opened this trip's detail showed **no map here, ever** —
+/// see that provider for why the no-fetch rule did not survive contact with a
+/// first page load.
+///
+/// Hosts, all of them single promoted heroes rather than list rows: Home's
+/// continue-trip hero and the shared TripHeroCard behind the "Up next" and
+/// "Happening now" cards.
 class TripMapBand extends ConsumerStatefulWidget {
   final String tripId;
 
@@ -82,7 +88,7 @@ class _TripMapBandState extends ConsumerState<TripMapBand> {
     // follows every detail view (record() mints a fresh RecentTrip), so a
     // resolved band never collapses and re-grows on the way back.
     final trip =
-        ref.watch(cachedTripDetailProvider(widget.tripId)).valueOrNull;
+        ref.watch(tripDetailForBandProvider(widget.tripId)).valueOrNull;
     if (trip == null) return const SizedBox.shrink();
     _recompute(trip, context.l10n);
     if (!_mappable) return const SizedBox.shrink();
