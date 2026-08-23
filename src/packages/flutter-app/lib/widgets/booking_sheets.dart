@@ -227,6 +227,82 @@ class _AddStaySheetState extends State<AddStaySheet> {
   }
 }
 
+/// Bottom-sheet picker for a booking's "Move to…" action
+/// (specs/booking-city-grouping): the trip's cities in visit order plus
+/// "Other bookings". A picker sheet, not a submenu, because
+/// [BookingRowMenuItem] is a flat list and `PopupMenuButton` cannot nest —
+/// the "Reorder section" sheet is the precedent.
+///
+/// Pops with the chosen city label, `''` for "Other bookings", or null when
+/// dismissed — the caller treats `''` as "clear the city".
+class MoveBookingSheet extends StatelessWidget {
+  /// Deduped city labels in trip order (the filter-chip dedupe: a revisited
+  /// city appears once).
+  final List<String> cities;
+
+  /// The booking's current city label; null = "Other bookings".
+  final String? current;
+
+  const MoveBookingSheet({super.key, required this.cities, this.current});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = context.l10n;
+    final currentKey = current?.trim().toLowerCase();
+    Widget option({
+      required IconData icon,
+      required String label,
+      required bool selected,
+      required String popValue,
+    }) =>
+        ListTile(
+          leading: Icon(icon,
+              size: 20,
+              color: selected
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.onSurfaceVariant),
+          title: Text(label),
+          trailing: selected
+              ? Icon(Icons.check, size: 18, color: theme.colorScheme.primary)
+              : null,
+          onTap: () => Navigator.of(context).pop(popValue),
+        );
+    return SafeArea(
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.sm),
+                child: Text(l10n.bookingMoveToTitle,
+                    style: theme.textTheme.titleMedium),
+              ),
+              for (final city in cities)
+                option(
+                  icon: Icons.place_outlined,
+                  label: city,
+                  selected: city.trim().toLowerCase() == currentKey,
+                  popValue: city,
+                ),
+              option(
+                icon: Icons.luggage_outlined,
+                label: l10n.tripOtherBookings,
+                selected: currentKey == null || currentKey.isEmpty,
+                popValue: '',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Bottom-sheet form for adding or editing a transport segment. Pops with the
 /// POST/PATCH body map or null. With [initial] set the fields prefill and the
 /// labels flip to editing.

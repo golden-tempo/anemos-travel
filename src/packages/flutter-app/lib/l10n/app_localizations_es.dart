@@ -900,6 +900,15 @@ class AppLocalizationsEs extends AppLocalizations {
   String get bookingRowAddDetails => 'Añadir detalles…';
 
   @override
+  String get bookingRowMoveTo => 'Mover a…';
+
+  @override
+  String get bookingMoveToTitle => 'Mover a';
+
+  @override
+  String get bookingsReservations => 'Reservas';
+
+  @override
   String get bookingRowOptions => 'Opciones de la reserva';
 
   @override

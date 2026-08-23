@@ -642,10 +642,11 @@ extension on _TripDetailScreenState {
   }
 
 
-  /// Compact booking rows for a city group's slot: arrival flight + stay when
-  /// [departureOnly] is false, the return-home flight when true. Each todo
-  /// row is followed by its matched confirmed record's details; a match
-  /// without a todo (viewers) renders as a standalone detail row.
+  /// Compact booking rows for a city group's slot, one [BookingSlotPart] at a
+  /// time: the arrival flight + stay pair, the return-home flight (last slot
+  /// only), or the city's claimed reservations. Each todo row is followed by
+  /// its matched confirmed record's details; a match without a todo (viewers)
+  /// renders as a standalone detail row.
   /// [unbookedOnly] keeps only rows whose visible checkbox is unchecked — the
   /// "Not booked yet" lens.
   ///
@@ -656,14 +657,20 @@ extension on _TripDetailScreenState {
   /// about what a slot holds or about what "booked" means.
   List<Widget> _bookingRowWidgets(
     BookingSlot slot, {
-    required bool departureOnly,
+    required BookingSlotPart part,
     bool unbookedOnly = false,
   }) {
     final l10n = context.l10n;
-    var entries = bookingSlotEntries(slot, departureOnly: departureOnly);
+    var entries = bookingSlotEntries(slot, part: part);
     if (unbookedOnly) {
       entries = entries.where((e) => !bookingEntryBooked(e)).toList();
     }
+    // A claimed reservation is still the traveler's own row — the one kind
+    // that can be renamed, re-filed or removed — so it keeps the affordances
+    // its residual card carries. Gated on the todo, not the part: leg slots
+    // never hold an `other`-kind row, so this is inert there.
+    bool editable(BookingTodo t) =>
+        !_readOnly && !_isOffline && !t.auto && t.kind == 'other';
     return [
       for (final e in entries) ...[
         if (e.todo case final todo?)
@@ -681,6 +688,9 @@ extension on _TripDetailScreenState {
                         ? l10n.tripFindFlightsShort
                         : l10n.tripFindFlights)
                     : null,
+            onMoveTo: editable(todo) ? () => _moveTodoToCity(todo) : null,
+            onEdit: editable(todo) ? () => _editTodo(todo) : null,
+            onDelete: editable(todo) ? () => _deleteTodo(todo) : null,
             // No "Add details…" once a confirmed segment fills the slot —
             // the same rule as the mode picker below: that row's truth is the
             // segment, edited via its own sheet. Without this the sheet would
@@ -721,9 +731,9 @@ extension on _TripDetailScreenState {
   /// One residual booking's card — the "Other bookings" register, used by both
   /// lens scopes so a custom booking looks the same whichever scope surfaced
   /// it. Kept as [BookingTodoCard] (not the slim [BookingTodoRow] the city
-  /// sections use) because it is the ONLY row widget carrying edit/delete, and
-  /// a custom booking is the one kind a traveler can actually rename or throw
-  /// away.
+  /// sections use) because it carries the full edit/delete/move menu, and a
+  /// custom booking is the one kind a traveler can actually rename, re-file,
+  /// or throw away.
   Widget _residualTodoCard(BookingTodo todo) {
     final l10n = context.l10n;
     return Padding(
@@ -736,8 +746,70 @@ extension on _TripDetailScreenState {
             _flightLegs.containsKey(todo.todoKey) ? l10n.tripFindFlights : null,
         onEdit: todo.auto ? null : () => _editTodo(todo),
         onDelete: todo.auto ? null : () => _deleteTodo(todo),
+        // Only the kind the city sections group: offering the move on a
+        // custom stay/transport row would write a label nothing renders.
+        onMoveTo: !_readOnly && !_isOffline && !todo.auto && todo.kind == 'other'
+            ? () => _moveTodoToCity(todo)
+            : null,
       ),
     );
+  }
+
+  /// The quiet sub-label above a city's claimed reservations
+  /// (specs/booking-city-grouping). Sentence case at label weight — context
+  /// for the rows beneath it, never a peer of the section head — sitting on
+  /// the rows' own title column (the 12 + leading-slot + 8 grid).
+  Widget _reservationsSubLabel(ThemeData theme) => Padding(
+        padding: const EdgeInsets.only(
+            left: 12 + kBookingRowLeadingSlot + 8, top: AppSpacing.sm),
+        child: Text(
+          context.l10n.bookingsReservations,
+          style: theme.textTheme.labelSmall
+              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        ),
+      );
+
+  /// "Move to…": files the booking under a chosen city — or back under
+  /// "Other bookings" — by writing `city_label` through the same
+  /// SetBookingTodoCityLabel the agent's update_booking_todo `city` uses.
+  /// A picker sheet, not a submenu: the row menu is a flat list and
+  /// PopupMenuButton cannot nest (the "Reorder section" precedent). Not
+  /// optimistic — the claim and every count re-derive from the returned row,
+  /// the same shape as _setRowMode.
+  Future<void> _moveTodoToCity(BookingTodo todo) async {
+    if (_guardOffline()) return;
+    final trip = _trip;
+    if (trip == null) return;
+    final l10n = context.l10n;
+    // The filter chips' dedupe: a revisited city offers ONE entry; which run
+    // claims the row is the derivation's date-based pick, not a choice here.
+    // 'Other places' legs are placeholders, not cities — the sheet's own
+    // "Other bookings" entry is that home.
+    final cities = <String>[];
+    for (final label in _derive(trip).legLabels) {
+      if (label != _kOtherPlaces && !cities.contains(label)) {
+        cities.add(label);
+      }
+    }
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (_) => MoveBookingSheet(cities: cities, current: todo.cityLabel),
+    );
+    if (choice == null || !mounted) return;
+    if ((todo.cityLabel ?? '') == choice) return; // no-op pick
+    try {
+      // '' clears server-side ("" normalizes to NULL) — the move back to
+      // "Other bookings".
+      final updated = await ref
+          .read(bookingTodosApiServiceProvider)
+          .update(widget.tripId, todo.id, {'city_label': choice});
+      if (!mounted) return;
+      _rebuild(() => _bookingTodos = [
+            for (final t in _bookingTodos) t.id == updated.id ? updated : t
+          ]);
+    } catch (e) {
+      _showSnack(l10n.tripUpdateFailed(friendlyError(l10n, e)));
+    }
   }
 
 
@@ -782,16 +854,24 @@ extension on _TripDetailScreenState {
       (rows[label] ??= <Widget>[]).addAll(widgets);
     }
 
+    final theme = Theme.of(context);
     for (final (i, slot) in grouped.slots.indexed) {
       if (!slotShown(i) || i >= labels.length) continue;
+      // Reservations render AFTER every leg row — the legs structure the
+      // city; the reservations live inside it — under a quiet sub-label that
+      // only exists when it has rows to introduce.
+      final reservations = _bookingRowWidgets(slot,
+          part: BookingSlotPart.others, unbookedOnly: unbookedOnly);
       add(labels[i], [
         ..._bookingRowWidgets(slot,
-            departureOnly: false, unbookedOnly: unbookedOnly),
+            part: BookingSlotPart.legs, unbookedOnly: unbookedOnly),
         // The flight home hangs off the LAST slot — it departs from that city,
         // which is where a traveler looks for it.
         if (i == grouped.slots.length - 1)
           ..._bookingRowWidgets(slot,
-              departureOnly: true, unbookedOnly: unbookedOnly),
+              part: BookingSlotPart.departure, unbookedOnly: unbookedOnly),
+        if (reservations.isNotEmpty) _reservationsSubLabel(theme),
+        ...reservations,
       ]);
     }
     if (showResiduals) {

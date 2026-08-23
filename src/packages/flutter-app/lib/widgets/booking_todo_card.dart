@@ -195,6 +195,12 @@ class BookingTodoCard extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
+  /// "Move to…": files this booking under one of the trip's cities (or back
+  /// to "Other bookings") via the picker sheet — the manual writer of
+  /// `city_label` (specs/booking-city-grouping). Null hides the entry
+  /// (viewers, offline, auto rows, kinds that don't group by city).
+  final VoidCallback? onMoveTo;
+
   /// Overrides the open-button text (e.g. 'Find flights' when the action opens
   /// the in-app flight search instead of an external provider link).
   final String? openLabelOverride;
@@ -211,6 +217,7 @@ class BookingTodoCard extends StatelessWidget {
     this.onOpen,
     this.onEdit,
     this.onDelete,
+    this.onMoveTo,
     this.openLabelOverride,
     this.dragHandle,
   });
@@ -280,12 +287,20 @@ class BookingTodoCard extends StatelessWidget {
                   : _providerOpenLabel(l10n, todo, openLabelOverride),
               onAction: onOpen,
               menuItems: [
+                // First: for a stray reservation under "Other bookings" the
+                // move IS the fix this menu exists for; edit and destructive
+                // remove keep their old order after it.
+                if (onMoveTo != null)
+                  (value: 'move', label: l10n.bookingRowMoveTo),
                 if (onEdit != null) (value: 'edit', label: l10n.bookingCardEdit),
                 if (onDelete != null)
                   (value: 'delete', label: l10n.bookingCardRemove),
               ],
-              onMenuSelected: (v) =>
-                  v == 'edit' ? onEdit?.call() : onDelete?.call(),
+              onMenuSelected: (v) => switch (v) {
+                'move' => onMoveTo?.call(),
+                'edit' => onEdit?.call(),
+                _ => onDelete?.call(),
+              },
               booked: todo.booked,
               compact: false,
               checkboxValue: todo.booked,
@@ -344,6 +359,16 @@ class BookingTodoRow extends StatelessWidget {
   /// opens with nothing checked on a trip that plainly stated how it travels.
   final String? tripTravelMode;
 
+  /// "Move to…" / "Edit" / "Remove" for a city-claimed reservation
+  /// (specs/booking-city-grouping): a `custom:`/`agent:` row rendered inside
+  /// its city's section is still the traveler's own row — the one kind that
+  /// can be renamed, re-filed, or thrown away — so it keeps the affordances
+  /// its "Other bookings" card carries. Null on the derived leg rows, whose
+  /// menu speaks airport/details instead.
+  final VoidCallback? onMoveTo;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
   const BookingTodoRow({
     super.key,
     required this.todo,
@@ -355,6 +380,9 @@ class BookingTodoRow extends StatelessWidget {
     this.compact = false,
     this.onModeChanged,
     this.tripTravelMode,
+    this.onMoveTo,
+    this.onEdit,
+    this.onDelete,
   });
 
   @override
@@ -423,9 +451,18 @@ class BookingTodoRow extends StatelessWidget {
                 ),
               if (onAddDetails != null)
                 (value: 'details', label: context.l10n.bookingRowAddDetails),
+              if (onMoveTo != null)
+                (value: 'move', label: context.l10n.bookingRowMoveTo),
+              if (onEdit != null)
+                (value: 'edit', label: context.l10n.bookingCardEdit),
+              if (onDelete != null)
+                (value: 'delete', label: context.l10n.bookingCardRemove),
             ],
             onMenuSelected: (v) => switch (v) {
               'airport' => onChangeAirport?.call(),
+              'move' => onMoveTo?.call(),
+              'edit' => onEdit?.call(),
+              'delete' => onDelete?.call(),
               _ => onAddDetails?.call(),
             },
             booked: todo.booked,

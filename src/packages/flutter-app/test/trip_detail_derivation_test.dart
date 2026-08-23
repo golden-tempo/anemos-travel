@@ -91,13 +91,18 @@ const _draftStay = Accommodation(
 );
 
 BookingTodo _todo(String key,
-        {String kind = 'transport', bool booked = false}) =>
+        {String kind = 'transport',
+        bool booked = false,
+        String? cityLabel,
+        String? departDate}) =>
     BookingTodo(
       id: 'todo-$key',
       kind: kind,
       todoKey: key,
       title: key,
       booked: booked,
+      cityLabel: cityLabel,
+      departDate: departDate,
     );
 
 LocationTiming _timing(int minutes) => LocationTiming(
@@ -441,6 +446,100 @@ void main() {
       ).groupedBookings;
       expect(matching.slots.first.arrivalMatch?.id, 's2');
       expect(matching.residualSegments, isEmpty);
+    });
+
+    // Reservations join their city by the EXPLICIT city_label
+    // (specs/booking-city-grouping): the slot's [others] list, the counts
+    // that follow by construction, and the revisited-run pick.
+    test('city grouping: a labelled reservation joins its city block', () {
+      final todos = [
+        _todo('stay:paris', kind: 'stay'),
+        _todo('custom:moeders',
+            kind: 'other', cityLabel: 'Paris', booked: true),
+        // Case-insensitive, exactly like the stay:<city> claim.
+        _todo('custom:rijksmuseum', kind: 'other', cityLabel: 'paris'),
+        _todo('custom:insurance', kind: 'other'), // city-less: Other survives
+      ];
+      final d = _compute(bookingTodos: todos, stays: [_parisStay]);
+      final grouped = d.groupedBookings;
+      expect([for (final t in grouped.slots[0].others) t.todoKey],
+          ['custom:moeders', 'custom:rijksmuseum']);
+      // Not in Other bookings any more — but travel insurance still is.
+      expect([for (final t in grouped.residual) t.todoKey],
+          ['custom:insurance']);
+
+      // The counts follow by construction: the two reservations count in the
+      // Paris chip, insurance under Other, and the pill is the fold.
+      final counts = bookingDestinationCounts(grouped, d.legLabels,
+          otherKey: 'Other places');
+      expect(counts['Paris'], (booked: 1, total: 3)); // stay + 2 reservations
+      expect(counts['Other places'], (booked: 0, total: 1));
+      final overall = bookingOverallCount(grouped, d.legLabels);
+      expect(overall, (booked: 1, total: 4));
+    });
+
+    test('city grouping: no city_label means Other, whatever the date says',
+        () {
+      // Sep 2 is the Paris→Rome transition day of this fixture — and even an
+      // unshared date must not claim: the date fallback is the SERVER's, has
+      // already run, and declined. The client claims by the explicit label
+      // alone; re-deriving here would be the second spelling docs/zen.md
+      // forbids.
+      final todos = [
+        _todo('custom:dinner', kind: 'other', departDate: '2026-09-02'),
+        // An explicit label on that same shared date IS honoured — the
+        // traveler (or agent) said so, and derivation never overrides.
+        _todo('custom:lookout',
+            kind: 'other', cityLabel: 'Rome', departDate: '2026-09-02'),
+        // A city the trip no longer visits: residual, not vanished.
+        _todo('custom:berlin-show', kind: 'other', cityLabel: 'Berlin'),
+      ];
+      final grouped = _compute(bookingTodos: todos).groupedBookings;
+      expect([for (final t in grouped.residual) t.todoKey],
+          ['custom:dinner', 'custom:berlin-show']);
+      expect([for (final t in grouped.slots[1].others) t.todoKey],
+          ['custom:lookout']);
+    });
+
+    test('city grouping: only other-kind rows group by label', () {
+      // A custom stay/transport row speaks the slot grammar's world, not the
+      // reservation list's — its city_label stays latent until the kind is
+      // edited to 'other'.
+      final todos = [
+        _todo('custom:hostel', kind: 'stay', cityLabel: 'Paris'),
+      ];
+      final grouped = _compute(bookingTodos: todos).groupedBookings;
+      expect(grouped.slots[0].others, isEmpty);
+      expect([for (final t in grouped.residual) t.todoKey], ['custom:hostel']);
+    });
+
+    test('city grouping: a revisited city claims once, into the dated run',
+        () {
+      // Paris runs twice (legs 0 and 2). Visible windows of the fixture:
+      // Paris#1 Sep 1–2, Rome Sep 2–4, Paris#2 Sep 4–5 (arrival-adjusted +
+      // last-leg trip-end anchor).
+      final d = _compute(bookingTodos: [
+        _todo('custom:run2-dinner',
+            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-05'),
+        _todo('custom:run1-dinner',
+            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-01'),
+        // No date: the label's first run, deterministically.
+        _todo('custom:undated', kind: 'other', cityLabel: 'Paris'),
+        // A date no Paris window contains falls to the first run too.
+        _todo('custom:rome-day-dinner',
+            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-03'),
+      ]).groupedBookings;
+      expect([for (final t in d.slots[0].others) t.todoKey],
+          ['custom:run1-dinner', 'custom:undated', 'custom:rome-day-dinner']);
+      expect([for (final t in d.slots[1].others) t.todoKey], isEmpty);
+      expect([for (final t in d.slots[2].others) t.todoKey],
+          ['custom:run2-dinner']);
+      // Claimed exactly once: nothing residual, nothing rendered twice.
+      expect(d.residual, isEmpty);
+      final total = [
+        for (final s in d.slots) ...s.others,
+      ].length;
+      expect(total, 4);
     });
 
     test('segmentLabels: within-city adjacent legs only, localized', () {
