@@ -190,22 +190,30 @@ const double _kIntroMeasure = 420;
 
 /// How much of the opening the field can actually hold.
 ///
-/// Mobile web forced this. Browser-measured on the running app at 390 wide and
-/// default text scale, the whole block plus the composer is 608px, and the
-/// panel a phone offers is the viewport less the 56px app bar and the 84px nav
-/// bar: 704 installed, but 524 in Safari with its chrome showing, and 413 on a
-/// 375x667 device. At 524 both chips fell off the bottom; at 413 the
-/// destination cards were sliced through their labels. Three of the four ways
-/// in were invisible on the one screen whose whole job is offering them.
+/// Mobile web forced this. The panel a phone offers is the viewport less the
+/// 56px app bar and the 84px nav bar: ~704 installed, but ~525 in Safari with
+/// its chrome showing, and ~418 on a 375x667 device. The block used to be
+/// taller than two of those — at 525 both chips fell off the bottom, and at
+/// 418 the destination cards were sliced through their labels, so three of the
+/// four ways in were invisible on the one screen whose whole job is offering
+/// them.
 ///
 /// So the block composes to the field instead of overflowing it, and the order
 /// it gives things up is fixed: air first, then the rail's photo size, then
 /// prose. A way in is never what goes.
+///
+/// **Every [chrome] below is browser-measured on the running app at default
+/// text scale, and they move whenever the heading's or the sentence's LINE
+/// COUNT does.** They were first taken against a heading that wrapped to two
+/// lines; shortening the copy to one line freed a whole 47px line and every
+/// one of them dropped by it. A copy change here is a layout change — measure
+/// again rather than reasoning about characters, because this suite loads no
+/// fonts and cannot tell you.
 enum _IntroTier {
   /// Everything: the wide rail, the sentence, the xxl seam. The desktop
   /// column, a tablet, and an installed app on a modern phone.
   tall(
-      chrome: 370,
+      chrome: 328,
       seam: AppSpacing.xxl,
       gapAboveChips: AppSpacing.lg,
       tailGap: AppSpacing.lg),
@@ -213,7 +221,7 @@ enum _IntroTier {
   /// Mobile web with browser chrome showing. The seams tighten by a rung;
   /// the sentence stays.
   medium(
-      chrome: 354,
+      chrome: 312,
       seam: AppSpacing.xl,
       gapAboveChips: AppSpacing.lg,
       tailGap: AppSpacing.sm),
@@ -222,7 +230,7 @@ enum _IntroTier {
   /// four ways in, and the composer stay on screen together — a first-timer
   /// can still act, which is what the sentence only described.
   short(
-      chrome: 270,
+      chrome: 235,
       seam: AppSpacing.xl,
       gapAboveChips: AppSpacing.md,
       tailGap: AppSpacing.sm);

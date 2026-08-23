@@ -3563,7 +3563,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get agentScreenStartOver => 'Empezar de nuevo';
 
   @override
-  String get agentScreenEmptyTitle => 'Cuéntame sobre tu viaje';
+  String get agentScreenEmptyTitle => '¿Adónde vamos?';
 
   @override
   String get agentScreenEmptyMessage =>

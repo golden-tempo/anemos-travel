@@ -5858,10 +5858,10 @@ abstract class AppLocalizations {
   /// **'Start over'**
   String get agentScreenStartOver;
 
-  /// No description provided for @agentScreenEmptyTitle.
+  /// The Plan tab's opening heading, in the display face at 39px. It must set on ONE line at a phone's width — 342px at 390, 327px at 375 — or it eats a whole 47px line of a field that is already short enough to drop the sentence beneath it. Measure a replacement against those two numbers, in every locale, before shipping it.
   ///
   /// In en, this message translates to:
-  /// **'Tell me about your trip'**
+  /// **'Where are we going?'**
   String get agentScreenEmptyTitle;
 
   /// No description provided for @agentScreenEmptyMessage.

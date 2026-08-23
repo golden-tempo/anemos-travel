@@ -991,7 +991,7 @@
   "chatRemoveQueued": "Quitar mensaje en cola",
   "agentScreenTitle": "Planea tu viaje",
   "agentScreenStartOver": "Empezar de nuevo",
-  "agentScreenEmptyTitle": "Cuéntame sobre tu viaje",
+  "agentScreenEmptyTitle": "¿Adónde vamos?",
   "agentScreenEmptyMessage": "Un lugar, una idea aproximada, unas fechas: buscaré lugares reales y crearé un itinerario día a día.",
   "agentScreenItineraryReady": "Itinerario listo — {count} lugares",
   "agentScreenViewTrip": "Ver viaje",
