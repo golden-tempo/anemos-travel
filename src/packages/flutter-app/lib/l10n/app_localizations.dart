@@ -4016,6 +4016,12 @@ abstract class AppLocalizations {
   /// **'{count, plural, one{city} other{cities}}'**
   String tripsListStatCities(int count);
 
+  /// No description provided for @tripsListStatCountries.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{country} other{countries}}'**
+  String tripsListStatCountries(int count);
+
   /// No description provided for @tripsListStaysCount.
   ///
   /// In en, this message translates to:

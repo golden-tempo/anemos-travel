@@ -10,8 +10,9 @@ class StatTileData {
   const StatTileData({required this.value, required this.label});
 }
 
-/// A stat line — `6 trips · 166 travel days · 20 cities` — where the number
-/// carries Inter's weight and the label stays muted beside it.
+/// A stat line — `6 trips · 166 travel days · 20 cities · 9 countries` —
+/// where the number carries Inter's weight and the label stays muted beside
+/// it.
 ///
 /// It used to be a row of equal-width tiles, each a big value stacked over a
 /// small label. That is the brand doc's named anti-pattern (the hero-metric
@@ -25,7 +26,9 @@ class StatTileData {
 /// pre-formatted and the l10n plural is resolved at the call site, so a label
 /// is printed exactly as handed over. It stays a [Wrap], not a [Row]: the es
 /// labels run long, and at 300px three stats have to fall onto a second line
-/// rather than ellipsize into uselessness.
+/// rather than ellipsize into uselessness. Four stats — the caption since
+/// countries joined it — make that the normal case on a phone rather than the
+/// narrow-width exception, which is the whole reason the run spacing exists.
 class StatTileRow extends StatelessWidget {
   final List<StatTileData> tiles;
 

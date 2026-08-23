@@ -667,6 +667,7 @@
   "tripsListStatTrips": "{count, plural, one{viaje} other{viajes}}",
   "tripsListStatTravelDays": "{count, plural, one{día de viaje} other{días de viaje}}",
   "tripsListStatCities": "{count, plural, one{ciudad} other{ciudades}}",
+  "tripsListStatCountries": "{count, plural, one{país} other{países}}",
   "tripsListStaysCount": "{count, plural, one{1 alojamiento} other{{count} alojamientos}}",
   "tripsListPackedCount": "{checked}/{total} en la maleta",
   "tripsListBudgetSpentOfTarget": "{spent} de {target}",

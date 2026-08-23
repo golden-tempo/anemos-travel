@@ -292,6 +292,69 @@ void main() {
     expect(_inGroup(kPlannedStatsKey, find.text('trips')), findsOneWidget);
     expect(find.text('travel days'), findsNothing);
     expect(find.text('cities'), findsNothing);
+    expect(find.text('countries'), findsNothing);
+  });
+
+  testWidgets('countries close the caption, deduped across trips',
+      (WidgetTester tester) async {
+    // Asserted through the tiles the group builds rather than by hunting for
+    // rendered numbers: four stats put several equal values on one line ("2"
+    // is both the trip count and the country count here), and a bare
+    // find.text would pass on the wrong one.
+    await _pumpList(tester, trips: [
+      _trip('past', 'Iberia Loop',
+          start: _rel(-30),
+          end: _rel(-26), // 5 days
+          cities: const ['Lisbon', 'Porto', 'Madrid'],
+          pins: const [
+            CityPin(city: 'Lisbon', lat: 38.7, lng: -9.1, country: 'PT'),
+            CityPin(city: 'Porto', lat: 41.1, lng: -8.6, country: 'PT'),
+            CityPin(city: 'Madrid', lat: 40.4, lng: -3.7, country: 'ES'),
+          ]),
+      _trip('older', 'Seville Weekend',
+          start: _rel(-90),
+          end: _rel(-88), // 3 days
+          cities: const ['Seville'],
+          pins: const [
+            CityPin(city: 'Seville', lat: 37.4, lng: -6.0, country: 'ES'),
+          ]),
+    ]);
+    await tester.pumpAndSettle();
+
+    final row = tester.widget<StatTileRow>(
+        _inGroup(kTraveledStatsKey, find.byType(StatTileRow)));
+    expect(
+      [for (final t in row.tiles) '${t.value} ${t.label}'],
+      ['2 trips', '8 travel days', '4 cities', '2 countries'],
+    );
+  });
+
+  testWidgets('a payload with no country codes keeps the rest of the caption',
+      (WidgetTester tester) async {
+    // An offline snapshot cached before the server derived countries, and any
+    // pin over water. The stat drops out the way a zero-valued one always
+    // has — it never falls back to counting city names.
+    await _pumpList(tester, trips: [
+      _trip('past', 'Iberia Loop',
+          start: _rel(-30),
+          end: _rel(-26),
+          cities: const ['Lisbon'],
+          pins: const [CityPin(city: 'Lisbon', lat: 38.7, lng: -9.1)]),
+      _trip('older', 'Athens Trip',
+          start: _rel(-90),
+          end: _rel(-88),
+          cities: const ['Athens'],
+          pins: const [CityPin(city: 'Athens', lat: 37.9, lng: 23.7)]),
+    ]);
+    await tester.pumpAndSettle();
+
+    final row = tester.widget<StatTileRow>(
+        _inGroup(kTraveledStatsKey, find.byType(StatTileRow)));
+    expect(
+      [for (final t in row.tiles) '${t.value} ${t.label}'],
+      ['2 trips', '8 travel days', '2 cities'],
+    );
+    expect(find.text('countries'), findsNothing);
   });
 
   // The atlas door (the "See all" action in this section's header).
