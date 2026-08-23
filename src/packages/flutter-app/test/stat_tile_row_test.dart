@@ -11,8 +11,14 @@ import 'package:travel_route_planner/widgets/stat_tile_row.dart';
 ///
 /// The widget formats and pluralizes NOTHING — values arrive pre-formatted and
 /// the l10n plural is resolved at the call site — so the assertions here are
-/// "what was passed is what renders". Any stat count from zero to three must
+/// "what was passed is what renders". Any stat count from zero to four must
 /// lay out inside a phone-width column without overflowing.
+///
+/// Four is the count since countries joined the caption. Whether four stats
+/// take one line or two at a given width is a question about the shipped font
+/// and is deliberately NOT asserted anywhere here (CLAUDE.md): the row is a
+/// [Wrap], so a run that does not fit moves to the next line by construction,
+/// and a test in the stand-in font would only pin the wrong wrap point.
 
 /// Hosts the row at a fixed width; [width] narrows to the 360px phone floor
 /// where three stats are tightest.
@@ -89,11 +95,11 @@ void main() {
     expect(find.text('·'), findsNothing);
   });
 
-  testWidgets('empty, single, and three-tile rows all lay out without overflow',
+  testWidgets('empty, single, three- and four-tile rows lay out cleanly',
       (WidgetTester tester) async {
     // An overflowing Row throws in tests, so an exception-free pump at the
     // 360px phone floor IS the assertion. Zero tiles is a real case: the
-    // caller drops zero-valued segments.
+    // caller drops zero-valued segments. Four is the full caption.
     for (final tiles in const [
       <StatTileData>[],
       [StatTileData(value: '1', label: 'Trip')],
@@ -102,11 +108,23 @@ void main() {
         StatTileData(value: '284', label: 'Travel days'),
         StatTileData(value: '37', label: 'Cities'),
       ],
+      [
+        StatTileData(value: '12', label: 'Trips'),
+        StatTileData(value: '284', label: 'Travel days'),
+        StatTileData(value: '37', label: 'Cities'),
+        StatTileData(value: '14', label: 'Countries'),
+      ],
     ]) {
       await tester.pumpWidget(_host(tiles, width: 360));
       expect(tester.takeException(), isNull);
     }
     expect(find.byType(StatTileRow), findsOneWidget);
+    // Every pair still renders once after wrapping — a run moving to the next
+    // line must not drop or duplicate a stat.
+    for (final text in ['12', 'Trips', '14', 'Countries']) {
+      expect(find.text(text), findsOneWidget);
+    }
+    expect(find.text('·'), findsNWidgets(3));
   });
 
   testWidgets('a label too long for its share ellipsizes, never overflows',

@@ -172,3 +172,46 @@ change; `utils/trip_list_insights.dart` remains the one derivation site):
   trips, **never** from whichever trip supplied the winning coordinate: server
   order is newest-created-first, so a planned trip routinely lands ahead of the
   past trip that earned the dot.
+
+## Amendment 2026-08-23 — "Your travels" counts countries
+
+**Adds a fourth stat** to both groups of the band amended above: trips ·
+travel days · cities · **countries**. Same traveled-wins partition as cities,
+same drop-at-zero rule, same two groups. The atlas colophon and Home's band
+inherit it for free — all three render `TravelStatGroup` over `travelStats`.
+
+The only real question was where a country comes from, since the payload has
+never carried one:
+
+- **From the pin's coordinate, server side.** `city_pins` already ships a
+  latitude and longitude per hub — the ones the footprint map draws — so
+  `countryForPoint` (`country_lookup.go`) resolves each to an ISO 3166-1
+  alpha-2 code and the pin carries it on the wire as `country`. **This
+  feature still consumes no migration number**: nothing is stored, so every
+  trip already in the database counts its countries the moment the code
+  ships, with no backfill.
+- **Not from `formatted_address`.** Reading the tail of a hub item's Google
+  address would have made the count depend on whether that item happened to
+  carry an address, and on Google's response language. A number nobody can
+  check is worse than no number.
+- **Not from a geocoding request.** The list contract is one query with no
+  per-trip HTTP fanout, and that rule stands.
+
+Consequences, all of them the same shape as the existing pin rules:
+
+- **`countries <= cities`, by construction.** A destination the traveler typed
+  by name (specs/log-past-trip) has no coordinate, so it is a city that draws
+  no dot and adds no country — already the documented behavior of the map.
+- **Absent, not zero, on an old payload.** `country` is omitted when the
+  coordinate resolves to nothing (open ocean, the (0,0) sentinel), and a
+  snapshot cached before this shipped has none at all. Zero countries drops
+  the stat, exactly as zero cities already does.
+- **Accuracy is stated, not assumed.** The boundary table is Natural Earth
+  1:50m (public domain), trimmed by `scripts/build-country-boundaries.py` and
+  embedded; a coordinate that falls in no polygon takes the nearest country
+  within ~1°, which is what makes coastal city centres (Lisbon, Venice,
+  Copenhagen, Stockholm, Istanbul, New York) resolve at all. Validated
+  against GeoNames' 34,106 cities over 15k population: **99.2% agree**, and
+  the residual is almost entirely Natural Earth's territorial coding —
+  dependent territories folded into their sovereign state — rather than
+  geometry error. `country_lookup_test.go` pins the known divergences by name.

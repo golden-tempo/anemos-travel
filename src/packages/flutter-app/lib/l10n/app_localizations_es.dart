@@ -2348,6 +2348,17 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
+  String tripsListStatCountries(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'países',
+      one: 'país',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String tripsListStaysCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

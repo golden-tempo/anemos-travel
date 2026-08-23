@@ -43,8 +43,8 @@ void main() {
             start: '2026-09-01', end: '2026-09-03', // 3 days
             cities: const ['Madrid']),
       ], _today);
-      expect(s.traveled, (trips: 1, travelDays: 5, cities: 1));
-      expect(s.planned, (trips: 1, travelDays: 3, cities: 1));
+      expect(s.traveled, (trips: 1, travelDays: 5, cities: 1, countries: 0));
+      expect(s.planned, (trips: 1, travelDays: 3, cities: 1, countries: 0));
     });
 
     test('an in-progress trip counts only the days lived through so far', () {
@@ -57,8 +57,8 @@ void main() {
           'Naxos',
         ]),
       ], _today);
-      expect(s.traveled, (trips: 1, travelDays: 3, cities: 2));
-      expect(s.planned, (trips: 0, travelDays: 0, cities: 0));
+      expect(s.traveled, (trips: 1, travelDays: 3, cities: 2, countries: 0));
+      expect(s.planned, (trips: 0, travelDays: 0, cities: 0, countries: 0));
     });
 
     // A logged past trip (specs/log-past-trip) is an ORDINARY trip with past
@@ -68,8 +68,8 @@ void main() {
     // rule would otherwise strand every logged trip on the wrong side silently.
     test('a logged past trip counts as traveled, pins and all', () {
       const pins = [
-        CityPin(city: 'Kyoto', lat: 35.0116, lng: 135.7681),
-        CityPin(city: 'Osaka', lat: 34.6937, lng: 135.5023),
+        CityPin(city: 'Kyoto', lat: 35.0116, lng: 135.7681, country: 'JP'),
+        CityPin(city: 'Osaka', lat: 34.6937, lng: 135.5023, country: 'JP'),
       ];
       final trips = [
         // Server order is newest-created-first, so the logged trip — created
@@ -84,9 +84,10 @@ void main() {
             start: '2026-09-01', end: '2026-09-03', cities: const ['Madrid']),
       ];
       final s = travelStats(trips, _today);
-      // The name-only destination carries no coordinates but is still a city.
-      expect(s.traveled, (trips: 1, travelDays: 15, cities: 3));
-      expect(s.planned, (trips: 1, travelDays: 3, cities: 1));
+      // The name-only destination carries no coordinates but is still a city —
+      // and therefore no country either, which is why 3 cities yield 1.
+      expect(s.traveled, (trips: 1, travelDays: 15, cities: 3, countries: 1));
+      expect(s.planned, (trips: 1, travelDays: 3, cities: 1, countries: 0));
 
       final footprint = footprintPins(trips, _today);
       expect(footprint.map((p) => p.city), ['Kyoto', 'Osaka']);
@@ -106,7 +107,7 @@ void main() {
       final s = travelStats(
           [_trip('t', start: '2026-08-07', end: '2026-08-09')], _today);
       expect(s.traveled.trips, 0);
-      expect(s.planned, (trips: 1, travelDays: 3, cities: 0));
+      expect(s.planned, (trips: 1, travelDays: 3, cities: 0, countries: 0));
     });
 
     test('undated drafts are planned and contribute no days', () {
@@ -114,8 +115,8 @@ void main() {
         _trip('draft', cities: const ['Tokyo']),
         _trip('dated', start: '2026-08-20', end: '2026-08-24'), // 5 days
       ], _today);
-      expect(s.traveled, (trips: 0, travelDays: 0, cities: 0));
-      expect(s.planned, (trips: 2, travelDays: 5, cities: 1));
+      expect(s.traveled, (trips: 0, travelDays: 0, cities: 0, countries: 0));
+      expect(s.planned, (trips: 2, travelDays: 5, cities: 1, countries: 0));
     });
 
     test('a half-dated trip buckets by its one date but adds no days', () {
@@ -123,7 +124,7 @@ void main() {
       // band must agree it has been travelled — dayCount needs both dates,
       // so it lands there with 0 days rather than sitting among the plans.
       final s = travelStats([_trip('t', start: '2026-05-01')], _today);
-      expect(s.traveled, (trips: 1, travelDays: 0, cities: 0));
+      expect(s.traveled, (trips: 1, travelDays: 0, cities: 0, countries: 0));
       expect(s.planned.trips, 0);
     });
 
@@ -160,8 +161,86 @@ void main() {
 
     test('an empty list yields two zeroed sides', () {
       final s = travelStats(const [], _today);
-      expect(s.traveled, (trips: 0, travelDays: 0, cities: 0));
-      expect(s.planned, (trips: 0, travelDays: 0, cities: 0));
+      expect(s.traveled, (trips: 0, travelDays: 0, cities: 0, countries: 0));
+      expect(s.planned, (trips: 0, travelDays: 0, cities: 0, countries: 0));
+    });
+
+    test('countries dedupe across trips and across cities in one country', () {
+      final s = travelStats([
+        _trip('iberia', start: '2026-01-01', end: '2026-01-10', cities: const [
+          'Lisbon',
+          'Porto',
+          'Madrid',
+        ], pins: const [
+          CityPin(city: 'Lisbon', lat: 38.7, lng: -9.1, country: 'PT'),
+          CityPin(city: 'Porto', lat: 41.1, lng: -8.6, country: 'PT'),
+          CityPin(city: 'Madrid', lat: 40.4, lng: -3.7, country: 'ES'),
+        ]),
+        _trip('again', start: '2026-02-01', end: '2026-02-04', cities: const [
+          'Seville',
+        ], pins: const [
+          CityPin(city: 'Seville', lat: 37.4, lng: -6.0, country: 'ES'),
+        ]),
+      ], _today);
+      expect(s.traveled.cities, 4);
+      expect(s.traveled.countries, 2, reason: 'Portugal and Spain, once each');
+    });
+
+    test('a country on both sides counts once, as traveled', () {
+      final s = travelStats([
+        // Newest-created first, the server's order: the planned trip is seen
+        // BEFORE the past one that actually went to Portugal — the same
+        // after-the-loop resolution the city count needs.
+        _trip('return', start: '2026-09-01', end: '2026-09-03', cities: const [
+          'Porto',
+          'Madrid',
+        ], pins: const [
+          CityPin(city: 'Porto', lat: 41.1, lng: -8.6, country: 'PT'),
+          CityPin(city: 'Madrid', lat: 40.4, lng: -3.7, country: 'ES'),
+        ]),
+        _trip('first', start: '2026-01-01', end: '2026-01-05', cities: const [
+          'Lisbon',
+        ], pins: const [
+          CityPin(city: 'Lisbon', lat: 38.7, lng: -9.1, country: 'PT'),
+        ]),
+      ], _today);
+      expect(s.traveled.countries, 1); // Portugal
+      expect(s.planned.countries, 1); // Spain only
+    });
+
+    // The stat is derived from the SERVER's country code, never guessed from a
+    // city name, so a payload without one reports zero countries and the
+    // caption drops the stat. That is the state of every offline snapshot
+    // cached before this shipped, and of any pin over open water.
+    test('pins with no country contribute none', () {
+      final s = travelStats([
+        _trip('old', start: '2026-01-01', end: '2026-01-05', cities: const [
+          'Lisbon',
+          'Madrid',
+        ], pins: const [
+          CityPin(city: 'Lisbon', lat: 38.7, lng: -9.1),
+          CityPin(city: 'Madrid', lat: 40.4, lng: -3.7, country: ''),
+        ]),
+      ], _today);
+      expect(s.traveled.cities, 2);
+      expect(s.traveled.countries, 0);
+    });
+
+    // countries <= pins <= cities, by construction: a destination the traveler
+    // typed by name has no coordinate, so it can be a city and never a
+    // country. Stated as a test because the inverse — a country count that
+    // outran the city count — would be nonsense on the card.
+    test('an unlocated city adds a city but no country', () {
+      final s = travelStats([
+        _trip('logged', start: '2026-01-01', end: '2026-01-05', cities: const [
+          'Lisbon',
+          "Grandma's village",
+        ], pins: const [
+          CityPin(city: 'Lisbon', lat: 38.7, lng: -9.1, country: 'PT'),
+        ]),
+      ], _today);
+      expect(s.traveled.cities, 2);
+      expect(s.traveled.countries, 1);
     });
   });
 

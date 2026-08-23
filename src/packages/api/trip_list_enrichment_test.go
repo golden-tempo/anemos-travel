@@ -364,6 +364,13 @@ func TestTripListCityPins(t *testing.T) {
 	if second["city"] != "Paros" || second["lat"] != 37.08 || second["lng"] != 25.15 {
 		t.Fatalf("pin[1] = %v, want Paros @ 37.08,25.15", second)
 	}
+	// The countries stat in "Your travels" counts these codes, so the pin has
+	// to carry one. Paros is an island whose 1:50m polygon a mainland-only
+	// table would miss entirely — it is here because that failure mode is
+	// silent (the count just reads low).
+	if first["country"] != "GR" || second["country"] != "GR" {
+		t.Fatalf("pin countries = %v/%v, want GR/GR", first["country"], second["country"])
+	}
 
 	// No located items at all: city_pins is absent, not an empty array.
 	bare := createTestTrip(t, owner.ID, 0)

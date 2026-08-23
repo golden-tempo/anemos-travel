@@ -1549,6 +1549,14 @@
       }
     }
   },
+  "tripsListStatCountries": "{count, plural, one{country} other{countries}}",
+  "@tripsListStatCountries": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "tripsListStaysCount": "{count, plural, one{1 stay} other{{count} stays}}",
   "@tripsListStaysCount": {
     "placeholders": {

@@ -10,9 +10,9 @@ import '../models/city_pin.dart';
 import '../models/trip.dart';
 import 'trip_days.dart';
 
-/// One side of the "Your travels" split: trip count, travel days, and distinct
-/// hub cities.
-typedef TravelStats = ({int trips, int travelDays, int cities});
+/// One side of the "Your travels" split: trip count, travel days, distinct hub
+/// cities, and the distinct countries those cities sit in.
+typedef TravelStats = ({int trips, int travelDays, int cities, int countries});
 
 /// "Your travels" over the caller's OWNED trips (the caller filters out
 /// shared-with-me rows), split into what has been TRAVELED and what is still
@@ -36,6 +36,13 @@ typedef TravelStats = ({int trips, int travelDays, int cities});
 ///   winning** the overlap, so a city on both a past and a future trip counts
 ///   once and counts as visited. The two counts partition rather than
 ///   double-count, matching the map's two pin styles.
+/// - **Countries** — the distinct [CityPin.country] codes, same traveled-wins
+///   partition. Read off the PINS, not the city names: the country is a fact
+///   the server derives from the coordinate (countryForPoint), and a city
+///   without a coordinate has no country to contribute — the same city that
+///   already draws no dot. That makes `countries <= pins <= cities` hold by
+///   construction, which is the arithmetic a reader can check on the card.
+///   Zero when the payload predates the field, and the caption drops the stat.
 ({TravelStats traveled, TravelStats planned}) travelStats(
     List<Trip> trips, DateTime today) {
   var traveledTrips = 0;
@@ -44,10 +51,17 @@ typedef TravelStats = ({int trips, int travelDays, int cities});
   var plannedDays = 0;
   final traveledCities = <String>{};
   final plannedCities = <String>{};
+  final traveledCountries = <String>{};
+  final plannedCountries = <String>{};
   for (final t in trips) {
     final started = tripHasStarted(t.startDate, t.endDate, today);
     for (final c in t.cities ?? const <String>[]) {
       (started ? traveledCities : plannedCities).add(_cityKey(c));
+    }
+    for (final p in t.cityPins ?? const <CityPin>[]) {
+      final country = p.country;
+      if (country == null || country.isEmpty) continue;
+      (started ? traveledCountries : plannedCountries).add(country);
     }
     if (started) {
       traveledTrips++;
@@ -61,16 +75,19 @@ typedef TravelStats = ({int trips, int travelDays, int cities});
   // newest-created-first, so a city is routinely seen on a planned trip before
   // the past trip that visited it shows up.
   plannedCities.removeAll(traveledCities);
+  plannedCountries.removeAll(traveledCountries);
   return (
     traveled: (
       trips: traveledTrips,
       travelDays: traveledDays,
       cities: traveledCities.length,
+      countries: traveledCountries.length,
     ),
     planned: (
       trips: plannedTrips,
       travelDays: plannedDays,
       cities: plannedCities.length,
+      countries: plannedCountries.length,
     ),
   );
 }
