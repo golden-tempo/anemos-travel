@@ -231,6 +231,21 @@ SET depart_date = depart_date + sqlc.arg(days)::int,
 WHERE trip_id = sqlc.arg(trip_id)
   AND (depart_date IS NOT NULL OR return_date IS NOT NULL);
 
+-- name: ShiftBookingTodoDatesFrom :execrows
+-- Suffix date shift (agent shift_days_from): ShiftBookingTodoDates with a
+-- date floor, applied PER DATE like ShiftAccommodationDatesFrom — a row's two
+-- dates can be two separate bookings (a round-trip flight todo departs before
+-- the pivot and returns after it; only the return moves). A raw UPDATE works
+-- on auto rows too, which UpdateBookingTodo refuses; the next client sync
+-- re-derives them either way, this just keeps them true in the meantime.
+-- NULL dates stay NULL and rows with no date on or after the floor are not
+-- counted.
+UPDATE booking_todos
+SET depart_date = CASE WHEN depart_date >= sqlc.arg(from_date)::date THEN depart_date + sqlc.arg(days)::int ELSE depart_date END,
+    return_date = CASE WHEN return_date >= sqlc.arg(from_date)::date THEN return_date + sqlc.arg(days)::int ELSE return_date END
+WHERE trip_id = sqlc.arg(trip_id)
+  AND (depart_date >= sqlc.arg(from_date)::date OR return_date >= sqlc.arg(from_date)::date);
+
 -- name: GetBookingTodo :one
 -- Single leg, scoped to its trip so a foreign id can never be read or attached
 -- to. Added for the booking-options paths (00065), which must confirm the leg

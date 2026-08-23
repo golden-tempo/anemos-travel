@@ -700,6 +700,36 @@ func (q *Queries) ShiftBookingTodoDates(ctx context.Context, arg ShiftBookingTod
 	return result.RowsAffected(), nil
 }
 
+const shiftBookingTodoDatesFrom = `-- name: ShiftBookingTodoDatesFrom :execrows
+UPDATE booking_todos
+SET depart_date = CASE WHEN depart_date >= $1::date THEN depart_date + $2::int ELSE depart_date END,
+    return_date = CASE WHEN return_date >= $1::date THEN return_date + $2::int ELSE return_date END
+WHERE trip_id = $3
+  AND (depart_date >= $1::date OR return_date >= $1::date)
+`
+
+type ShiftBookingTodoDatesFromParams struct {
+	FromDate pgtype.Date `json:"from_date"`
+	Days     int32       `json:"days"`
+	TripID   uuid.UUID   `json:"trip_id"`
+}
+
+// Suffix date shift (agent shift_days_from): ShiftBookingTodoDates with a
+// date floor, applied PER DATE like ShiftAccommodationDatesFrom — a row's two
+// dates can be two separate bookings (a round-trip flight todo departs before
+// the pivot and returns after it; only the return moves). A raw UPDATE works
+// on auto rows too, which UpdateBookingTodo refuses; the next client sync
+// re-derives them either way, this just keeps them true in the meantime.
+// NULL dates stay NULL and rows with no date on or after the floor are not
+// counted.
+func (q *Queries) ShiftBookingTodoDatesFrom(ctx context.Context, arg ShiftBookingTodoDatesFromParams) (int64, error) {
+	result, err := q.db.Exec(ctx, shiftBookingTodoDatesFrom, arg.FromDate, arg.Days, arg.TripID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateBookingTodo = `-- name: UpdateBookingTodo :one
 UPDATE booking_todos
 SET kind        = COALESCE($1, kind),

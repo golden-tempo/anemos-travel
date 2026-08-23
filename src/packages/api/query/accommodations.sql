@@ -66,6 +66,22 @@ SET check_in  = check_in  + sqlc.arg(days)::int,
 WHERE trip_id = sqlc.arg(trip_id)
   AND (check_in IS NOT NULL OR check_out IS NOT NULL);
 
+-- name: ShiftAccommodationDatesFrom :execrows
+-- Suffix date shift (agent shift_days_from): ShiftAccommodationDates with a
+-- date floor, applied PER DATE. A stay's two dates are two independent leg
+-- boundaries (check-in = arrival, check-out = departure), so a stay that
+-- straddles the pivot keeps its check-in and rides only its check-out — that
+-- is exactly how the city before the pivot gains its nights. A raw UPDATE, so
+-- auto drafts shift without being confirmed (unlike UpdateAccommodation,
+-- whose auto = false would adopt a suggestion the traveler never chose).
+-- NULL dates stay NULL and rows with no date on or after the floor are not
+-- counted.
+UPDATE accommodations
+SET check_in  = CASE WHEN check_in  >= sqlc.arg(from_date)::date THEN check_in  + sqlc.arg(days)::int ELSE check_in  END,
+    check_out = CASE WHEN check_out >= sqlc.arg(from_date)::date THEN check_out + sqlc.arg(days)::int ELSE check_out END
+WHERE trip_id = sqlc.arg(trip_id)
+  AND (check_in >= sqlc.arg(from_date)::date OR check_out >= sqlc.arg(from_date)::date);
+
 -- name: PromoteAccommodationFromOption :one
 -- Materializes a chosen booking option (00065) as the leg's real stay.
 --

@@ -779,6 +779,29 @@ func (q *Queries) SetTripTravelMode(ctx context.Context, arg SetTripTravelModePa
 	return err
 }
 
+const shiftItineraryItemDaysFrom = `-- name: ShiftItineraryItemDaysFrom :execrows
+UPDATE itinerary_items
+SET day = day + $1::int
+WHERE trip_id = $2 AND day >= $3::int
+`
+
+type ShiftItineraryItemDaysFromParams struct {
+	Days    int32     `json:"days"`
+	TripID  uuid.UUID `json:"trip_id"`
+	FromDay int32     `json:"from_day"`
+}
+
+// Suffix day shift (agent shift_days_from): every item on or after the pivot
+// day moves by the delta; earlier and undated items stay put and are not
+// counted. The set_trip_dates Shift* family with a day floor.
+func (q *Queries) ShiftItineraryItemDaysFrom(ctx context.Context, arg ShiftItineraryItemDaysFromParams) (int64, error) {
+	result, err := q.db.Exec(ctx, shiftItineraryItemDaysFrom, arg.Days, arg.TripID, arg.FromDay)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const shiftItineraryItemPositions = `-- name: ShiftItineraryItemPositions :exec
 UPDATE itinerary_items SET position = position + 1
 WHERE trip_id = $1 AND position >= $2
