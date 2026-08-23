@@ -1736,6 +1736,24 @@ abstract class AppLocalizations {
   /// **'Add details…'**
   String get bookingRowAddDetails;
 
+  /// No description provided for @bookingRowMoveTo.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to…'**
+  String get bookingRowMoveTo;
+
+  /// No description provided for @bookingMoveToTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to'**
+  String get bookingMoveToTitle;
+
+  /// No description provided for @bookingsReservations.
+  ///
+  /// In en, this message translates to:
+  /// **'Reservations'**
+  String get bookingsReservations;
+
   /// No description provided for @bookingRowOptions.
   ///
   /// In en, this message translates to:
