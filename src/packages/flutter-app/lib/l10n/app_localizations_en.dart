@@ -2333,6 +2333,17 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String tripsListStatCountries(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'countries',
+      one: 'country',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String tripsListStaysCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -2614,6 +2625,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String homeGreetingNamed(String greeting, String name) {
     return '$greeting, $name';
+  }
+
+  @override
+  String homeGreetingShort(String name) {
+    return 'Hello $name';
   }
 
   @override
@@ -3543,7 +3559,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get agentScreenStartOver => 'Start over';
 
   @override
-  String get agentScreenEmptyTitle => 'Tell me about your trip';
+  String get agentScreenEmptyTitle => 'Where are we going?';
 
   @override
   String get agentScreenEmptyMessage =>

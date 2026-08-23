@@ -136,7 +136,7 @@ void main() {
       (WidgetTester tester) async {
     await pumpAgent(tester, overrides());
 
-    final heading = tester.getRect(find.text('Tell me about your trip'));
+    final heading = tester.getRect(find.text('Where are we going?'));
     final rail =
         tester.getRect(find.byType(DestinationSuggestionCard).first);
     final chips = tester.getRect(find.byType(NearMeChip));
@@ -265,7 +265,7 @@ void main() {
     await pumpAgent(tester, overrides());
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Tell me about your trip'), findsOneWidget);
+    expect(find.text('Where are we going?'), findsOneWidget);
     expect(find.byType(DestinationSuggestionCard), findsWidgets);
   });
 }

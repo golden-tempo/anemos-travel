@@ -140,6 +140,13 @@ type CityPinResponse struct {
 	City string  `json:"city"`
 	Lat  float64 `json:"lat"`
 	Lng  float64 `json:"lng"`
+	// Country is the ISO 3166-1 alpha-2 code the coordinate falls in, from
+	// countryForPoint — the one derivation for the countries stat in "Your
+	// travels". Absent when the coordinate resolves to no country (open
+	// ocean); the client counts the pins that carry one and never guesses
+	// from a city name. Derived here rather than stored so every trip already
+	// in the database counts without a backfill.
+	Country string `json:"country,omitempty"`
 }
 
 // TripLegResponse is one rendered city leg. Dates are YYYY-MM-DD; absent
@@ -765,6 +772,13 @@ func listTripsHandler(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(t.CityPins, &pins); err != nil {
 				log.Printf("listTrips: bad city_pins for trip %s: %v", t.ID, err)
 			} else {
+				// The country cannot come from the lateral — it is geometry,
+				// not SQL — so it is attached here, on the same pass that
+				// builds the pin. Microseconds each against an embedded
+				// table; no request, no round trip.
+				for i := range pins {
+					pins[i].Country = countryForPoint(pins[i].Lat, pins[i].Lng)
+				}
 				resp.CityPins = pins
 			}
 		}

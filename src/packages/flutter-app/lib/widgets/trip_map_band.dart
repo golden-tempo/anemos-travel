@@ -88,7 +88,7 @@ class _TripMapBandState extends ConsumerState<TripMapBand> {
     // follows every detail view (record() mints a fresh RecentTrip), so a
     // resolved band never collapses and re-grows on the way back.
     final trip =
-        ref.watch(cachedTripDetailProvider(widget.tripId)).valueOrNull;
+        ref.watch(tripDetailForBandProvider(widget.tripId)).valueOrNull;
     if (trip == null) return const SizedBox.shrink();
     _recompute(trip, context.l10n);
     if (!_mappable) return const SizedBox.shrink();

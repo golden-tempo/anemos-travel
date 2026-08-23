@@ -18,6 +18,8 @@ import 'package:travel_route_planner/providers/resumable_chats_provider.dart';
 import 'package:travel_route_planner/providers/trips_provider.dart';
 import 'package:travel_route_planner/screens/home_screen.dart';
 import 'package:travel_route_planner/screens/trip_detail_screen.dart';
+import 'package:travel_route_planner/services/api_client.dart';
+import 'package:travel_route_planner/services/trips_api_service.dart';
 import 'package:travel_route_planner/widgets/continue_chats_section.dart';
 import 'package:travel_route_planner/widgets/continue_trip_hero.dart';
 import 'package:travel_route_planner/widgets/trip_map.dart';
@@ -26,10 +28,16 @@ import 'support/l10n_test_app.dart';
 import 'support/url_sync_fakes.dart';
 
 /// The continue hero's route imagery (home "Continue where you left off"):
-/// renders the CACHED trip's overview map full-bleed behind the overlaid
-/// title on a cache hit, and falls back to the brand-gradient card (same
-/// text block) on a miss or when nothing is mappable. Cache-only by design —
-/// home never fetches.
+/// renders the trip's overview map full-bleed behind the overlaid title, and
+/// falls back to the brand-gradient card (same text block) when there is
+/// nothing to draw.
+///
+/// The band was cache-ONLY until a cold cache was reported as a bug: a device
+/// that had never opened this trip's DETAIL — first run, a fresh browser
+/// profile, cleared site data, MRU eviction — showed a flat brand slab and had
+/// no way to ever show anything else, since only the trip screen writes that
+/// cache. A miss now fetches once and writes through; a fetch that fails
+/// collapses exactly as a miss always did.
 ///
 /// Seeding writes the raw prefs keys (recent_trip_provider storage format +
 /// TripCache's entry format) in ONE setMockInitialValues call — never
@@ -154,9 +162,34 @@ MapEntry<String, Object> _cachedTripEntry(Trip trip) => MapEntry(
 void _seed(List<MapEntry<String, Object>> entries) =>
     SharedPreferences.setMockInitialValues(Map.fromEntries(entries));
 
+/// Serves [trip] from `getTrip`, counting calls — the counter is what proves
+/// a warm cache never reaches the network. A null [trip] throws instead,
+/// standing in for offline / signed-out / deleted.
+class _CountingTripsApi extends TripsApiService {
+  final Trip? trip;
+  int getTripCalls = 0;
+
+  _CountingTripsApi(this.trip) : super(ApiClient(baseUrl: 'http://test'));
+
+  @override
+  Future<Trip> getTrip(String id) async {
+    getTripCalls++;
+    final t = trip;
+    if (t == null) throw Exception('offline');
+    return t;
+  }
+
+  @override
+  Future<List<Trip>> listTrips() async => const [];
+
+  @override
+  Future<List<Trip>> listSharedWithMe() async => const [];
+}
+
 Future<void> _pumpHome(
   WidgetTester tester, {
   List<ChatSessionSummary> chats = const [],
+  _CountingTripsApi? api,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -164,6 +197,10 @@ Future<void> _pumpHome(
         authProvider.overrideWith((ref) => _FakeAuthNotifier(_user())),
         liveTripProvider.overrideWithValue(null),
         resumableChatsProvider.overrideWith((ref) async => chats),
+        // Always overridden: without it a cache miss reaches the real client,
+        // whose failure the band swallows — so a "no map" assertion would
+        // pass for the wrong reason.
+        if (api != null) tripsApiServiceProvider.overrideWithValue(api),
       ],
       child: MaterialApp(
           localizationsDelegates: testLocalizationsDelegates,
@@ -177,6 +214,14 @@ Future<void> _pumpHome(
   await tester.pump();
   await tester.pump();
   await tester.pump();
+  // Then settle, for the cold-cache path's extra hops: the getTrip that
+  // follows the miss, and the deferred write-through it queues. That write is
+  // a `Timer.run` whose drain body then awaits prefs several times
+  // (trip_cache.dart's deferred-writes note), so a fixed pump count is a
+  // guess — and leaving it undrained fails on `!timersPending`, and worse,
+  // leaks into the NEXT test: _pendingWrites is static and readTrip drains it
+  // first, so one test's unflushed write becomes the next test's cache hit.
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -186,7 +231,8 @@ void main() {
       (WidgetTester tester) async {
     final trip = _mappableTrip('t1', 'Lisbon Trip');
     _seed([_recentTripEntry('t1', 'Lisbon Trip'), _cachedTripEntry(trip)]);
-    await _pumpHome(tester);
+    final api = _CountingTripsApi(trip);
+    await _pumpHome(tester, api: api);
 
     expect(find.byType(TripMap), findsOneWidget);
     // The title overlays the imagery inside the same hero card.
@@ -196,13 +242,44 @@ void main() {
           matching: find.text('Lisbon Trip')),
       findsOneWidget,
     );
+    // A warm cache never reaches the network.
+    expect(api.getTripCalls, 0);
   });
 
-  testWidgets('cache miss keeps the gradient-fallback hero',
+  testWidgets('cache MISS fetches the trip and still draws the map',
+      (WidgetTester tester) async {
+    // The reported bug: on a device that had never opened this trip's detail,
+    // the hero was a flat brand slab with no way to ever become a map.
+    _seed([_recentTripEntry('t1', 'Lisbon Trip')]);
+    final api = _CountingTripsApi(_mappableTrip('t1', 'Lisbon Trip'));
+    await _pumpHome(tester, api: api);
+
+    expect(api.getTripCalls, 1);
+    expect(find.byType(TripMap), findsOneWidget);
+    expect(find.text('Lisbon Trip'), findsOneWidget);
+  });
+
+  testWidgets('a fetch that fails keeps the gradient-fallback hero',
+      (WidgetTester tester) async {
+    // Offline, signed out, deleted, rate-limited — all the same answer, and
+    // it is the answer every miss gave before the fetch existed. A flaky
+    // connection must not degrade Home further than it already would.
+    _seed([_recentTripEntry('t1', 'Lisbon Trip')]);
+    final api = _CountingTripsApi(null);
+    await _pumpHome(tester, api: api);
+
+    expect(api.getTripCalls, 1);
+    expect(find.byType(TripMap), findsNothing);
+    expect(find.text('Lisbon Trip'), findsOneWidget);
+  });
+
+  testWidgets('a fetched trip with nothing mappable also falls back',
       (WidgetTester tester) async {
     _seed([_recentTripEntry('t1', 'Lisbon Trip')]);
-    await _pumpHome(tester);
+    final api = _CountingTripsApi(_unmappableTrip('t1', 'Lisbon Trip'));
+    await _pumpHome(tester, api: api);
 
+    expect(api.getTripCalls, 1);
     expect(find.byType(TripMap), findsNothing);
     expect(find.text('Lisbon Trip'), findsOneWidget);
   });
@@ -211,17 +288,22 @@ void main() {
       (WidgetTester tester) async {
     final trip = _unmappableTrip('t1', 'Lisbon Trip');
     _seed([_recentTripEntry('t1', 'Lisbon Trip'), _cachedTripEntry(trip)]);
-    await _pumpHome(tester);
+    final api = _CountingTripsApi(trip);
+    await _pumpHome(tester, api: api);
 
     expect(find.byType(TripMap), findsNothing);
     expect(find.text('Lisbon Trip'), findsOneWidget);
+    // A hit that simply has nothing to plot is still a hit — no refetch.
+    expect(api.getTripCalls, 0);
   });
 
   testWidgets('band keeps the section order: trip card above chats',
       (WidgetTester tester) async {
     final trip = _mappableTrip('t1', 'Lisbon Trip');
     _seed([_recentTripEntry('t1', 'Lisbon Trip'), _cachedTripEntry(trip)]);
-    await _pumpHome(tester, chats: [_chat('c1', 'Greek islands')]);
+    await _pumpHome(tester,
+        chats: [_chat('c1', 'Greek islands')],
+        api: _CountingTripsApi(trip));
 
     expect(find.byType(TripMap), findsOneWidget);
     expect(

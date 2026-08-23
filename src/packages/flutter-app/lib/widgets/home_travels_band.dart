@@ -2,11 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/l10n.dart';
+import '../navigation/app_nav.dart';
+import '../navigation/app_routes.dart';
 import '../providers/trips_provider.dart';
+import '../screens/travel_atlas_screen.dart';
 import '../theme/spacing.dart';
 import '../utils/trip_list_insights.dart';
 import 'section_header.dart';
 import 'travel_footprint_card.dart';
+
+/// Home's way into the atlas.
+///
+/// Its own key rather than the Trips header's `kTravelAtlasSeeAllKey`, because
+/// both headers are alive at the same time — the shell keeps `TripsListScreen`
+/// mounted under Home, which is the same fact this band relies on for its data
+/// — so one key would match two widgets and every finder using it would go
+/// ambiguous the moment this shipped.
+const kHomeTravelAtlasSeeAllKey = ValueKey('travelAtlas.entry.home');
 
 /// "Your travels" on Home: the traveled/planned footprint the Trips tab
 /// already shows, so the page ends on where you have been rather than on
@@ -43,10 +55,45 @@ class HomeTravelsBand extends ConsumerWidget {
     final stats = travelStats(trips, now);
     final pins = footprintPins(trips, now);
 
+    // The Trips header's gate, borrowed whole, and deliberately NOT this
+    // band's own [_minTrips]: the two count different things. This band asks
+    // for 2+ OWNED trips, because below that an aggregate only restates the
+    // hero above it. The atlas asks for 2+ PAST trips, because below that
+    // there is nothing behind the door — no traveled pins, no Traveled
+    // colophon group, an index with no rows. A traveler with two trips still
+    // ahead of them gets the band and no door, which is correct: the map they
+    // are looking at is all of it.
+    final showAtlas = pastTrips(trips, now).length >= 2;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SectionHeader(title: context.l10n.tripsListYourTravels),
+        SectionHeader(
+          title: context.l10n.tripsListYourTravels,
+          // Pushed on Home's OWN stack, the way Home's other "See all" (local
+          // guides) already goes to its screen — so back returns here rather
+          // than stranding the traveler on the Trips list they never asked
+          // for. `openAtlasOnTripsTab` is the Trips-tab caller's helper and
+          // exists to keep that tab's back button honest; from Home the same
+          // concern points the other way.
+          //
+          // Only "See all" comes across. "+ Add past trip" stays in the Trips
+          // header by a recorded decision (specs/log-past-trip) that a copy
+          // here would quietly re-open.
+          action: showAtlas
+              ? TextButton(
+                  key: kHomeTravelAtlasSeeAllKey,
+                  onPressed: () => pushOnce(
+                    context,
+                    locatedRoute(const TravelAtlasScreen(),
+                        utilityLocation(BootUtility.travelAtlas)),
+                  ),
+                  // The Trips entry's string, not `commonSeeAll`: one action,
+                  // one label, so a future rewording moves both doors at once.
+                  child: Text(context.l10n.travelAtlasSeeAll),
+                )
+              : null,
+        ),
         const SizedBox(height: AppSpacing.md),
         TravelFootprintCard(
           pins: pins,

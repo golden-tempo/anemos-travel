@@ -92,8 +92,9 @@ const double kAtlasPlateHeight = 240;
 ///     pins and stay out of here: the map is *everywhere*, the index is
 ///     *where you've been*.
 ///
-/// Route arcs are deliberately absent. [CityPin] carries `{city, lat, lng}` —
-/// no ordinal, no date, no trip id — and the server's hub lateral is a deduped
+/// Route arcs are deliberately absent. [CityPin] carries
+/// `{city, lat, lng, country}` — no ordinal, no date, no trip id — and the
+/// server's hub lateral is a deduped
 /// set in first-appearance order, so a round trip's return leg is
 /// structurally unrepresentable. Arcs need a server change to the list
 /// lateral and are out of scope.

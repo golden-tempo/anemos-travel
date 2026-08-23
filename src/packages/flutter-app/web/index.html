@@ -29,6 +29,24 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+
+  <!-- The boot splash's scale depends on this tag existing BEFORE the engine
+       does. Flutter injects exactly this content itself once it boots, so the
+       app has always ended up correct — but the splash below paints for
+       seconds first, and without a viewport a phone lays the document out in a
+       980px virtual viewport and scales it to fit. On a 390px screen that is
+       0.4x: the 128px mark painted 45px and the wordmark was barely legible,
+       then snapped to full size mid-boot when the engine injected its own copy.
+       One splash, one geometry, two scales — the "small logo that grows" was
+       this and nothing else.
+
+       Content is Flutter's string verbatim, not a considered variant: matching
+       it is the point, because anything else reintroduces a reflow at the
+       handoff. If a future Flutter changes what it injects, change this with
+       it. (maximum-scale/user-scalable are Flutter's call, not a
+       pinch-zoom policy chosen here.) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
   <meta name="description" content="Plan trips and build day-by-day itineraries with an AI travel assistant.">
 
   <!-- SEO / social sharing (app landing; per-trip share links are prerendered

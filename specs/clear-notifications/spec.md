@@ -21,6 +21,13 @@ including unread ones the traveler had not acted on yet. Wholesale deletion is
 the wrong price for tidying, so each row now carries its own ✕. Clear-all keeps
 its confirmation dialog and stays the way to empty the feed.
 
+**Amended again, same day — swipe-to-dismiss is in scope on the full page.**
+The ✕ was argued to be enough for both presentations. On the page — the touch
+one — it isn't: swiping a row away is the gesture people already reach for in a
+list of dismissible things, and withholding it makes the ✕ feel like the long
+way round. The popover keeps the ✕ alone; a drag inside a menu overlay fights
+the overlay.
+
 ## User Stories
 
 - As a **signed-in user**, I want to **clear all my notifications at once** so
@@ -70,6 +77,18 @@ Per-notification dismissal (amended):
       and the user sees why — never a row that looks dismissed but was not.
 - [ ] Dismissing the last row leaves the feed in its empty state, with the
       clear-all action gone.
+
+Swipe-to-dismiss (amended):
+
+- [ ] On the full page, a row can be swiped away toward the start edge, and
+      the same row still offers its ✕.
+- [ ] Swiping the other way does nothing — that stroke belongs to the
+      platform's back gesture and must never delete anything.
+- [ ] The row leaves as the gesture finishes rather than waiting on the
+      server, since the swipe has already moved it off screen.
+- [ ] A swipe the server refuses puts the row **back** with the same message a
+      failed ✕ gives, and the restored row can be swiped again.
+- [ ] The popover feed cannot be swiped.
 
 ## API Surface
 
@@ -124,6 +143,12 @@ six more weeks; anything you haven't seen stays until you see it or clear it."
   on the narrow page where hover does not exist. Tapping it removes that row
   with no dialog; the control shows progress while the server is asked, and on
   failure the row stays put under a snackbar saying why.
+- **Swiping one away (amended):** on the page, a row can also be swiped toward
+  the start edge, revealing a quiet destructive field with a delete icon. The
+  two affordances differ in one respect, and only because the gesture demands
+  it: the ✕ waits for the server and shows progress, while the swipe removes
+  the row immediately — it has already been dragged off screen — and restores
+  it if the server refuses.
 
 ## Edge Cases & Error States
 
@@ -144,8 +169,9 @@ six more weeks; anything you haven't seen stays until you see it or clear it."
 
 ## Out of Scope
 
-- Swipe-to-dismiss. The ✕ serves both presentations; swipe would be a second
-  idiom for the same act and only on one of them.
+- Swipe on the popover. A drag gesture inside a menu overlay fights the
+  overlay, and the popover is the pointer presentation, where the ✕ is the
+  natural target.
 - Undo, after clearing or after dismissing one.
 - Soft delete / archive / trash.
 - Muting, deduplicating, or rate-limiting the ops-alert stream itself.
@@ -154,5 +180,6 @@ six more weeks; anything you haven't seen stays until you see it or clear it."
 ## Open Questions
 
 None. Original scope (clear-all only + 45-day read-row retention, hard delete)
-was decided with the product owner on 2026-08-13; per-notification dismissal
-was added at their request on 2026-08-22, superseding that one exclusion.
+was decided with the product owner on 2026-08-13. Per-notification dismissal
+was added at their request on 2026-08-22, and swipe-to-dismiss on the page the
+same day — each superseding an exclusion recorded earlier in this document.

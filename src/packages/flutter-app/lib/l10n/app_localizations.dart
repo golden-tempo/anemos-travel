@@ -4016,6 +4016,12 @@ abstract class AppLocalizations {
   /// **'{count, plural, one{city} other{cities}}'**
   String tripsListStatCities(int count);
 
+  /// No description provided for @tripsListStatCountries.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{country} other{countries}}'**
+  String tripsListStatCountries(int count);
+
   /// No description provided for @tripsListStaysCount.
   ///
   /// In en, this message translates to:
@@ -4417,6 +4423,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{greeting}, {name}'**
   String homeGreetingNamed(String greeting, String name);
+
+  /// Home's greeting when the time-of-day one will not set on one line — a phone, a long name, or a large text scale. Must stay MUCH shorter than homeGreetingNamed: it is what carries names the full dress cannot, so a translation that merely trims a word defeats it.
+  ///
+  /// In en, this message translates to:
+  /// **'Hello {name}'**
+  String homeGreetingShort(String name);
 
   /// No description provided for @homeGreetingSubtitle.
   ///
@@ -5858,10 +5870,10 @@ abstract class AppLocalizations {
   /// **'Start over'**
   String get agentScreenStartOver;
 
-  /// No description provided for @agentScreenEmptyTitle.
+  /// The Plan tab's opening heading, in the display face at 39px. It must set on ONE line at a phone's width — 342px at 390, 327px at 375 — or it eats a whole 47px line of a field that is already short enough to drop the sentence beneath it. Measure a replacement against those two numbers, in every locale, before shipping it.
   ///
   /// In en, this message translates to:
-  /// **'Tell me about your trip'**
+  /// **'Where are we going?'**
   String get agentScreenEmptyTitle;
 
   /// No description provided for @agentScreenEmptyMessage.

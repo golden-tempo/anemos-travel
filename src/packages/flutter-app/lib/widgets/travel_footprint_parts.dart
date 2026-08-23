@@ -83,8 +83,15 @@ class TravelStatGroup extends StatelessWidget {
     final theme = Theme.of(context);
     final l10n = context.l10n;
     // Zero-valued tiles drop out segment-wise (undated trips contribute no
-    // travel days, city-less legacy rows no cities), the rule this caption has
-    // always used. Trips is never zero — the caller drops the whole group.
+    // travel days, city-less legacy rows no cities, coordinate-less ones no
+    // countries), the rule this caption has always used. Trips is never zero
+    // — the caller drops the whole group.
+    //
+    // Countries sits AFTER cities, widening the frame rather than narrowing
+    // it: the line reads trips → days → cities → countries, each step further
+    // out. It is also the stat most often absent (an offline snapshot cached
+    // before the server derived it carries none), and a gap at the end of a
+    // line is the one the eye forgives.
     final tiles = [
       StatTileData(
         value: '${stats.trips}',
@@ -99,6 +106,11 @@ class TravelStatGroup extends StatelessWidget {
         StatTileData(
           value: '${stats.cities}',
           label: l10n.tripsListStatCities(stats.cities),
+        ),
+      if (stats.countries > 0)
+        StatTileData(
+          value: '${stats.countries}',
+          label: l10n.tripsListStatCountries(stats.countries),
         ),
     ];
     return Column(

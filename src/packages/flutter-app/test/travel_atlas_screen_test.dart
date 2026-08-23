@@ -17,11 +17,13 @@ import 'package:travel_route_planner/providers/resumable_chats_provider.dart';
 import 'package:travel_route_planner/providers/shared_with_me_provider.dart';
 import 'package:travel_route_planner/providers/trip_cache_provider.dart';
 import 'package:travel_route_planner/providers/trips_provider.dart';
+import 'package:travel_route_planner/screens/home_screen.dart';
 import 'package:travel_route_planner/screens/travel_atlas_screen.dart';
 import 'package:travel_route_planner/screens/trips_list_screen.dart';
 import 'package:travel_route_planner/services/api_client.dart';
 import 'package:travel_route_planner/services/trip_cache.dart';
 import 'package:travel_route_planner/services/trips_api_service.dart';
+import 'package:travel_route_planner/widgets/home_travels_band.dart';
 import 'package:travel_route_planner/widgets/section_header.dart';
 import 'package:travel_route_planner/widgets/travel_footprint_parts.dart';
 
@@ -577,6 +579,50 @@ void main() {
     expect(find.byType(TravelAtlasScreen), findsNothing);
     expect(find.byType(TripsListScreen), findsOneWidget);
     expect(reports.last, kTripsLocation);
+  });
+
+  testWidgets('the home door opens the atlas and back returns to HOME',
+      (tester) async {
+    // The second door onto this screen, and the reason it is worth its own
+    // test rather than trusting the twin above: it does NOT go through
+    // openAtlasOnTripsTab. Home pushes the atlas on its own stack, the way
+    // Home's other "See all" already reaches the guides, so the back button
+    // owes the traveler the page they left. Sending them to the Trips list
+    // instead is the exact stranding the tab-push helper exists to prevent —
+    // from Home the same concern simply points the other way.
+    tester.binding.platformDispatcher.defaultRouteNameTestValue = kHomeLocation;
+    addTearDown(
+        tester.binding.platformDispatcher.clearDefaultRouteNameTestValue);
+    final reports = <String>[];
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authProvider.overrideWith((ref) => FakeAuthNotifier(fakeUser())),
+          tripsApiServiceProvider
+              .overrideWithValue(_FixedTripsApiService(_history())),
+          liveTripProvider.overrideWithValue(null),
+          resumableChatsProvider.overrideWith((ref) async => const []),
+          urlReporterProvider.overrideWithValue(reports.add),
+        ],
+        child: const TravelRoutePlannerApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.byKey(kHomeTravelAtlasSeeAllKey), 300,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.byKey(kHomeTravelAtlasSeeAllKey));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TravelAtlasScreen), findsOneWidget);
+    expect(reports.last, '/atlas');
+
+    // Home, not the trips list — and the Trips tab was never switched to.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(TravelAtlasScreen), findsNothing);
+    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(reports.last, kHomeLocation);
   });
 
   testWidgets('the app bar says what the section that opened it says',
