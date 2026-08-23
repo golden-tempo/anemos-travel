@@ -94,7 +94,11 @@ typedef CityGroup = ({
 
 /// One city's embedded booking rows: the flight that arrives at the city, its
 /// stay, and (for the last city) the return flight home — each todo paired
-/// with its matched confirmed record.
+/// with its matched confirmed record — plus [others], the reservations claimed
+/// into this city (specs/booking-city-grouping): `other`-kind todos whose
+/// explicit `city_label` matches this run's leg label. The fixed six fields
+/// speak the todo_key grammar; [others] is the list a `custom:`/`agent:` row —
+/// which by construction matches no key — can finally occupy.
 typedef BookingSlot = ({
   BookingTodo? arrival,
   TripSegment? arrivalMatch,
@@ -102,6 +106,7 @@ typedef BookingSlot = ({
   Accommodation? stayMatch,
   BookingTodo? departure,
   TripSegment? departureMatch,
+  List<BookingTodo> others,
 });
 
 /// The one full-label booking partition (see [TripDerivation.groupedBookings]).
@@ -125,22 +130,32 @@ typedef BookingEntry = ({
   TripSegment? segment,
 });
 
+/// Which of a slot's row runs to enumerate. [legs] is the arrival flight +
+/// stay pair; [departure] the flight home (a separate trailing call the screen
+/// makes for the LAST slot only); [others] the city's claimed reservations,
+/// rendered after the leg rows under a quiet "Reservations" sub-label.
+enum BookingSlotPart { legs, departure, others }
+
 /// The entries a slot contributes, in render order. THE one enumeration of
 /// "what rows does this slot have" — the screen's `_bookingRowWidgets` builds
 /// from it and every count iterates it, so a row and its count can never
 /// disagree about what exists.
 ///
-/// [departureOnly] splits the slot the way the screen renders it: the arrival
-/// flight + stay inline, and the flight home as a separate trailing call the
-/// screen makes for the LAST slot only.
+/// [part] splits the slot the way the screen renders it, three runs per city.
 List<BookingEntry> bookingSlotEntries(BookingSlot slot,
-        {required bool departureOnly}) =>
-    departureOnly
-        ? [(todo: slot.departure, stay: null, segment: slot.departureMatch)]
-        : [
-            (todo: slot.arrival, stay: null, segment: slot.arrivalMatch),
-            (todo: slot.stay, stay: slot.stayMatch, segment: null),
-          ];
+        {required BookingSlotPart part}) =>
+    switch (part) {
+      BookingSlotPart.legs => [
+          (todo: slot.arrival, stay: null, segment: slot.arrivalMatch),
+          (todo: slot.stay, stay: slot.stayMatch, segment: null),
+        ],
+      BookingSlotPart.departure => [
+          (todo: slot.departure, stay: null, segment: slot.departureMatch)
+        ],
+      BookingSlotPart.others => [
+          for (final t in slot.others) (todo: t, stay: null, segment: null)
+        ],
+    };
 
 /// The state of an entry's visible checkbox — THE one definition, shared by
 /// the "Not booked yet" filter and every count on the screen.
@@ -180,9 +195,10 @@ Map<String, ({int booked, int total})> bookingDestinationCounts(
   for (final (i, slot) in grouped.slots.indexed) {
     if (i >= labels.length) continue;
     final entries = [
-      ...bookingSlotEntries(slot, departureOnly: false),
+      ...bookingSlotEntries(slot, part: BookingSlotPart.legs),
+      ...bookingSlotEntries(slot, part: BookingSlotPart.others),
       if (i == grouped.slots.length - 1)
-        ...bookingSlotEntries(slot, departureOnly: true),
+        ...bookingSlotEntries(slot, part: BookingSlotPart.departure),
     ];
     for (final e in entries.where(bookingEntryExists)) {
       add(labels[i], bookingEntryBooked(e));
@@ -629,7 +645,7 @@ class TripDerivation {
     ];
 
     final groupedBookings = _computeGroupedBookings(
-        legLabels, bookingTodos, stays, segments);
+        legLabels, visibleRanges, bookingTodos, stays, segments);
 
     // Travel-time labels for the map: one entry per within-city leg (same
     // hub, adjacent in itinerary order).
@@ -742,8 +758,16 @@ class TripDerivation {
   /// both, still counted the flight as an unbooked gap. A segment that does
   /// not connect the leg falls to the residual list and renders under "Other
   /// bookings", which is true rather than tidy.
+  ///
+  /// Reservations (specs/booking-city-grouping) claim by the EXPLICIT
+  /// `city_label` alone — never by date. The date's one job here is picking
+  /// WHICH run of a revisited city gets the row ([ranges], index-aligned with
+  /// [groupLabels]); a row with no city_label stays residual whatever its
+  /// date says, because a date two legs share cannot say which city a
+  /// reservation is in, and the server's fill already declined to guess.
   static GroupedBookings _computeGroupedBookings(
     List<String> groupLabels,
+    List<LegRange> ranges,
     List<BookingTodo> bookingTodos,
     List<Accommodation> stays,
     List<TripSegment> segments,
@@ -757,6 +781,40 @@ class TripDerivation {
         }
       }
       return null;
+    }
+
+    // Reservations first (their claim can't collide with the key-grammar
+    // claims below — different kinds), and by RUN rather than inside the
+    // label loop: a revisited city owns two runs sharing one label, and the
+    // loop's first-match-wins would hand every reservation to run 1. Each row
+    // attaches to the run whose rendered window contains its depart_date,
+    // else the label's first run — claimed exactly once either way, so it can
+    // never render twice.
+    final othersByRun =
+        List.generate(groupLabels.length, (_) => <BookingTodo>[]);
+    for (final t in bookingTodos) {
+      if (claimed.contains(t.id) || t.kind != 'other') continue;
+      final city = t.cityLabel?.trim().toLowerCase();
+      if (city == null || city.isEmpty) continue;
+      final runs = [
+        for (var i = 0; i < groupLabels.length; i++)
+          if (groupLabels[i].toLowerCase() == city) i
+      ];
+      if (runs.isEmpty) continue; // a city the trip no longer visits
+      var target = runs.first;
+      final d = DateTime.tryParse(t.departDate ?? '');
+      if (d != null) {
+        for (final i in runs) {
+          final s = ranges.length > i ? ranges[i].start : null;
+          final e = ranges.length > i ? ranges[i].end : null;
+          if (s != null && e != null && !d.isBefore(s) && !d.isAfter(e)) {
+            target = i;
+            break;
+          }
+        }
+      }
+      claimed.add(t.id);
+      othersByRun[target].add(t);
     }
 
     final confirmedStays = stays.where((a) => !a.auto).toList();
@@ -838,6 +896,7 @@ class TripDerivation {
             departure: i == groupLabels.length - 1 ? departure : null,
             departureMatch:
                 i == groupLabels.length - 1 ? departureMatch : null,
+            others: othersByRun[i],
           ),
       ],
       residual: bookingTodos.where((t) => !claimed.contains(t.id)).toList(),

@@ -95,6 +95,7 @@ type BookingTodo struct {
 	OriginLabel      *string     `json:"origin_label"`
 	DestinationLabel *string     `json:"destination_label"`
 	DerivedMode      *string     `json:"derived_mode"`
+	CityLabel        *string     `json:"city_label"`
 }
 
 type EmailToken struct {

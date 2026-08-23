@@ -46,6 +46,17 @@ class BookingTodo {
   /// server demoted to `inter_city` on a key collision would fool any
   /// client-side guess, and only the server knows that happened.
   final String? role;
+
+  /// The city this booking belongs to (migration 00074,
+  /// specs/booking-city-grouping): a cased display label ("Amsterdam"),
+  /// matched case-insensitively against the leg labels. Explicit and
+  /// authoritative — written by "Move to…", the agent's `city`, or the
+  /// server's sync-time date fallback (which fills only when exactly one leg
+  /// covers the date; a shared transition day stays null). Null = "Other
+  /// bookings". Only `other`-kind rows group by it; stay/transport rows speak
+  /// the todo_key grammar instead.
+  @JsonKey(name: 'city_label')
+  final String? cityLabel;
   final bool booked;
   final bool auto;
   final int position;
@@ -68,6 +79,7 @@ class BookingTodo {
     this.mode,
     this.derivedMode,
     this.role,
+    this.cityLabel,
     this.booked = false,
     this.auto = true,
     this.position = 0,
@@ -86,6 +98,7 @@ class BookingTodo {
         mode: mode,
         derivedMode: derivedMode,
         role: role,
+        cityLabel: cityLabel,
         booked: booked ?? this.booked,
         auto: auto,
         position: position,

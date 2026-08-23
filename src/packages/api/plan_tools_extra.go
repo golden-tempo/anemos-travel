@@ -79,6 +79,10 @@ var addBookingTodoTool = anthropic.ToolParam{
 				"type":        "string",
 				"description": "Optional YYYY-MM-DD the booking is for",
 			},
+			"city": map[string]any{
+				"type":        "string",
+				"description": "The city the booking happens in, exactly as the itinerary names it (e.g. 'Amsterdam'). Set it whenever the booking is tied to one city — the trip page then files the item under that city's bookings. Omit it for trip-wide items (travel insurance, an eSIM), which belong under 'Other bookings'.",
+			},
 		},
 		Required: []string{"trip_id", "kind", "title"},
 	},
@@ -116,6 +120,10 @@ var updateBookingTodoTool = anthropic.ToolParam{
 			"booked": map[string]any{
 				"type":        "boolean",
 				"description": "Mark the item booked (true) or not booked (false)",
+			},
+			"city": map[string]any{
+				"type":        "string",
+				"description": "File the item under a city's bookings on the trip page: the city's name exactly as the itinerary names it. Pass an empty string to move it back to 'Other bookings'.",
 			},
 		},
 		Required: []string{"trip_id", "todo_id"},
@@ -869,7 +877,14 @@ func runGetTripTool(ctx context.Context, authed bool, uid uuid.UUID, boundTripID
 					mode = ", by " + *m
 				}
 			}
-			fmt.Fprintf(&b, "- %q [todo_id: %s] (%s, %s, %s%s%s)\n", td.Title, td.ID, td.Kind, status, origin, mode, dates)
+			// Where the row files (00074) — visible so the model can correct
+			// a stray "Other bookings" reservation with update_booking_todo's
+			// `city` instead of re-adding it.
+			city := ""
+			if c := strings.TrimSpace(strPtrVal(td.CityLabel)); c != "" {
+				city = ", city: " + c
+			}
+			fmt.Fprintf(&b, "- %q [todo_id: %s] (%s, %s, %s%s%s%s)\n", td.Title, td.ID, td.Kind, status, origin, mode, city, dates)
 		}
 	}
 	return b.String(), false
@@ -907,6 +922,7 @@ func runAddBookingTodoTool(s *planSession, input json.RawMessage) (string, bool)
 		Title      string  `json:"title"`
 		Subtitle   *string `json:"subtitle"`
 		DepartDate *string `json:"depart_date"`
+		City       *string `json:"city"`
 	}
 	json.Unmarshal(input, &in)
 
@@ -934,6 +950,7 @@ func runAddBookingTodoTool(s *planSession, input json.RawMessage) (string, bool)
 		Subtitle:   in.Subtitle,
 		DepartDate: depart,
 		Position:   9999,
+		CityLabel:  strPtrOrNil(strings.TrimSpace(strPtrVal(in.City))),
 	})
 	if err != nil {
 		return "Could not save the booking to-do.", true
@@ -941,7 +958,22 @@ func runAddBookingTodoTool(s *planSession, input json.RawMessage) (string, bool)
 	touchTripAs(s.ctx, tid, s.uid)
 	sendSSE(s.w, "trip_updated", map[string]string{"trip_id": tid.String()})
 	safeGo("recordEvent", func() { recordEvent(s.uid, "agent_booking_todo_added", &tid, map[string]any{"kind": todo.Kind}) })
-	return fmt.Sprintf("Added %q to the trip's booking checklist. Mention it briefly; the traveler will see it on the trip page.", todo.Title), false
+	// The result names where the row filed, so the model's mental model of the
+	// trip page matches what the traveler sees (docs/zen.md: a mutating tool's
+	// result states the post-state).
+	return fmt.Sprintf("Added %q to the trip's booking checklist, %s. Mention it briefly; the traveler will see it on the trip page.",
+		todo.Title, bookingTodoFiling(todo)), false
+}
+
+// bookingTodoFiling says where a checklist row renders on the trip page —
+// the client groups `other`-kind rows by city_label; every other custom row
+// (and a city-less one) sits under "Other bookings". Stated from the STORED
+// row so the tool result and the page can never disagree.
+func bookingTodoFiling(todo store.BookingTodo) string {
+	if c := strPtrVal(todo.CityLabel); c != "" && todo.Kind == "other" {
+		return fmt.Sprintf("filed under %s's bookings", c)
+	}
+	return `filed under "Other bookings"`
 }
 
 // touchTripAs stamps a content edit made through an agent tool (best-effort;
@@ -970,6 +1002,7 @@ func runUpdateBookingTodoTool(s *planSession, input json.RawMessage) (string, bo
 		Kind       *string `json:"kind"`
 		DepartDate *string `json:"depart_date"`
 		Booked     *bool   `json:"booked"`
+		City       *string `json:"city"`
 	}
 	json.Unmarshal(input, &in)
 
@@ -995,25 +1028,47 @@ func runUpdateBookingTodoTool(s *planSession, input json.RawMessage) (string, bo
 	if err != nil {
 		return "depart_date must be YYYY-MM-DD.", true
 	}
-	if in.Title == nil && in.Subtitle == nil && in.Kind == nil && in.DepartDate == nil && in.Booked == nil {
-		return "Pass at least one field to change (title, subtitle, kind, depart_date, or booked).", true
+	if in.Title == nil && in.Subtitle == nil && in.Kind == nil && in.DepartDate == nil && in.Booked == nil && in.City == nil {
+		return "Pass at least one field to change (title, subtitle, kind, depart_date, booked, or city).", true
 	}
 
-	todo, err := store.New(dbPool).UpdateBookingTodo(s.ctx, store.UpdateBookingTodoParams{
-		ID:         todoID,
-		TripID:     tid,
-		Kind:       in.Kind,
-		Title:      in.Title,
-		Subtitle:   in.Subtitle,
-		DepartDate: depart,
-		Booked:     in.Booked,
-	})
-	if err != nil {
-		return bookingTodoMissingMsg, true
+	var todo store.BookingTodo
+	if in.Title != nil || in.Subtitle != nil || in.Kind != nil || in.DepartDate != nil || in.Booked != nil {
+		todo, err = store.New(dbPool).UpdateBookingTodo(s.ctx, store.UpdateBookingTodoParams{
+			ID:         todoID,
+			TripID:     tid,
+			Kind:       in.Kind,
+			Title:      in.Title,
+			Subtitle:   in.Subtitle,
+			DepartDate: depart,
+			Booked:     in.Booked,
+		})
+		if err != nil {
+			return bookingTodoMissingMsg, true
+		}
+	}
+	if in.City != nil {
+		// The city rides its own writer, never UpdateBookingTodo's COALESCE
+		// set: "" must CLEAR (move the row back to "Other bookings"), and
+		// COALESCE cannot carry a NULL (the 00071 lesson). Same statement the
+		// trip page's "Move to…" uses — pinned by
+		// TestPageAndChatWriteTheSameCityLabel.
+		todo, err = store.New(dbPool).SetBookingTodoCityLabel(s.ctx, store.SetBookingTodoCityLabelParams{
+			ID:        todoID,
+			TripID:    tid,
+			CityLabel: strPtrOrNil(strings.TrimSpace(*in.City)),
+		})
+		if err != nil {
+			return bookingTodoMissingMsg, true
+		}
 	}
 	touchTripAs(s.ctx, tid, s.uid)
 	sendSSE(s.w, "trip_updated", map[string]string{"trip_id": tid.String()})
 	safeGo("recordEvent", func() { recordEvent(s.uid, "agent_booking_todo_updated", &tid, map[string]any{"kind": todo.Kind}) })
+	if in.City != nil {
+		return fmt.Sprintf("Updated %q on the trip's booking checklist — now %s. The traveler's trip page has refreshed.",
+			todo.Title, bookingTodoFiling(todo)), false
+	}
 	return fmt.Sprintf("Updated %q on the trip's booking checklist — the traveler's trip page has refreshed.", todo.Title), false
 }
 

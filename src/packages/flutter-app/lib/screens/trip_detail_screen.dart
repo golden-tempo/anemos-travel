@@ -4264,10 +4264,14 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                                                     cityCollapsed: false))),
                                         // The city's embedded booking rows —
                                         // slots are index-aligned with groups.
+                                        // Leg rows only: reservations live on
+                                        // the Bookings tab under their city
+                                        // (specs/booking-city-grouping); the
+                                        // itinerary keeps the day plan.
                                         if (gi < grouped.slots.length)
                                           _boxSliver(_bookingRowWidgets(
                                               grouped.slots[gi],
-                                              departureOnly: false)),
+                                              part: BookingSlotPart.legs)),
                                         ..._buildGroupItemSlivers(
                                             group.label,
                                             group.key,
@@ -4290,7 +4294,8 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                                             gi < grouped.slots.length)
                                           _boxSliver(_bookingRowWidgets(
                                               grouped.slots[gi],
-                                              departureOnly: true)),
+                                              part:
+                                                  BookingSlotPart.departure)),
                                       ],
                                     ),
                               ]),
