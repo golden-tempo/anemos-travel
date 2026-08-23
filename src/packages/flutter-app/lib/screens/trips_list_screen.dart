@@ -80,13 +80,25 @@ class _TripsListScreenState extends ConsumerState<TripsListScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(tripsProvider.notifier).loadTrips();
-      // Boot dedup: this screen mounts at shell boot (IndexedStack keeps all
-      // tabs alive), when HomeScreen's very first resumable-chats fetch is
-      // still in flight — invalidating then would throw that request away and
-      // issue a duplicate /chats call. Skip the refresh while a fetch is
-      // already loading; on later remounts the provider has data (or an
-      // error) and the refresh proceeds as before.
+      // The shell owns the boot loadTrips() (app_shell.dart: Home consumes
+      // tripsProvider too, and under lazy first build this screen doesn't
+      // mount until the Trips tab is first selected). Self-load only when
+      // that hasn't happened — a mount outside the shell (widget tests) —
+      // recognized by tripsProvider still holding its virgin state. The one
+      // ambiguity: a zero-trip account's loaded state is indistinguishable
+      // from virgin, so its first visit refetches once; harmless.
+      final trips = ref.read(tripsProvider);
+      if (!trips.loading &&
+          trips.trips.isEmpty &&
+          trips.error == null &&
+          trips.offlineSince == null) {
+        ref.read(tripsProvider.notifier).loadTrips();
+      }
+      // Boot dedup: the first mount can land while HomeScreen's very first
+      // resumable-chats fetch is still in flight (frame one, when Trips is
+      // the boot target) — invalidating then would throw that request away
+      // and issue a duplicate /chats call. Skip the refresh while a fetch is
+      // already loading; with data (or an error) present it proceeds.
       if (!ref.read(resumableChatsProvider).isLoading) {
         ref.invalidate(resumableChatsProvider);
       }

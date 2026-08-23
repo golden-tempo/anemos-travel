@@ -110,8 +110,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // inside the readiness window, which is what "before you go" means. Also
     // live-trip-excluding, so nothing here has to. See departingTripOf.
     final departingTrip = ref.watch(departingTripProvider);
-    // Populated app-wide: AppShell's IndexedStack keeps TripsListScreen
-    // mounted, and its loadTrips() feeds tripsProvider — no fetch from here.
+    // Populated app-wide: AppShell fires the boot loadTrips() from its own
+    // initState (tab subtrees build lazily, so no tab screen can be assumed
+    // mounted) — no fetch from here.
     //
     // Every trips refresh rebuilds the Trip objects, so watching the derived
     // Trip? directly would fire on identical data. Watch an identity-stable

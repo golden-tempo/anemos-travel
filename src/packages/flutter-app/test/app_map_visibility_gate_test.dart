@@ -78,8 +78,8 @@ void main() {
       (city: 'Lisbon', lat: 38.7, lng: -9.1, visited: true),
       (city: 'Athens', lat: 37.9, lng: 23.7, visited: false),
     ];
-    const traveled = (trips: 1, travelDays: 5, cities: 1);
-    const planned = (trips: 1, travelDays: 3, cities: 1);
+    const traveled = (trips: 1, travelDays: 5, cities: 1, countries: 1);
+    const planned = (trips: 1, travelDays: 3, cities: 1, countries: 1);
 
     Future<void> pumpCard(WidgetTester tester, {required bool enabled}) {
       return tester.pumpWidget(

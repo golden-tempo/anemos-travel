@@ -188,8 +188,17 @@ void selectTab(WidgetRef ref, int index) {
 void goHome(WidgetRef ref) => selectTab(ref, AppTab.home.index);
 
 /// Push a route onto [tab]'s navigator, retrying across frames while the
-/// nested navigator mounts (cold boot, shell remount after a root reset). If
-/// every attempt misses, the user still lands on the selected tab's root.
+/// nested navigator mounts (cold boot, shell remount after a root reset, the
+/// first build of a lazily-built tab). If every attempt misses, the user
+/// still lands on the selected tab's root.
+///
+/// The shell builds tab subtrees on first visit (app_shell.dart), so an
+/// unvisited tab has NO navigator to land on: callers must select the tab —
+/// write [navIndexProvider] — before or alongside the push, because becoming
+/// the index is what builds the slot, and the retries bridge that one build
+/// frame. Every caller does; a push that targets a tab it never selects
+/// would exhaust its attempts and drop.
+///
 /// Takes the keys — not a ref — so callers whose element is about to be
 /// disposed (shared-trip join) capture them up front, and the Ref-holding
 /// UrlSyncController can share it.

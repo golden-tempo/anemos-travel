@@ -14,10 +14,10 @@ import 'travel_footprint_card.dart';
 /// Home's way into the atlas.
 ///
 /// Its own key rather than the Trips header's `kTravelAtlasSeeAllKey`, because
-/// both headers are alive at the same time — the shell keeps `TripsListScreen`
-/// mounted under Home, which is the same fact this band relies on for its data
-/// — so one key would match two widgets and every finder using it would go
-/// ambiguous the moment this shipped.
+/// both headers are alive at the same time once the Trips tab has been visited
+/// — the shell keeps visited tabs mounted under the active one — so one key
+/// would match two widgets and every finder using it would go ambiguous the
+/// moment this shipped.
 const kHomeTravelAtlasSeeAllKey = ValueKey('travelAtlas.entry.home');
 
 /// "Your travels" on Home: the traveled/planned footprint the Trips tab
@@ -30,9 +30,9 @@ const kHomeTravelAtlasSeeAllKey = ValueKey('travelAtlas.entry.home');
 /// Both gates come with it: **2+ owned trips**, because an aggregate over one
 /// trip only restates the hero above it, and the card's own pin rules.
 ///
-/// Reads `tripsProvider`, which is populated app-wide (the shell keeps
-/// `TripsListScreen` mounted and its `loadTrips()` feeds it), so this costs no
-/// request of its own — the same reason Home can watch it for `returning`.
+/// Reads `tripsProvider`, which is populated app-wide (`AppShell` fires the
+/// boot `loadTrips()` from its own initState), so this costs no request of
+/// its own — the same reason Home can watch it for `returning`.
 ///
 /// Owned trips only. Shared-with-me is someone else's travel and its payload
 /// carries no pins anyway, which is the rule the Trips tab already applies.
