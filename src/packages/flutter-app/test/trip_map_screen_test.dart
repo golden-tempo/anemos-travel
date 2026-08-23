@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:travel_route_planner/models/accommodation.dart';
 import 'package:travel_route_planner/models/itinerary_item.dart';
 import 'package:travel_route_planner/providers/flights_provider.dart';
+import 'package:travel_route_planner/providers/home_overlay_provider.dart';
 import 'package:travel_route_planner/screens/trip_map_screen.dart';
 import 'package:travel_route_planner/widgets/app_map.dart';
 import 'package:travel_route_planner/widgets/map_leg_chips.dart';
@@ -164,20 +165,26 @@ void main() {
       matching: find.byIcon(Icons.flight_takeoff),
     );
 
-    Widget appWithHome() => _app(
+    Widget appWithHome({List<Override> extraOverrides = const []}) => _app(
           homeAirport: 'EWR',
           firstCityPoint: firstCity,
           lastCityPoint: lastCity,
           overrides: [
             homeAirportPointProvider('EWR')
                 .overrideWith((ref) async => homePoint),
+            ...extraOverrides,
           ],
         );
 
     testWidgets(
       'home pin shows on the overview and the endpoint legs, hides mid-trip',
       (tester) async {
-        await tester.pumpWidget(appWithHome());
+        // Leg gating, not the default: force the traveler's choice on (the
+        // off default is covered by the toggle tests below).
+        await tester.pumpWidget(appWithHome(extraOverrides: [
+          homeOverlayChoiceProvider.overrideWith(
+              (ref) => HomeOverlayChoiceNotifier()..setShown(true)),
+        ]));
         await tester.pumpAndSettle();
 
         // Unfocused overview: both legs → home pin present.
@@ -198,35 +205,37 @@ void main() {
       },
     );
 
-    testWidgets('wide window defaults the overlay on; the toggle hides it', (
+    testWidgets('the overlay defaults off; the toggle shows and hides it', (
       tester,
     ) async {
-      // Default 800x600 surface: at kRailBreakpoint, the wide default.
+      // Default 800x600 surface: even with the whole window to spend, the
+      // destinations own the frame until the traveler asks for the hop home.
       await tester.pumpWidget(appWithHome());
       await tester.pumpAndSettle();
 
-      expect(homePin, findsOneWidget);
+      expect(homePin, findsNothing);
       expect(homeToggle, findsOneWidget);
       Tooltip tooltipOf(Finder f) => tester
           .widget<Tooltip>(find.ancestor(of: f, matching: find.byType(Tooltip)));
-      expect(tooltipOf(homeToggle).message, 'Hide home airport');
-
-      await tester.tap(homeToggle);
-      await tester.pumpAndSettle();
-      expect(homePin, findsNothing);
-      expect(homeToggle, findsOneWidget); // the way back on survives
       expect(tooltipOf(homeToggle).message, 'Show home airport');
 
       await tester.tap(homeToggle);
       await tester.pumpAndSettle();
       expect(homePin, findsOneWidget);
+      expect(homeToggle, findsOneWidget); // the way back off survives
+      expect(tooltipOf(homeToggle).message, 'Hide home airport');
+
+      await tester.tap(homeToggle);
+      await tester.pumpAndSettle();
+      expect(homePin, findsNothing);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('narrow window defaults the overlay off; the toggle shows it', (
+    testWidgets('narrow window: same off default, same toggle', (
       tester,
     ) async {
-      // The default is a WINDOW question (MediaQuery), so shrink the view —
+      // The form factor no longer changes the default — this guards the
+      // phone layout path (dimmed toggle, tight framing). Shrink the VIEW:
       // setSurfaceSize only resizes layout, not MediaQuery.sizeOf.
       tester.view.physicalSize = const Size(360, 690);
       tester.view.devicePixelRatio = 1.0;
@@ -236,7 +245,7 @@ void main() {
       await tester.pumpWidget(appWithHome());
       await tester.pumpAndSettle();
 
-      // Phone default: tight city framing — no pin, but a dimmed way in.
+      // No pin, but a dimmed way in.
       expect(homePin, findsNothing);
       expect(homeToggle, findsOneWidget);
       expect(tester.widget<Icon>(homeToggle).color, Colors.white38);

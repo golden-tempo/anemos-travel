@@ -6,7 +6,6 @@ import 'package:latlong2/latlong.dart';
 import '../l10n/l10n.dart';
 import '../models/accommodation.dart';
 import '../models/itinerary_item.dart';
-import '../navigation/app_nav.dart';
 import '../providers/flights_provider.dart';
 import '../providers/home_overlay_provider.dart';
 import '../utils/snack.dart';
@@ -242,12 +241,10 @@ class _TripMapScreenState extends ConsumerState<TripMapScreen> {
     final items = widget.itemsForLeg(_legKey);
     final onAddPlace = widget.onAddPlace;
     final homeCandidates = _homeOverlay();
-    // Whether the wide default applies is a window question here (the
-    // gradient_app_bar idiom) — this screen is a root-navigator dialog
-    // covering the whole window.
+    // Off until the traveler toggles it on — same default as the inline
+    // card this screen is opened from.
     final showHome = homeOverlayVisible(
       choice: ref.watch(homeOverlayChoiceProvider),
-      wideLayout: MediaQuery.sizeOf(context).width >= kRailBreakpoint,
     );
     // Escape closes the map. Two layers on purpose: this shortcut rides the
     // key-event focus chain, catching Escape while anything in the Scaffold

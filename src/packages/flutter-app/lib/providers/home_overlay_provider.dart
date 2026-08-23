@@ -2,10 +2,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// The traveler's explicit choice about the trip map's home-airport overlay
 /// (the flight_takeoff pin plus its dashed journey legs): true = show,
-/// false = hide, null = no choice made this session. Surfaces resolve the
-/// null through [homeOverlayVisible], so the overlay defaults on where the
-/// map has room for the whole journey (wide, pinned layouts) and off where
-/// the leg home would crowd the destinations out of frame (phones).
+/// false = hide, null = no choice made this session. Every surface resolves
+/// the null through [homeOverlayVisible] to OFF: the hop home is context,
+/// not the trip, so the destinations own the frame — on the inline
+/// trip-detail card and the full-screen map alike — until the traveler asks
+/// otherwise.
 ///
 /// App-wide rather than per-trip: this is a framing preference ("do I want
 /// the hop home in frame"), not trip data — the same scope as
@@ -15,8 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// directly (the rickRollProvider rationale).
 ///
 /// Session-only, like dailySpendSettingsProvider: the choice resets on
-/// restart so the per-form-factor default re-asserts (a phone's map always
-/// reopens with tight city framing). To persist instead, follow the
+/// restart so the off default re-asserts. To persist instead, follow the
 /// theme_mode_provider pattern — a load() plus a best-effort
 /// shared_preferences write in [HomeOverlayChoiceNotifier.setShown]; the
 /// call sites would not change.
@@ -32,11 +32,7 @@ final homeOverlayChoiceProvider =
     StateNotifierProvider<HomeOverlayChoiceNotifier, bool?>(
         (ref) => HomeOverlayChoiceNotifier());
 
-/// Effective home-overlay visibility for one map surface: the explicit
-/// [choice] when one has been made, else the form-factor default — shown on
-/// wide layouts, hidden on phones. The default is the absence of a choice:
-/// null is never written back as a decision. [wideLayout] is the surface's
-/// own layout question — `_mapPinned` (body width) on the inline trip-detail
-/// card, the window-width rail idiom on the full-screen map.
-bool homeOverlayVisible({required bool? choice, required bool wideLayout}) =>
-    choice ?? wideLayout;
+/// Effective home-overlay visibility: the explicit [choice] when one has
+/// been made, else hidden. The default is the absence of a choice: null is
+/// never written back as a decision.
+bool homeOverlayVisible({required bool? choice}) => choice ?? false;
