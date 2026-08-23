@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -102,12 +103,12 @@ final recentTripProvider =
 });
 
 /// Full cached detail of a trip, feeding a card's map band (TripMapBand).
-/// Cache-first and cache-ONLY: a miss (MRU eviction, fresh device) yields
-/// null and the host card renders its plain row — list surfaces never fetch,
-/// they only decorate what other screens load. The band therefore shows the
-/// trip *as of the last time this device viewed its detail* (accepted
-/// staleness: a collaborator's edit elsewhere appears on the next detail
-/// open).
+/// Cache-first: a miss (MRU eviction, fresh device) yields null, and
+/// [tripDetailForBandProvider] decides whether to go get it.
+///
+/// The band therefore shows the trip *as of the last time this device viewed
+/// its detail* (accepted staleness: a collaborator's edit elsewhere appears on
+/// the next detail open).
 ///
 /// Watches the WHOLE [recentTripProvider] state on purpose: [record] mints a
 /// fresh [RecentTrip] instance on every successful detail load, so this
@@ -120,6 +121,54 @@ final cachedTripDetailProvider =
   ref.watch(recentTripProvider);
   final cached = await ref.watch(tripCacheProvider).readTrip(tripId);
   return cached?.trip;
+});
+
+/// What a hero card's map band actually draws: the cached detail, or — on a
+/// cold cache — one fetch to go and get it.
+///
+/// The band used to be cache-ONLY, under the rule that "list surfaces never
+/// fetch, they only decorate what other screens load". That rule was written
+/// for rows, and the band has never been on one: its three hosts are all
+/// single promoted hero cards ([ContinueTripHero], and [TripHeroCard] behind
+/// the "Up next" and "Happening now" heroes). So the cost it was guarding —
+/// one fetch per row — does not exist, while the cost it imposed was real and
+/// visible: **on a device that had never opened this trip's detail, the hero
+/// had no map at all.** First-run, a fresh browser profile, cleared site data,
+/// or MRU eviction all produced a flat brand slab where the route should be,
+/// and nothing on Home could ever fix it, because only the trip screen writes
+/// that cache.
+///
+/// A fetch is the only way out: the trips LIST payload carries no items and no
+/// coordinates (listTripsHandler sends them nil), so there is nothing on Home
+/// to derive a map from.
+///
+/// Self-limiting by construction:
+///  * Only on a miss. A warm cache never reaches the network.
+///  * The result is written back, so the next cold start is warm — for every
+///    other band on this trip too.
+///  * A failure yields null, which is exactly the old behavior: the band
+///    collapses and the host renders as it always did. A flaky connection can
+///    degrade Home no further than it already would.
+final tripDetailForBandProvider =
+    FutureProvider.family<Trip?, String>((ref, tripId) async {
+  final cached = await ref.watch(cachedTripDetailProvider(tripId).future);
+  if (cached != null) return cached;
+  // A signed-out read misses for a reason that fetching cannot fix — the
+  // cache is auth-keyed, so it returns null the moment the session ends, and
+  // going to the network there buys a guaranteed 401.
+  if (!ref.watch(authProvider).isSignedIn) return null;
+  try {
+    final trip = await ref.read(tripsApiServiceProvider).getTrip(tripId);
+    // Write-through so this costs one fetch per device, not one per visit.
+    // Fire-and-forget: the map does not wait on the disk write, and a cache
+    // failure must not lose the trip we already have in hand.
+    unawaited(ref.read(tripCacheProvider).writeTrip(trip));
+    return trip;
+  } catch (_) {
+    // Signed out, offline, deleted trip, rate-limited — all the same answer,
+    // and it is the answer this band gave for every miss before today.
+    return null;
+  }
 });
 
 /// What Home's "Continue where you left off" card renders: enough to draw the
