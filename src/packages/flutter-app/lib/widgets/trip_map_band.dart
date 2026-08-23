@@ -7,6 +7,7 @@ import '../models/trip.dart';
 import '../providers/recent_trip_provider.dart';
 import '../theme/spacing.dart';
 import '../utils/leg_ranges.dart';
+import 'app_map.dart';
 import 'trip_map.dart';
 import 'trip_map_destinations.dart';
 
@@ -19,6 +20,11 @@ import 'trip_map_destinations.dart';
 /// cache-ONLY: the band decorates what other screens loaded, it never
 /// fetches. Hosts: Home's recent-trip card and the shared TripHeroCard (both
 /// the "Up next" and "Happening now" heroes).
+///
+/// While its tab is hidden (or its route is covered) the band keeps its box
+/// but mounts no [TripMap] — see [AppMapVisibilityGate]. Both hosts sit on
+/// permanently-mounted IndexedStack tabs, which is how the app used to keep
+/// 2–4 live satellite maps fetching tiles nobody could see.
 class TripMapBand extends ConsumerStatefulWidget {
   final String tripId;
 
@@ -90,20 +96,27 @@ class _TripMapBandState extends ConsumerState<TripMapBand> {
       borderRadius: widget.borderRadius,
       child: SizedBox(
         height: widget.height,
-        child: ExcludeSemantics(
-          // Decorative band: keep pin tooltips and the (tap-dead) attribution
-          // button out of the a11y tree. AbsorbPointer swallows descendant
-          // taps but not the ancestor InkWell, so the whole card stays one
-          // tap target — the trip-detail phone preview's mechanism.
-          child: AbsorbPointer(
-            child: TripMap(
-              items: trip.items ?? const [],
-              accommodations: _stays,
-              // ≥2 destinations → overview pins + route line; fewer (single-
-              // city trips) falls back to per-item pins inside TripMap, the
-              // same as the detail screen's All view.
-              destinations: _destinations,
-              interactive: false,
+        // Inside the fixed-height box, so a gated band occupies exactly the
+        // space the live one would: hidden-tab layout and scroll offsets
+        // never move. The band is a static fit, so remounting is
+        // pixel-identical (the gate's own contract).
+        child: AppMapVisibilityGate(
+          child: ExcludeSemantics(
+            // Decorative band: keep pin tooltips and the (tap-dead)
+            // attribution button out of the a11y tree. AbsorbPointer
+            // swallows descendant taps but not the ancestor InkWell, so the
+            // whole card stays one tap target — the trip-detail phone
+            // preview's mechanism.
+            child: AbsorbPointer(
+              child: TripMap(
+                items: trip.items ?? const [],
+                accommodations: _stays,
+                // ≥2 destinations → overview pins + route line; fewer
+                // (single-city trips) falls back to per-item pins inside
+                // TripMap, the same as the detail screen's All view.
+                destinations: _destinations,
+                interactive: false,
+              ),
             ),
           ),
         ),

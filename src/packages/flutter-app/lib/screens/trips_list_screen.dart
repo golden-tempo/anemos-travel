@@ -214,6 +214,17 @@ class _TripsListScreenState extends ConsumerState<TripsListScreen> {
           ref.invalidate(resumableChatsProvider);
           await ref.read(tripsProvider.notifier).loadTrips();
         },
+        // Every section is its own ListView child in the centered 700px
+        // column (stretch stands in for the old single Column's
+        // crossAxisAlignment.stretch), so the sliver machinery inflates
+        // sections on approach and disposes them far past the cache extent.
+        // The page used to be ONE PageContainer child hosting everything —
+        // which kept the footprint card's live satellite map mounted at the
+        // bottom of a page nobody had scrolled, on a tab that is itself kept
+        // mounted by AppShell's IndexedStack (2026-08 perf audit, finding 1).
+        // The section ORDER is the journal-index narrative (PR #488): what's
+        // next, what you're co-planning, where you've been, everywhere
+        // you've been.
         child: ListView(
           // Bottom air on the ladder (xxl): the page now ENDS on the
           // retrospective card, and a card that stops flush against the
@@ -225,215 +236,230 @@ class _TripsListScreenState extends ConsumerState<TripsListScreen> {
           // would swallow the gesture on Android/web.
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
-            // Centered 700px column on wide layouts, Home's exact pattern:
-            // the ListView stays full-width (wheel/scrollbar work in the
-            // gutters) while the content is capped. Non-lazy is fine at
-            // trips-list sizes, same trade Home makes.
-            PageContainer(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // The trip happening today, promoted to the very top as a
-                  // one-tap shortcut (specs/happening-now). It sits ABOVE the
-                  // "Upcoming" header, and its plain card is gone from the
-                  // run below — a trip you're on is not upcoming.
-                  if (liveTrip != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-                      child: LiveTripCard(
-                        trip: liveTrip,
-                        onTap: () => _openTrip(context, ref, liveTrip.id),
-                      ),
+            // The trip happening today, promoted to the very top as a
+            // one-tap shortcut (specs/happening-now). It sits ABOVE the
+            // "Upcoming" header, and its plain card is gone from the
+            // run below — a trip you're on is not upcoming.
+            if (liveTrip != null)
+              PageContainer(
+                stretch: true,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+                  child: LiveTripCard(
+                    trip: liveTrip,
+                    onTap: () => _openTrip(context, ref, liveTrip.id),
+                  ),
+                ),
+              ),
+            // In-progress AI conversations that haven't produced a
+            // trip yet (specs/continue-where-you-left-off) — the
+            // discussion phase, above the trips they may become. Same
+            // shared section as Home; it collapses to nothing when
+            // empty and already ends in an AppSpacing.lg gap, so the
+            // My Trips header below needs no top padding of its own.
+            const PageContainer(stretch: true, child: ContinueChatsSection()),
+            // Always-on section header — before it existed only next to
+            // a resumable-chats section, leaving the common case with
+            // bare cards under the app bar. "Upcoming" (not the app
+            // bar's "My trips" again) mirrors "Past trips" below, and
+            // its action is the populated list's one create affordance
+            // (the empty state keeps its own Plan-a-trip button).
+            if (state.trips.isNotEmpty)
+              PageContainer(
+                stretch: true,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.xs, 0, 0, AppSpacing.sm),
+                  child: SectionHeader(
+                    title: l10n.tripsListUpcoming,
+                    action: TextButton.icon(
+                      onPressed: () => ref
+                          .read(navIndexProvider.notifier)
+                          .state = AppTab.plan.index,
+                      icon: const Icon(Icons.add, size: 18),
+                      label: Text(l10n.tripsListNewTrip),
                     ),
-                  // In-progress AI conversations that haven't produced a
-                  // trip yet (specs/continue-where-you-left-off) — the
-                  // discussion phase, above the trips they may become. Same
-                  // shared section as Home; it collapses to nothing when
-                  // empty and already ends in an AppSpacing.lg gap, so the
-                  // My Trips header below needs no top padding of its own.
-                  const ContinueChatsSection(),
-                  // Always-on section header — before it existed only next to
-                  // a resumable-chats section, leaving the common case with
-                  // bare cards under the app bar. "Upcoming" (not the app
-                  // bar's "My trips" again) mirrors "Past trips" below, and
-                  // its action is the populated list's one create affordance
-                  // (the empty state keeps its own Plan-a-trip button).
-                  if (state.trips.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.xs, 0, 0, AppSpacing.sm),
-                      child: SectionHeader(
-                        title: l10n.tripsListUpcoming,
-                        action: TextButton.icon(
-                          onPressed: () => ref
-                              .read(navIndexProvider.notifier)
-                              .state = AppTab.plan.index,
-                          icon: const Icon(Icons.add, size: 18),
-                          label: Text(l10n.tripsListNewTrip),
+                  ),
+                ),
+              ),
+            if (hero != null)
+              PageContainer(
+                stretch: true,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: UpNextTripCard(
+                    trip: hero,
+                    onTap: () => _openTrip(context, ref, hero.id),
+                  ),
+                ),
+              ),
+            for (final t in upcomingCards)
+              PageContainer(
+                  stretch: true, child: _TripCard(trip: t, isAdmin: isAdmin)),
+            // Trips others invited this user to co-plan, directly under
+            // the traveler's own plans: "mine" then "ours" then "was",
+            // which is the order someone actually asks these questions
+            // in. Kept a separate section — "mine" vs "shared with me"
+            // is the mental model, and the row shows the owner instead
+            // of admin version chrome.
+            //
+            // AppSpacing.xl is this page's section seam from here down.
+            // Dropping any one of them back to sm re-attaches that
+            // section to the one above it.
+            if (sharedOrdered.isNotEmpty) ...[
+              PageContainer(
+                stretch: true,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.xs, AppSpacing.xl, 0, AppSpacing.sm),
+                  child: SectionHeader(title: l10n.tripsListSharedWithYou),
+                ),
+              ),
+              for (final t in sharedOrdered)
+                PageContainer(
+                    stretch: true, child: _TripCard(trip: t, isAdmin: false)),
+            ],
+            // Finished trips. The group is still collapsed by default —
+            // a trips page is about what's ahead — but it is no longer a
+            // bare row floating between two card runs, which is how a
+            // whole travel history came to be the easiest thing on the
+            // page to miss. It now sits in a section card of its own
+            // weight, and opens into a quiet index INSIDE that card:
+            // one bounded object, not six more cards. Its expanded flag
+            // stays in SCREEN state (the CollapsibleSection contract), so
+            // the sliver disposing this child on a long scroll can't
+            // collapse it behind the traveler's back.
+            if (groups.past.isNotEmpty)
+              PageContainer(
+                stretch: true,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.xl),
+                  child: Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.lg, vertical: AppSpacing.xs),
+                      child: CollapsibleSection(
+                        title: l10n.tripsListPastTrips,
+                        icon: Icons.history,
+                        // Teases the latest finished trip rather than
+                        // aggregating: the lifetime aggregate lives in
+                        // "Your travels" below, and "where you just were"
+                        // is what earns the expand tap.
+                        summary: _pastSummary(groups.past.first, l10n),
+                        pill: StatusPill.custom(
+                          label:
+                              l10n.tripsListPastTripsCount(groups.past.length),
+                          background:
+                              theme.colorScheme.surfaceContainerHighest,
+                          foreground: theme.colorScheme.onSurfaceVariant,
                         ),
-                      ),
-                    ),
-                  if (hero != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                      child: UpNextTripCard(
-                        trip: hero,
-                        onTap: () => _openTrip(context, ref, hero.id),
-                      ),
-                    ),
-                  for (final t in upcomingCards)
-                    _TripCard(trip: t, isAdmin: isAdmin),
-                  // Trips others invited this user to co-plan, directly under
-                  // the traveler's own plans: "mine" then "ours" then "was",
-                  // which is the order someone actually asks these questions
-                  // in. Kept a separate section — "mine" vs "shared with me"
-                  // is the mental model, and the row shows the owner instead
-                  // of admin version chrome.
-                  //
-                  // AppSpacing.xl is this page's section seam from here down.
-                  // Dropping any one of them back to sm re-attaches that
-                  // section to the one above it.
-                  if (sharedOrdered.isNotEmpty) ...[
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.xs, AppSpacing.xl, 0, AppSpacing.sm),
-                      child: SectionHeader(title: l10n.tripsListSharedWithYou),
-                    ),
-                    for (final t in sharedOrdered)
-                      _TripCard(trip: t, isAdmin: false),
-                  ],
-                  // Finished trips. The group is still collapsed by default —
-                  // a trips page is about what's ahead — but it is no longer a
-                  // bare row floating between two card runs, which is how a
-                  // whole travel history came to be the easiest thing on the
-                  // page to miss. It now sits in a section card of its own
-                  // weight, and opens into a quiet index INSIDE that card:
-                  // one bounded object, not six more cards.
-                  if (groups.past.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: AppSpacing.xl),
-                      child: Card(
-                        clipBehavior: Clip.antiAlias,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.lg,
-                              vertical: AppSpacing.xs),
-                          child: CollapsibleSection(
-                            title: l10n.tripsListPastTrips,
-                            icon: Icons.history,
-                            // Teases the latest finished trip rather than
-                            // aggregating: the lifetime aggregate lives in
-                            // "Your travels" below, and "where you just were"
-                            // is what earns the expand tap.
-                            summary: _pastSummary(groups.past.first, l10n),
-                            pill: StatusPill.custom(
-                              label: l10n
-                                  .tripsListPastTripsCount(groups.past.length),
-                              background:
-                                  theme.colorScheme.surfaceContainerHighest,
-                              foreground: theme.colorScheme.onSurfaceVariant,
-                            ),
-                            expanded: _pastExpanded,
-                            onToggle: () =>
-                                setState(() => _pastExpanded = !_pastExpanded),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                for (var i = 0; i < groups.past.length; i++) ...[
-                                  // Hairlines between rows, never around them:
-                                  // the section card already draws the box, so
-                                  // a divider only has to separate siblings —
-                                  // and the first row needs none, its header
-                                  // is directly above it.
-                                  if (i > 0) const Divider(height: 1),
-                                  _TripCard(
-                                    trip: groups.past[i],
-                                    isAdmin: isAdmin,
-                                    isPast: true,
-                                    flat: true,
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  // The retrospective closes the page: everywhere this
-                  // traveler has been, on one map, captioned by the numbers.
-                  // It used to sit between the upcoming run and the past
-                  // trips, where an unlabeled map over a stats panel was the
-                  // "Up next" hero's silhouette — and where it put a second
-                  // map in the middle of a scroll about plans. The header and
-                  // the card share one gate: a title with nothing under it is
-                  // worse than neither.
-                  if (showFootprint) ...[
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.xs, AppSpacing.xl, 0, AppSpacing.sm),
-                      child: SectionHeader(
-                        title: l10n.tripsListYourTravels,
-                        // Two actions, passed as one WRAP — not a Row.
-                        // SectionHeader's own Wrap already drops this whole
-                        // group onto its own line, which is what its dartdoc
-                        // promises and what a phone gets: verified in the
-                        // browser, 360dp English keeps the title and both
-                        // actions on ONE line, and Spanish drops the pair
-                        // together onto a second. A Row would render
-                        // identically at every shipped width — the Wrap is
-                        // here so the pair CAN break inside itself if it ever
-                        // has to (a large accessibility text scale, a longer
-                        // translation) instead of overflowing.
-                        //
-                        // Both actions stay here. "+ Add past trip" does not
-                        // move: specs/log-past-trip placed it in this header
-                        // deliberately, and relocating it re-opens that
-                        // decision.
-                        // Runs stack flush-LEFT in the rare case the pair
-                        // does break, so the buttons land on the title's own
-                        // edge rather than lining up on the wider button's
-                        // right edge, which is neither margin.
-                        action: Wrap(
-                          crossAxisAlignment: WrapCrossAlignment.center,
+                        expanded: _pastExpanded,
+                        onToggle: () =>
+                            setState(() => _pastExpanded = !_pastExpanded),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // The way into the atlas. A marked action rather
-                            // than a tappable card: the card carries no
-                            // affordance, and every pin on it is a 44px hit
-                            // box already spending taps on a tooltip — the
-                            // most inviting targets would be the ones that
-                            // didn't open it.
-                            if (showAtlas)
-                              TextButton(
-                                key: kTravelAtlasSeeAllKey,
-                                onPressed: () => openAtlasOnTripsTab(ref),
-                                child: Text(l10n.travelAtlasSeeAll),
+                            for (var i = 0; i < groups.past.length; i++) ...[
+                              // Hairlines between rows, never around them:
+                              // the section card already draws the box, so
+                              // a divider only has to separate siblings —
+                              // and the first row needs none, its header
+                              // is directly above it.
+                              if (i > 0) const Divider(height: 1),
+                              _TripCard(
+                                trip: groups.past[i],
+                                isAdmin: isAdmin,
+                                isPast: true,
+                                flat: true,
                               ),
-                            // The band's own gap-filler
-                            // (specs/log-past-trip): the section reads as
-                            // "everywhere you've been" while knowing only what
-                            // this app planned, so the way to correct it
-                            // belongs in its header. It can't be the ONLY way
-                            // in — the header is gated at 2+ owned trips —
-                            // hence the app-bar and empty-state twins.
-                            TextButton.icon(
-                              key: kLogTripSectionActionKey,
-                              onPressed: () => openLogTripOnTripsTab(ref),
-                              icon: const Icon(Icons.add, size: 18),
-                              label: Text(l10n.logTripAction),
-                            ),
+                            ],
                           ],
                         ),
                       ),
                     ),
-                    TravelFootprintCard(
-                      pins: pins,
-                      traveled: stats.traveled,
-                      planned: stats.planned,
-                    ),
-                  ],
-                ],
+                  ),
+                ),
               ),
-            ),
+            // The retrospective closes the page: everywhere this
+            // traveler has been, on one map, captioned by the numbers.
+            // It used to sit between the upcoming run and the past
+            // trips, where an unlabeled map over a stats panel was the
+            // "Up next" hero's silhouette — and where it put a second
+            // map in the middle of a scroll about plans. The header and
+            // the card share one gate: a title with nothing under it is
+            // worse than neither. The header stays THIS page's child —
+            // never the card's — a peer of "Upcoming" (PR #401's pin).
+            if (showFootprint) ...[
+              PageContainer(
+                stretch: true,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.xs, AppSpacing.xl, 0, AppSpacing.sm),
+                  child: SectionHeader(
+                    title: l10n.tripsListYourTravels,
+                    // Two actions, passed as one WRAP — not a Row.
+                    // SectionHeader's own Wrap already drops this whole
+                    // group onto its own line, which is what its dartdoc
+                    // promises and what a phone gets: verified in the
+                    // browser, 360dp English keeps the title and both
+                    // actions on ONE line, and Spanish drops the pair
+                    // together onto a second. A Row would render
+                    // identically at every shipped width — the Wrap is
+                    // here so the pair CAN break inside itself if it ever
+                    // has to (a large accessibility text scale, a longer
+                    // translation) instead of overflowing.
+                    //
+                    // Both actions stay here. "+ Add past trip" does not
+                    // move: specs/log-past-trip placed it in this header
+                    // deliberately, and relocating it re-opens that
+                    // decision.
+                    // Runs stack flush-LEFT in the rare case the pair
+                    // does break, so the buttons land on the title's own
+                    // edge rather than lining up on the wider button's
+                    // right edge, which is neither margin.
+                    action: Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        // The way into the atlas. A marked action rather
+                        // than a tappable card: the card carries no
+                        // affordance, and every pin on it is a 44px hit
+                        // box already spending taps on a tooltip — the
+                        // most inviting targets would be the ones that
+                        // didn't open it.
+                        if (showAtlas)
+                          TextButton(
+                            key: kTravelAtlasSeeAllKey,
+                            onPressed: () => openAtlasOnTripsTab(ref),
+                            child: Text(l10n.travelAtlasSeeAll),
+                          ),
+                        // The band's own gap-filler
+                        // (specs/log-past-trip): the section reads as
+                        // "everywhere you've been" while knowing only what
+                        // this app planned, so the way to correct it
+                        // belongs in its header. It can't be the ONLY way
+                        // in — the header is gated at 2+ owned trips —
+                        // hence the app-bar and empty-state twins.
+                        TextButton.icon(
+                          key: kLogTripSectionActionKey,
+                          onPressed: () => openLogTripOnTripsTab(ref),
+                          icon: const Icon(Icons.add, size: 18),
+                          label: Text(l10n.logTripAction),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              PageContainer(
+                stretch: true,
+                child: TravelFootprintCard(
+                  pins: pins,
+                  traveled: stats.traveled,
+                  planned: stats.planned,
+                ),
+              ),
+            ],
           ],
         ),
       );

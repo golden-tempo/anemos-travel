@@ -160,6 +160,13 @@ void main() {
       (WidgetTester tester) async {
     await pumpHome(tester);
 
+    // Home builds its sections lazily (perf audit finding 1), and a new
+    // account's 440px photo hero holds the rail past the build horizon at
+    // this surface size — reach it the way a traveler does. The invariant
+    // under test (the rail EXISTS for this account state) is unchanged.
+    await tester.scrollUntilVisible(find.byType(HomeInspirationRail), 200,
+        scrollable: find.byType(Scrollable).first);
+
     expect(find.byType(HomeInspirationRail), findsOneWidget);
   });
 
@@ -190,6 +197,12 @@ void main() {
     });
 
     expect(find.text('Lisbon Trip'), findsOneWidget);
+    // Lazy Home list: the rail sits past the build horizon under the
+    // continue hero — scroll it in. The short scroll keeps the hero inside
+    // the list's top cache extent, so the ORDER assertion below still has
+    // both geometries to compare.
+    await tester.scrollUntilVisible(find.byType(HomeInspirationRail), 200,
+        scrollable: find.byType(Scrollable).first);
     expect(find.byType(HomeInspirationRail), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('Lisbon Trip')).dy,

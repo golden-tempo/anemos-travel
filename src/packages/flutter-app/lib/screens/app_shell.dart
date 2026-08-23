@@ -62,7 +62,9 @@ class AppShell extends ConsumerWidget {
             // offscreen) while keeping their state, scroll positions, and
             // GlobalKeys mounted — deliberately NOT unmounting or swapping
             // placeholders, and NOT keyed off ModalRoute.isCurrent (a hidden
-            // tab's top route still reports current).
+            // tab's top route still reports current). It doubles as the
+            // visibility signal AppMapVisibilityGate (app_map.dart) reads,
+            // so a hidden tab's map bands mount no live FlutterMap.
             //
             // The catch, and it bites: a nested Navigator is the vsync for its
             // own route transitions and sits INSIDE this TickerMode, so a

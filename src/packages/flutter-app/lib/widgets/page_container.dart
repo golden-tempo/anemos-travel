@@ -11,14 +11,24 @@ class PageContainer extends StatelessWidget {
   final Widget child;
   final double maxWidth;
 
-  const PageContainer({super.key, required this.child, this.maxWidth = 700});
+  /// Force [child] to the full capped width. A page that lays its sections
+  /// out as independent, lazily-built ListView children wraps each one with
+  /// this in place of the `crossAxisAlignment: stretch` its old single
+  /// Column applied — a Card or section handed the default loose
+  /// constraints would shrink-wrap instead.
+  final bool stretch;
+
+  const PageContainer(
+      {super.key, required this.child, this.maxWidth = 700, this.stretch = false});
 
   @override
   Widget build(BuildContext context) {
     return Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
-        child: child,
+        child: stretch
+            ? SizedBox(width: double.infinity, child: child)
+            : child,
       ),
     );
   }
