@@ -3676,6 +3676,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get refineResumeFailed => 'Couldn\'t reopen this conversation.';
 
   @override
+  String get refineDockResize => 'Resize the chat';
+
+  @override
+  String get refineDockResizeHint => 'Drag to resize · double-click to reset';
+
+  @override
+  String refineDockResizeValue(int width) {
+    return '$width pixels wide';
+  }
+
+  @override
   String get tripContinueChat => 'Continue chat';
 
   @override

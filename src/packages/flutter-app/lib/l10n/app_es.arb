@@ -1038,6 +1038,9 @@
   "refineResumeGone": "Esta conversaci\u00f3n ha caducado.",
   "refineResumeGoneDetail": "Se borr\u00f3 o se elimin\u00f3 junto con su viaje. Puedes empezar una nueva.",
   "refineResumeFailed": "No se pudo reabrir esta conversaci\u00f3n.",
+  "refineDockResize": "Ajustar el ancho del chat",
+  "refineDockResizeHint": "Arrastra para ajustar \u00b7 doble clic para restablecer",
+  "refineDockResizeValue": "{width} p\u00edxeles de ancho",
   "tripContinueChat": "Continuar chat",
   "tripContinueChatMeta": "{count, plural, =1{1 mensaje} other{{count} mensajes}} \u00b7 {age}",
   "@tripContinueChatMeta": {

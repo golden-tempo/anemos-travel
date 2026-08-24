@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:travel_route_planner/models/plan_message.dart';
 import 'package:travel_route_planner/providers/plan_provider.dart';
+import 'package:travel_route_planner/providers/refine_dock_provider.dart';
 import 'package:travel_route_planner/services/api_client.dart';
 import 'package:travel_route_planner/services/plan_service.dart';
 import 'package:travel_route_planner/widgets/chat_panel.dart';
@@ -13,7 +14,7 @@ import 'support/l10n_test_app.dart';
 
 /// Chat bubbles span 78% of the hosting panel's own width — not the window —
 /// capping at 720px on wide panels, keeping line lengths readable. Covers the
-/// full-width phone/desktop hosts plus the 400px refine-dock host. Plus the
+/// full-width phone/desktop hosts plus the refine-dock host. Plus the
 /// es spot-check for the result chip's newly localized "View in trip" label.
 
 class _SeededPlanNotifier extends PlanNotifier {
@@ -81,13 +82,16 @@ void main() {
     expect(_bubbleMaxWidth(tester), closeTo(312, 0.01));
   });
 
-  testWidgets('bubbles size to the hosting panel, not the window (400px dock)',
+  testWidgets('bubbles size to the hosting panel, not the window (refine dock)',
       (WidgetTester tester) async {
-    await _pumpLongMessageAt(tester, const Size(1200, 900), hostWidth: 400);
-    // 0.78 × the dock's own 400px — were the cap still window-derived,
+    await _pumpLongMessageAt(tester, const Size(1200, 900),
+        hostWidth: kRefineDockDefaultWidth);
+    // 0.78 × the dock's own width — were the cap still window-derived,
     // 0.78 × 1200 would blow past the dock and clamp bubbles to its full
-    // width (the pre-fix regression).
-    expect(_bubbleMaxWidth(tester), closeTo(312, 0.01));
+    // width (the pre-fix regression). Reads the dock constant rather than a
+    // literal, so dragging the dock's default can never silently retire this.
+    expect(_bubbleMaxWidth(tester),
+        closeTo(kRefineDockDefaultWidth * 0.78, 0.01));
   });
 
   testWidgets('result chip "View in trip" label is localized (es)',

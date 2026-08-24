@@ -6056,6 +6056,24 @@ abstract class AppLocalizations {
   /// **'Couldn\'t reopen this conversation.'**
   String get refineResumeFailed;
 
+  /// No description provided for @refineDockResize.
+  ///
+  /// In en, this message translates to:
+  /// **'Resize the chat'**
+  String get refineDockResize;
+
+  /// No description provided for @refineDockResizeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag to resize · double-click to reset'**
+  String get refineDockResizeHint;
+
+  /// No description provided for @refineDockResizeValue.
+  ///
+  /// In en, this message translates to:
+  /// **'{width} pixels wide'**
+  String refineDockResizeValue(int width);
+
   /// No description provided for @tripContinueChat.
   ///
   /// In en, this message translates to:
