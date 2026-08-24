@@ -169,16 +169,18 @@ func TestPlanStrippedImageOnlyMessageGetsMarker(t *testing.T) {
 
 // assertSingleFriendlyError asserts the handler wrote exactly one SSE error
 // event containing want, and stopped there (no model call happened — the fake
-// would fail the test on an unscripted turn).
+// would fail the test on an unscripted turn). The reject stream is exactly
+// stream_start + error + the terminal turn_end every stream must end with.
 func assertSingleFriendlyError(t *testing.T, rec interface{ String() string }, want string) {
 	t.Helper()
 	out := rec.String()
 	if !strings.Contains(out, `"type":"error"`) || !strings.Contains(out, want) {
 		t.Fatalf("stream = %q, want an SSE error containing %q", out, want)
 	}
-	if strings.Count(out, "data: ") != 1 {
-		t.Fatalf("stream = %q, want exactly one event (handler must stop after rejecting)", out)
+	if strings.Count(out, "data: ") != 3 {
+		t.Fatalf("stream = %q, want exactly stream_start + error + turn_end", out)
 	}
+	assertLastEventIsTurnEnd(t, out, "error")
 }
 
 func TestPlanRejectsImagesOnAssistantMessage(t *testing.T) {

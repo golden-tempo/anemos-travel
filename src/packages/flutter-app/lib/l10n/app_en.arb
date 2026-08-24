@@ -2419,6 +2419,10 @@
   "chatTryAgain": "Try again",
   "chatQueued": "Queued",
   "chatRemoveQueued": "Remove queued message",
+  "chatStreamInterrupted": "The connection was interrupted before the reply finished, so it wasn't kept.",
+  "@chatStreamInterrupted": {
+    "description": "Error banner when the /plan SSE stream dies mid-reply (server restart, dropped connection): the partial text is discarded, and the banner's Try again regenerates the whole reply."
+  },
   "agentScreenTitle": "Plan your trip",
   "agentScreenStartOver": "Start over",
   "agentScreenEmptyTitle": "Where are we going?",

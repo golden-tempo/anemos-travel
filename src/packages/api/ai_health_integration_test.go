@@ -142,8 +142,15 @@ func TestPlanClientAbortRecordsNoAIFailure(t *testing.T) {
 		t.Fatal("planHandler did not return after client abort")
 	}
 
-	if out := rec.Body.String(); strings.Contains(out, `"type":"error"`) {
+	out := rec.Body.String()
+	if strings.Contains(out, `"type":"error"`) {
 		t.Fatalf("stream = %q, want no error event on client abort", out)
+	}
+	// A client abort is the one exit with nobody left to write to: no
+	// turn_end either (unlike the graceful-shutdown drain, which writes
+	// turn_end "server_restart" to a live socket).
+	if strings.Contains(out, `"type":"turn_end"`) {
+		t.Fatalf("stream = %q, want no turn_end on client abort", out)
 	}
 	if s := aiHealth.state(); s.Failing || s.FatalTotal != 0 || s.TransientTotal != 0 {
 		t.Fatalf("tracker after client abort = %+v, want untouched", s)

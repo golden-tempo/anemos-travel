@@ -5906,6 +5906,12 @@ abstract class AppLocalizations {
   /// **'Remove queued message'**
   String get chatRemoveQueued;
 
+  /// Error banner when the /plan SSE stream dies mid-reply (server restart, dropped connection): the partial text is discarded, and the banner's Try again regenerates the whole reply.
+  ///
+  /// In en, this message translates to:
+  /// **'The connection was interrupted before the reply finished, so it wasn\'t kept.'**
+  String get chatStreamInterrupted;
+
   /// No description provided for @agentScreenTitle.
   ///
   /// In en, this message translates to:

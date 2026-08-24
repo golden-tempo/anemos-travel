@@ -1013,6 +1013,7 @@
   "chatTryAgain": "Intentar de nuevo",
   "chatQueued": "En cola",
   "chatRemoveQueued": "Quitar mensaje en cola",
+  "chatStreamInterrupted": "La conexión se interrumpió antes de que terminara la respuesta, así que no se conservó.",
   "agentScreenTitle": "Planea tu viaje",
   "agentScreenStartOver": "Empezar de nuevo",
   "agentScreenEmptyTitle": "¿Adónde vamos?",

@@ -264,8 +264,29 @@ func TestPlanHandlerRejectsTooManyMessages(t *testing.T) {
 	if !strings.Contains(out, "too long") || !strings.Contains(out, "start a new chat") {
 		t.Fatalf("stream = %q, want the conversation-too-long message", out)
 	}
-	if strings.Count(out, "data: ") != 1 {
-		t.Fatalf("stream = %q, want exactly one event (handler must stop after rejecting)", out)
+	// stream_start + error + turn_end, nothing more: the handler must stop
+	// after rejecting, and every stream must still end with the terminal frame.
+	if strings.Count(out, "data: ") != 3 {
+		t.Fatalf("stream = %q, want exactly stream_start + error + turn_end", out)
+	}
+	assertLastEventIsTurnEnd(t, out, "error")
+}
+
+// assertLastEventIsTurnEnd parses the SSE body and requires its final event to
+// be the terminal turn_end frame carrying the given stop_reason — the contract
+// that lets the client tell a finished turn from a dead socket.
+func assertLastEventIsTurnEnd(t *testing.T, body, stopReason string) {
+	t.Helper()
+	events := planEvents(t, body)
+	if len(events) == 0 {
+		t.Fatalf("stream carried no events: %q", body)
+	}
+	last := events[len(events)-1]
+	if last["type"] != "turn_end" {
+		t.Fatalf("last event = %v, want turn_end (stream must end with the terminal frame)", last)
+	}
+	if got := eventData(last)["stop_reason"]; got != stopReason {
+		t.Fatalf("turn_end stop_reason = %v, want %q", got, stopReason)
 	}
 }
 
@@ -278,9 +299,10 @@ func TestPlanHandlerRejectsOversizedMessage(t *testing.T) {
 	if !strings.Contains(out, `"type":"error"`) || !strings.Contains(out, "too long") {
 		t.Fatalf("stream = %q, want an SSE error event about an oversized message", out)
 	}
-	if strings.Count(out, "data: ") != 1 {
-		t.Fatalf("stream = %q, want exactly one event", out)
+	if strings.Count(out, "data: ") != 3 {
+		t.Fatalf("stream = %q, want exactly stream_start + error + turn_end", out)
 	}
+	assertLastEventIsTurnEnd(t, out, "error")
 }
 
 func TestPlanHandlerRejectsOversizedSummary(t *testing.T) {
@@ -293,9 +315,10 @@ func TestPlanHandlerRejectsOversizedSummary(t *testing.T) {
 	if !strings.Contains(out, `"type":"error"`) || !strings.Contains(out, "too long") {
 		t.Fatalf("stream = %q, want an SSE error event about an oversized summary", out)
 	}
-	if strings.Count(out, "data: ") != 1 {
-		t.Fatalf("stream = %q, want exactly one event", out)
+	if strings.Count(out, "data: ") != 3 {
+		t.Fatalf("stream = %q, want exactly stream_start + error + turn_end", out)
 	}
+	assertLastEventIsTurnEnd(t, out, "error")
 }
 
 func TestNotesPreview(t *testing.T) {

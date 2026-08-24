@@ -104,9 +104,10 @@ class PlanState {
   /// the record-selects in _ResultStrips depend on) true by construction.
   final HotelStayResults? hotels;
 
-  // Either a friendly String the /plan SSE stream sent, or a raw caught error
-  // (ApiException) from a failed connect. friendlyError() renders both: it
-  // passes a String through unchanged and classifies an ApiException.
+  // Either a friendly String the /plan SSE stream sent, a raw caught error
+  // (ApiException) from a failed connect, or a [StreamInterruptedException]
+  // when the stream died mid-reply. friendlyError() renders all three: it
+  // passes a String through unchanged and classifies the typed errors.
   final Object? error;
 
   /// Messages the user sent while a turn was streaming, waiting FIFO to be
@@ -493,6 +494,13 @@ class PlanNotifier extends StateNotifier<PlanState> {
     // banner owns such a turn, so reply chips are dropped in either event
     // order (specs/chat-quick-replies).
     var itineraryThisTurn = false;
+    // Terminal-frame protocol: a server that sends `stream_start` promises to
+    // end every turn with a `turn_end` frame carrying stop_reason. Only that
+    // frame can tell "the model finished" from "the connection died" — both
+    // otherwise look like the bytes stopping. Absent stream_start (an older
+    // server, e.g. a rollback) the old commit-on-close behavior stands.
+    var terminatedStreams = false;
+    String? turnEndReason;
 
     try {
       await for (final event in _service.streamPlan(history,
@@ -608,6 +616,15 @@ class PlanNotifier extends StateNotifier<PlanState> {
             // hidden until the stream closes.
             state = state.copyWith(
                 suggestedReplies: raw.whereType<String>().toList());
+
+          case 'stream_start':
+            terminatedStreams = true;
+
+          case 'turn_end':
+            // Missing stop_reason defaults to success: the frame's PRESENCE is
+            // what says the server ended the turn deliberately; only a reason
+            // that explicitly names an abnormal end may discard the reply.
+            turnEndReason = event.data['stop_reason'] as String? ?? 'end_turn';
 
           case 'thinking':
             state = state.copyWith(isThinking: true);
@@ -769,6 +786,30 @@ class PlanNotifier extends StateNotifier<PlanState> {
       if (turn != _turn) return;
       _endStreamBuffer();
       if (!mounted) return;
+
+      // The stream closed. On a terminal-frame server, only turn_end
+      // "end_turn" says the model finished; the stream ending without one —
+      // or with an abnormal reason like "server_restart" — means the
+      // connection died mid-reply. The streamed text is a half-reply, not a
+      // message: committing it is how a stump entered the transcript (and,
+      // mirrored by the server's deferred save, durable history, where the
+      // next turn's model read it as its own finished thought). Discard it
+      // and engage the same banner + retryLastSend path a non-200 uses —
+      // retry rolls back to just before the user message and resends.
+      if (terminatedStreams && turnEndReason != 'end_turn') {
+        state = state.copyWith(
+          isStreaming: false,
+          streamingText: null,
+          activeTools: [],
+          isCompacting: false,
+          isThinking: false,
+          // An interrupted turn must not leave reply chips competing with
+          // the error banner's Try again.
+          suggestedReplies: [],
+          error: const StreamInterruptedException(),
+        );
+        return;
+      }
 
       // Commit streamed assistant text as a message
       final assistantText = textBuffer.toString();

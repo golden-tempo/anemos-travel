@@ -5,6 +5,7 @@ import 'package:travel_route_planner/l10n/l10n.dart';
 import 'package:travel_route_planner/services/api_client.dart';
 import 'package:http/http.dart' as http;
 import 'package:travel_route_planner/services/auth_service.dart';
+import 'package:travel_route_planner/services/plan_service.dart';
 import 'package:travel_route_planner/utils/errors.dart';
 
 import 'support/l10n_test_app.dart';
@@ -88,5 +89,18 @@ void main() {
     final l10n = await pumpL10n(tester);
     expect(friendlyError(l10n, http.ClientException('Connection refused')),
         l10n.errorNetwork);
+  });
+
+  testWidgets(
+      'maps a mid-reply stream interruption to its own localized message',
+      (tester) async {
+    final l10n = await pumpL10n(tester);
+    expect(friendlyError(l10n, const StreamInterruptedException()),
+        l10n.chatStreamInterrupted);
+
+    final es = await pumpL10n(tester, locale: const Locale('es'));
+    expect(friendlyError(es, const StreamInterruptedException()),
+        es.chatStreamInterrupted);
+    expect(es.chatStreamInterrupted, contains('conexión'));
   });
 }

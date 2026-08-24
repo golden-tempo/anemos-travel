@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import '../l10n/l10n.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/plan_service.dart';
 
 /// Maps a caught error to a short, localized, user-facing message so raw
 /// [ApiException] dumps never reach a snackbar or error banner.
@@ -45,6 +46,9 @@ String friendlyError(AppLocalizations l10n, Object? error) {
     if (error.statusCode >= 500) return l10n.errorServer;
     return l10n.errorGeneric;
   }
+  // The /plan stream died mid-reply (server restart, dropped connection): the
+  // half-streamed text was discarded, and the banner's retry regenerates it.
+  if (error is StreamInterruptedException) return l10n.chatStreamInterrupted;
   // A socket-level failure never got an HTTP status: offline, DNS, CORS.
   if (error is http.ClientException) return l10n.errorNetwork;
   return l10n.errorGeneric;
