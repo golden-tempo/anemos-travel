@@ -215,6 +215,17 @@ var planToolRegistry = []planTool{
 	// the rest of the booking-todo family; which trip is resolved by trip_id
 	// at call time. Tail-appended per the prompt-cache rule above.
 	{def: migrateBookingTodoTool, enabled: authedOnly, run: runMigrateBookingTodoTool},
+
+	// Shift the REST of the trip from one city's arrival onward — the suffix
+	// move that gives a city more or fewer nights without robbing the next one
+	// (specs/leg-departure-dates ticket 3). set_trip_dates moves the whole
+	// trip and set_leg_dates is endpoint-anchored and can only ever move one
+	// leg, so "give Prague another night" used to be a chain of set_leg_dates
+	// calls each taking a night off the city after it. Signed-in only, like
+	// every date tool — the anonymous tools array stays byte-identical and
+	// takes no cache re-warm. Target-trip resolution shares
+	// resolveDateShiftTrip. Tail-appended per the prompt-cache rule above.
+	{def: shiftDaysFromTool, enabled: authedOnly, run: runShiftDaysFromTool},
 }
 
 // planToolByName dispatches tool_use blocks; derived from the registry so the

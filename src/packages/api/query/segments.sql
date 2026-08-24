@@ -64,6 +64,21 @@ SET depart_date = depart_date + sqlc.arg(days)::int,
 WHERE trip_id = sqlc.arg(trip_id)
   AND (depart_date IS NOT NULL OR arrive_date IS NOT NULL);
 
+-- name: ShiftSegmentDatesFrom :execrows
+-- Suffix date shift (agent shift_days_from): ShiftSegmentDates with a date
+-- floor. Unlike ShiftAccommodationDatesFrom this moves a segment AS A UNIT,
+-- membership decided by its arrival (fallback departure): a segment's two
+-- dates are one physical journey (specs/overnight-arrivals), so an overnight
+-- ride into the pivot city departs later too rather than being stretched
+-- across the shift. A journey is part of the suffix when it LANDS in it.
+-- Raw UPDATE: auto drafts shift without being confirmed. Undated segments
+-- don't move and aren't counted.
+UPDATE trip_segments
+SET depart_date = depart_date + sqlc.arg(days)::int,
+    arrive_date = arrive_date + sqlc.arg(days)::int
+WHERE trip_id = sqlc.arg(trip_id)
+  AND COALESCE(arrive_date, depart_date) >= sqlc.arg(from_date)::date;
+
 -- name: PromoteSegmentFromOption :one
 -- Materializes a chosen booking option (00065) as the leg's real transport.
 -- Same contract as PromoteAccommodationFromOption — see its comment for why
