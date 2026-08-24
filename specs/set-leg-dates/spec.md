@@ -45,6 +45,21 @@ the trip start (confirmed stay still wins), a first-leg start change steers
 to set_trip_dates, and a squeeze NOTE names the consumed next leg and tells
 the agent to chain follow-up set_leg_dates calls.
 
+**Superseded in part 2026-08-24 (v4, specs/leg-departure-dates ticket 2).**
+The boundary rule ended the convention v2 was built on: a leg's rendered end
+is now the NEXT leg's arrival (its own stay's check-out, or the trip's end
+for the final leg), never its own last item day. So item renumbering is
+START-anchored again — the v2 END-anchored drag moved places the traveler
+deliberately kept off the travel day — the previous-boundary extension
+survives only for a confirmed stay's check-out (item-dated neighbours render
+correctly with no write), an explicit `end_date` is honoured only where the
+departure lives on the leg's own rows and refuses-with-steer elsewhere, and
+every range a result states comes from `computeTripLegs` (the gap/squeeze
+NOTEs below, which quoted raw item spans, are gone — a date gap between legs
+is unrepresentable on the page). Acceptance items below describing the
+END-anchored renumber, the placeholder end-carrier, and the squeeze NOTE
+describe v2/v3 behaviour and are pinned no further.
+
 ## User Stories
 
 - As a **traveler refining a saved multi-city trip in chat**, I want to say

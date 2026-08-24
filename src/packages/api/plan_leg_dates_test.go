@@ -1,20 +1,28 @@
 package main
 
-// set_leg_dates (specs/set-leg-dates): one city leg's dates move, the rest of
-// the trip doesn't — except the PREVIOUS leg's end, which extends to meet a
-// later start (the trip screen draws a leg from its neighbor's end, so an
-// unmoved boundary makes the change invisible). Unit tables cover the pure
-// run-splitting and endpoint-anchored delta math; the DB tests assert the
-// headline dogfood scenario (Panama City -> LA -> EWR, "change LA to Sep
-// 24-27"), the placeholder end-carrier shape, honest zero-change results
-// (no commit, no trip_updated), the shrink clamp, the auto-draft skip,
-// overlap narrate-only, validation atomicity, collaborator authz, and
-// lineage resolution on a later turn.
+// set_leg_dates (specs/set-leg-dates + specs/leg-departure-dates ticket 2):
+// one city leg's dates move, the rest of the trip doesn't. Items are
+// START-anchored — they carry the leg's arrival and are never dragged onto a
+// departure day — and a PREVIOUS leg pinned by a confirmed stay has its
+// check-out extended to meet a later start (computeTripLegs would otherwise
+// pull the moved leg's rendered start back to that check-out). An explicit
+// end_date is honoured only where the departure lives on this leg's own rows
+// (stay check-out, or the trip end for the final leg); elsewhere it refuses
+// and steers. Every range a result states about any leg comes from
+// computeTripLegs — the acceptance-5 sweep below asserts it date by date.
+// Unit tables cover the pure run-splitting and delta math; the DB tests
+// assert the headline dogfood scenario (Panama City -> LA -> EWR, "change LA
+// to Sep 24-27"), the placeholder start-carrier shape, honest zero-change
+// results (no commit, no trip_updated), the end_date gate's three verdicts,
+// the shrink clamp, the auto-draft skip, overlap narration from rendered
+// spans, validation atomicity, collaborator authz, and lineage resolution on
+// a later turn.
 
 import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -143,6 +151,13 @@ func TestLegRunsAndMatching(t *testing.T) {
 // LAST (the trip has no end date, so its single item day is all it has), and
 // the last leg legitimately ends on the day the traveler flies home.
 // TestLegsRenderWarning covers the case that does warn.
+//
+// The "Unplanned stretches" soft block leads on this placeholder-shaped trip
+// and that is deliberate: each city's single item is its arrival marker, so
+// the tail nights genuinely hold no plans — a true, softly-framed fact
+// ("mention, don't fix"), not a render defect. It is also the honest
+// replacement for the retired "gap between legs" narration: the unplanned
+// nights sit INSIDE Prague, they are not a hole between Prague and Kraków.
 func TestLegsRenderSummary(t *testing.T) {
 	items := []store.ItineraryItem{
 		legItem(0, "Prague", "", 4),  // first leg, anchored to trip start
@@ -150,7 +165,10 @@ func TestLegsRenderSummary(t *testing.T) {
 		legItem(2, "Berlin", "", 12), // Sep 4
 	}
 	got := legsRenderSummary(rlTrip("2026-08-24", ""), items, nil)
-	want := "- Prague: 2026-08-24 to 2026-09-02 (9 nights, dated by its places)\n" +
+	want := "Unplanned stretches — true on the page, fine if intended (mention, don't fix): " +
+		"Prague renders 2026-08-24 to 2026-09-02 (9 nights) but its last place is 2026-08-27 — 6 nights with nothing planned; " +
+		"Kraków renders 2026-09-02 to 2026-09-04 (2 nights) but its last place is 2026-09-02 — 2 nights with nothing planned.\n" +
+		"- Prague: 2026-08-24 to 2026-09-02 (9 nights, dated by its places)\n" +
 		"- Kraków: 2026-09-02 to 2026-09-04 (2 nights, dated by its places)\n" +
 		"- Berlin: 2026-09-04 to 2026-09-04 (0 nights, dated by its places)\n"
 	if got != want {
@@ -257,6 +275,61 @@ func daysEqual(a []int, b ...int) bool {
 	return true
 }
 
+var legDateRe = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
+
+// assertDatesFromRenderedLegs is acceptance 5 of specs/leg-departure-dates,
+// date by date: every YYYY-MM-DD a set_leg_dates result states must be a date
+// the trip's CURRENT rendered legs also state — or the trip row's own dates,
+// a saved item's calendar day (results may cite where places sit), or a date
+// the caller's ask itself supplied (extra). Anything else is a number from a
+// derivation the page doesn't render, the class of defect that produced the
+// "2-night gap" report over a gapless screen.
+func assertDatesFromRenderedLegs(t *testing.T, msg string, tripID, ownerID uuid.UUID, extra ...string) {
+	t.Helper()
+	ctx := context.Background()
+	q := store.New(dbPool)
+	trip, err := q.GetEditableTripByID(ctx, store.GetEditableTripByIDParams{ID: tripID, UserID: ownerID})
+	if err != nil {
+		t.Fatalf("sweep trip read: %v", err)
+	}
+	items, err := q.GetItineraryItemsByTrip(ctx, tripID)
+	if err != nil {
+		t.Fatalf("sweep items read: %v", err)
+	}
+	stays, err := q.ListAccommodationsByTrip(ctx, tripID)
+	if err != nil {
+		t.Fatalf("sweep stays read: %v", err)
+	}
+	allowed := map[string]bool{}
+	for _, d := range extra {
+		allowed[d] = true
+	}
+	if trip.StartDate.Valid {
+		allowed[trip.StartDate.Time.Format(dateLayout)] = true
+		for _, it := range items {
+			if it.Day != nil && *it.Day >= 1 {
+				allowed[trip.StartDate.Time.AddDate(0, 0, int(*it.Day)-1).Format(dateLayout)] = true
+			}
+		}
+	}
+	if trip.EndDate.Valid {
+		allowed[trip.EndDate.Time.Format(dateLayout)] = true
+	}
+	for _, leg := range computeTripLegs(trip, items, stays) {
+		if leg.Start != nil {
+			allowed[leg.Start.Format(dateLayout)] = true
+		}
+		if leg.End != nil {
+			allowed[leg.End.Format(dateLayout)] = true
+		}
+	}
+	for _, d := range legDateRe.FindAllString(msg, -1) {
+		if !allowed[d] {
+			t.Fatalf("result states %s, a date neither the rendered legs, the trip row, the saved items, nor the ask carries:\n%s", d, msg)
+		}
+	}
+}
+
 // The headline dogfood scenario: "change LA to Sep 24-27" moves the LA items,
 // stay, and boundary flights (by DIFFERENT deltas), extends the trip end,
 // drags Panama City's stay check-out to the new arrival (boundary extension),
@@ -295,19 +368,30 @@ func TestPlanSetLegDatesMovesOneLeg(t *testing.T) {
 	}
 	followUp := string(reqs[1])
 	for _, want := range []string{
-		"Los Angeles is now 2026-09-24 to 2026-09-27",
+		// The headline and every neighbour range are the PAGE's — from
+		// computeTripLegs, re-read after the commit (acceptance 5).
+		"Los Angeles is now 2026-09-24 to 2026-09-27 on the trip page (3 nights)",
 		"Trip end extended to 2026-09-27",
 		"Panama City now ends 2026-09-24 (was 2026-09-20)",
-		"check-out moved to match this leg's start",
+		"check-out moved to match this leg's arrival",
+		"The page now renders these city legs:",
+		"- Panama City: 2026-09-15 to 2026-09-24",
+		"- Los Angeles: 2026-09-24 to 2026-09-27",
 		"ORIGINAL dates",
 	} {
 		if !strings.Contains(followUp, want) {
 			t.Fatalf("tool_result round-trip missing %q:\n%s", want, followUp)
 		}
 	}
-	// The boundary extension closed the gap, so no uncovered-nights NOTE.
-	if strings.Contains(followUp, "uncovered night(s)") {
-		t.Fatalf("gap NOTE should be suppressed after the boundary extension:\n%s", followUp)
+	// A date gap between two legs is unrepresentable on the page — no result
+	// may claim one. (followUp is the whole model request, and the system
+	// prompt still says "gap" until ticket 4 rewrites it, so this pins the
+	// retired TOOL strings; TestPlanSetLegDatesResultQuotesOnlyRenderedDates
+	// sweeps the bare result text.)
+	for _, stale := range []string{"uncovered night(s)", "has no nights left", "set_leg_dates once per leg in order"} {
+		if strings.Contains(followUp, stale) {
+			t.Fatalf("result carries the retired raw-span NOTE %q:\n%s", stale, followUp)
+		}
 	}
 
 	if got := legDays(t, trip.ID, "Los Angeles"); !daysEqual(got, 10, 11, 12, 13) {
@@ -351,8 +435,10 @@ func TestPlanSetLegDatesMovesOneLeg(t *testing.T) {
 
 // seedPlaceholderTwoCityTrip is the shape import + placeholder itineraries
 // produce (and the real dogfood trip that exposed the invisible-move bug):
-// one city-filler item per city whose single day encodes the leg's DEPARTURE,
-// no stays or segments at all.
+// one city-filler item per city, no stays or segments at all. The day values
+// were historically written to encode each leg's DEPARTURE; the boundary rule
+// reads a leg's items as its ARRIVAL evidence, so this same shape renders
+// Panama City Sep 15–24 and Los Angeles Sep 24–27 (the trip end).
 func seedPlaceholderTwoCityTrip(t *testing.T, trip store.Trip, owner uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
@@ -378,11 +464,15 @@ func seedPlaceholderTwoCityTrip(t *testing.T, trip store.Trip, owner uuid.UUID) 
 	}
 }
 
-// A single-item placeholder leg is an END-carrier: its one day is the
-// departure day the screen renders, so "LA Sep 24-27" must land that item on
-// Sep 27 and drag Panama City's departure day to Sep 24 — the exact ask that
-// used to "succeed" while the page never changed.
-func TestPlanSetLegDatesPlaceholderEndCarrier(t *testing.T) {
+// A single-item placeholder leg is a START-carrier under the boundary rule:
+// its one day is the ARRIVAL the screen renders, its end comes from the trip
+// (or the next city). "LA Sep 24-27" on this trip asks for exactly what the
+// page already shows — LA's item sits on Sep 24 and the trip ends Sep 27 — so
+// the honest answer is a no-op that SAYS the page already shows it. The old
+// end-anchored renumber instead dragged LA's item to Sep 27 and Panama
+// City's to Sep 24, "succeeding" into a corrupted spine that rendered LA as
+// a Sep 27 arrival-day visit.
+func TestPlanSetLegDatesPlaceholderAlreadyRenderedIsNoOp(t *testing.T) {
 	resetDB(t)
 	user, _ := createTestUser(t, "placeholder@example.com")
 	trip := createTestTrip(t, user.ID, 0)
@@ -392,68 +482,98 @@ func TestPlanSetLegDatesPlaceholderEndCarrier(t *testing.T) {
 	s.boundTripID = &trip.ID
 	msg, isErr := runSetLegDatesTool(s, []byte(`{"city":"Los Angeles","start_date":"2026-09-24","end_date":"2026-09-27"}`))
 	if isErr {
-		t.Fatalf("placeholder move errored: %s", msg)
+		t.Fatalf("placeholder no-op errored: %s", msg)
 	}
 	for _, want := range []string{
-		"Los Angeles is now 2026-09-24 to 2026-09-27",
-		"Panama City now ends 2026-09-24 (was 2026-09-20)",
-		"last itinerary day moved to match this leg's start",
+		"No saved rows changed",
+		"shows this leg as 2026-09-24 to 2026-09-27",
+		"was NOT refreshed",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("result missing %q: %s", want, msg)
 		}
 	}
-	if !strings.Contains(rec.Body.String(), "trip_updated") {
-		t.Fatal("placeholder move did not emit trip_updated")
+	if strings.Contains(rec.Body.String(), "trip_updated") {
+		t.Fatal("no-op emitted trip_updated")
 	}
-	if got := legDays(t, trip.ID, "Los Angeles"); !daysEqual(got, 13) {
-		t.Fatalf("LA day = %v, want [13] (Sep 27, the departure day)", got)
+	if got := legDays(t, trip.ID, "Los Angeles"); !daysEqual(got, 10) {
+		t.Fatalf("LA day = %v, want [10] (Sep 24, the arrival) unmoved", got)
 	}
-	if got := legDays(t, trip.ID, "Panama City"); !daysEqual(got, 10) {
-		t.Fatalf("PC day = %v, want [10] (Sep 24, the new boundary)", got)
+	if got := legDays(t, trip.ID, "Panama City"); !daysEqual(got, 6) {
+		t.Fatalf("PC day = %v, want [6] unmoved — item-dated neighbours need no boundary write", got)
 	}
 	if start, end := tripDates(t, trip.ID); start != "2026-09-15" || end != "2026-09-27" {
 		t.Fatalf("trip dates = %s/%s, want unchanged 2026-09-15/2026-09-27", start, end)
 	}
 }
 
-// Re-asking for a state the trip already holds must commit nothing, emit NO
+// A real placeholder move rides the START: "arrive LA Sep 22" lands LA's
+// single item on Sep 22 and touches nothing else — Panama City's rendered end
+// follows LA's arrival by derivation, with no physical write to its items.
+func TestPlanSetLegDatesPlaceholderRidesTheStart(t *testing.T) {
+	resetDB(t)
+	user, _ := createTestUser(t, "placestart@example.com")
+	trip := createTestTrip(t, user.ID, 0)
+	seedPlaceholderTwoCityTrip(t, trip, user.ID)
+
+	s, rec := testPlanSession(true, user.ID)
+	s.boundTripID = &trip.ID
+	msg, isErr := runSetLegDatesTool(s, []byte(`{"city":"Los Angeles","start_date":"2026-09-22"}`))
+	if isErr {
+		t.Fatalf("placeholder start move errored: %s", msg)
+	}
+	for _, want := range []string{
+		"Los Angeles is now 2026-09-22 to 2026-09-27 on the trip page (5 nights)",
+		"- Panama City: 2026-09-15 to 2026-09-22",
+		"- Los Angeles: 2026-09-22 to 2026-09-27",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("result missing %q: %s", want, msg)
+		}
+	}
+	if !strings.Contains(rec.Body.String(), "trip_updated") {
+		t.Fatal("start move did not emit trip_updated")
+	}
+	if got := legDays(t, trip.ID, "Los Angeles"); !daysEqual(got, 8) {
+		t.Fatalf("LA day = %v, want [8] (Sep 22, the arrival — never an end anchor)", got)
+	}
+	if got := legDays(t, trip.ID, "Panama City"); !daysEqual(got, 6) {
+		t.Fatalf("PC day = %v, want [6] unmoved", got)
+	}
+	if start, end := tripDates(t, trip.ID); start != "2026-09-15" || end != "2026-09-27" {
+		t.Fatalf("trip dates = %s/%s, want unchanged 2026-09-15/2026-09-27", start, end)
+	}
+}
+
+// Asking for a state the trip already holds must commit nothing, emit NO
 // trip_updated (no phantom "Trip updated" chip), and report the ACTUAL saved
-// state — never echo the requested range as if it were achieved.
+// state — the raw item positions labelled as such, the neighbour's RENDERED
+// end, and the range the page shows — never echo the requested range as if it
+// were achieved. Under the boundary rule "LA Sep 24-27" on this placeholder
+// trip is already what the page renders, so the very first call is a no-op:
+// the old renumber instead "succeeded" by dragging both cities' items.
 func TestPlanSetLegDatesNoOpIsHonest(t *testing.T) {
 	resetDB(t)
 	user, _ := createTestUser(t, "noophonest@example.com")
 	trip := createTestTrip(t, user.ID, 0)
 	seedPlaceholderTwoCityTrip(t, trip, user.ID)
-
-	s1, _ := testPlanSession(true, user.ID)
-	s1.boundTripID = &trip.ID
-	if msg, isErr := runSetLegDatesTool(s1, []byte(`{"city":"Los Angeles","start_date":"2026-09-24","end_date":"2026-09-27"}`)); isErr {
-		t.Fatalf("first move errored: %s", msg)
-	}
 	var touchedAt time.Time
 	if err := dbPool.QueryRow(context.Background(),
 		`SELECT updated_at FROM trips WHERE id = $1`, trip.ID).Scan(&touchedAt); err != nil {
 		t.Fatalf("updated_at query: %v", err)
 	}
 
-	s2, rec2 := testPlanSession(true, user.ID)
-	s2.boundTripID = &trip.ID
-	msg, isErr := runSetLegDatesTool(s2, []byte(`{"city":"Los Angeles","start_date":"2026-09-24","end_date":"2026-09-27"}`))
+	s, rec := testPlanSession(true, user.ID)
+	s.boundTripID = &trip.ID
+	msg, isErr := runSetLegDatesTool(s, []byte(`{"city":"Los Angeles","start_date":"2026-09-24","end_date":"2026-09-27"}`))
 	if isErr {
 		t.Fatalf("no-op errored: %s", msg)
 	}
 	for _, want := range []string{
 		"No saved rows changed",
-		"itinerary items sit on 2026-09-27 to 2026-09-27 (trip days 13-13)",
-		"the previous leg (Panama City) ends 2026-09-24",
-		// LA's single placeholder item sits on its DEPARTURE day (the old
-		// end-anchored renumber's doing), and under the boundary rule a leg's
-		// first item day is its arrival — so the page renders LA as a Sep 27
-		// arrival-day visit and the no-op quotes exactly that, not the range
-		// the earlier call requested. Ticket 2 (specs/leg-departure-dates)
-		// re-anchors the renumber; until then the honest quote IS the point.
-		"shows this leg as 2026-09-27 to 2026-09-27",
+		"itinerary items sit on 2026-09-24 to 2026-09-24 (trip days 10-10)",
+		"on the page the previous leg (Panama City) runs through 2026-09-24",
+		"shows this leg as 2026-09-24 to 2026-09-27",
 		"was NOT refreshed",
 	} {
 		if !strings.Contains(msg, want) {
@@ -463,14 +583,14 @@ func TestPlanSetLegDatesNoOpIsHonest(t *testing.T) {
 	if strings.Contains(msg, "already spans") {
 		t.Fatalf("no-op result echoes the request as achieved: %s", msg)
 	}
-	if strings.Contains(rec2.Body.String(), "trip_updated") {
+	if strings.Contains(rec.Body.String(), "trip_updated") {
 		t.Fatal("no-op emitted trip_updated")
 	}
-	if s2.tripID != nil || s2.itineraryEmitted {
+	if s.tripID != nil || s.itineraryEmitted {
 		t.Fatal("no-op set session itinerary state")
 	}
-	if got := legDays(t, trip.ID, "Los Angeles"); !daysEqual(got, 13) {
-		t.Fatalf("LA day = %v, want [13] unchanged", got)
+	if got := legDays(t, trip.ID, "Los Angeles"); !daysEqual(got, 10) {
+		t.Fatalf("LA day = %v, want [10] unchanged", got)
 	}
 	var after time.Time
 	if err := dbPool.QueryRow(context.Background(),
@@ -483,7 +603,9 @@ func TestPlanSetLegDatesNoOpIsHonest(t *testing.T) {
 }
 
 // Moving a leg EARLIER than the previous leg's end never shrinks the
-// neighbor — the overlap is narrated for the agent to raise instead.
+// neighbor — the overlap (two explicit stays covering the same nights, which
+// the page really does draw) is narrated from the RENDERED spans for the
+// agent to raise instead.
 func TestPlanSetLegDatesOverlapNarratesOnly(t *testing.T) {
 	resetDB(t)
 	user, _ := createTestUser(t, "overlap@example.com")
@@ -496,8 +618,13 @@ func TestPlanSetLegDatesOverlapNarratesOnly(t *testing.T) {
 	if isErr {
 		t.Fatalf("overlap move errored: %s", msg)
 	}
-	if !strings.Contains(msg, "overlaps this leg's start 2026-09-18 by 2 night(s)") {
-		t.Fatalf("result missing the overlap NOTE: %s", msg)
+	for _, want := range []string{
+		"Los Angeles is now 2026-09-18 to 2026-09-20 on the trip page (2 nights)",
+		"NOTE: Panama City still runs through 2026-09-20 on the page, overlapping this leg's new start",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("result missing %q: %s", want, msg)
+		}
 	}
 	if in, out := scanDates(t, `SELECT check_in, check_out FROM accommodations WHERE trip_id = $1 AND name = $2`, trip.ID, "Hotel Casco Viejo"); in != "2026-09-15" || out != "2026-09-20" {
 		t.Fatalf("PC stay = %s/%s, want untouched (neighbors never shrink)", in, out)
@@ -505,10 +632,10 @@ func TestPlanSetLegDatesOverlapNarratesOnly(t *testing.T) {
 }
 
 // seedPragueKrakowBerlinTrip is Brian's real post-move trip head: single
-// placeholder items whose day encodes each city's DEPARTURE, first city's
-// item pushed past day 1 by an earlier boundary extension, no stays or
-// segments. krakowDay parameterizes the middle leg (9 = the squeezed state,
-// 6 = the pre-squeeze state).
+// placeholder items (read as each city's ARRIVAL evidence under the boundary
+// rule), the first city's item sitting past day 1, no stays or segments.
+// krakowDay parameterizes the middle leg (9 = sharing Berlin's arrival day,
+// 6 = a clean chain, 10 = inverted past Berlin).
 func seedPragueKrakowBerlinTrip(t *testing.T, trip store.Trip, owner uuid.UUID, krakowDay int) {
 	t.Helper()
 	ctx := context.Background()
@@ -546,14 +673,14 @@ func TestPlanSetLegDatesFirstLegNoOpReportsAnchoredRange(t *testing.T) {
 
 	s, rec := testPlanSession(true, user.ID)
 	s.boundTripID = &trip.ID
-	msg, isErr := runSetLegDatesTool(s, []byte(`{"city":"Prague","start_date":"2026-08-24","end_date":"2026-08-27"}`))
+	msg, isErr := runSetLegDatesTool(s, []byte(`{"city":"Prague","start_date":"2026-08-24"}`))
 	if isErr {
 		t.Fatalf("first-leg no-op errored: %s", msg)
 	}
 	for _, want := range []string{
 		"No saved rows changed",
 		"itinerary items sit on 2026-08-27 to 2026-08-27 (trip days 4-4)",
-		// The anchored START is still quoted; the end is now Kraków's day-9
+		// The anchored START is still quoted; the end is Kraków's day-9
 		// arrival (Sep 1), the boundary rule — not Prague's own item day.
 		"shows this leg as 2026-08-24 to 2026-09-01",
 		"was NOT refreshed",
@@ -567,6 +694,45 @@ func TestPlanSetLegDatesFirstLegNoOpReportsAnchoredRange(t *testing.T) {
 	}
 	if got := legDays(t, trip.ID, "Prague"); !daysEqual(got, 4) {
 		t.Fatalf("Prague day = %v, want [4] unchanged", got)
+	}
+}
+
+// An explicit end_date on a leg whose departure belongs to its neighbour
+// refuses and steers — including on the FIRST leg, whose old steer text
+// promised "call again with the new end_date", a promise the tool no longer
+// keeps. The refusal names the next city, quotes only rendered dates, and
+// spells the exact replacement call.
+func TestPlanSetLegDatesFirstLegEndSteersToNextArrival(t *testing.T) {
+	resetDB(t)
+	user, _ := createTestUser(t, "firstlegend@example.com")
+	trip := createTestTrip(t, user.ID, 0)
+	seedPragueKrakowBerlinTrip(t, trip, user.ID, 9)
+
+	s, rec := testPlanSession(true, user.ID)
+	s.boundTripID = &trip.ID
+	msg, isErr := runSetLegDatesTool(s, []byte(`{"city":"Prague","start_date":"2026-08-24","end_date":"2026-08-27"}`))
+	if !isErr {
+		t.Fatalf("first-leg end change did not refuse: %s", msg)
+	}
+	for _, want := range []string{
+		"Prague's departure day is the next city's arrival",
+		"shows Prague ending 2026-09-01 because Kraków arrives then",
+		`set_leg_dates(city="Kraków", start_date="2026-08-27")`,
+		"shift_days_from",
+		"Nothing was changed",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("steer missing %q: %s", want, msg)
+		}
+	}
+	if strings.Contains(rec.Body.String(), "trip_updated") {
+		t.Fatal("refusal emitted trip_updated")
+	}
+	if got := legDays(t, trip.ID, "Prague"); !daysEqual(got, 4) {
+		t.Fatalf("Prague day = %v, want [4] untouched", got)
+	}
+	if got := legDays(t, trip.ID, "Kraków"); !daysEqual(got, 9) {
+		t.Fatalf("Kraków day = %v, want [9] untouched", got)
 	}
 }
 
@@ -596,11 +762,15 @@ func TestPlanSetLegDatesFirstLegStartSteersToTripDates(t *testing.T) {
 	}
 }
 
-// Extending a leg onto the next leg's departure day consumes ALL its nights
-// while the start math reads as contiguous (n == 0) — the squeeze NOTE must
-// name the eaten leg and tell the agent to chain fixes. This replays exactly
-// how Kraków's extension silently zeroed Berlin on Brian's trip.
-func TestPlanSetLegDatesSqueezeNoteNamesNextLeg(t *testing.T) {
+// The squeeze, in its post-boundary-rule shape: an END can no longer consume
+// the next leg (an interior end_date refuses), but a START moved onto the
+// next city's arrival pinches the MOVED leg to zero nights. The result's
+// rendered-legs block carries the warning — computed by the one derivation,
+// naming the city that shares the day — and the moved leg's own headline
+// states the zero-night range. The acceptance-5 sweep runs here: every date
+// this success result states is a date the rendered legs (or the saved
+// items, or the trip row) also state.
+func TestPlanSetLegDatesStartOntoNextArrivalWarnsZeroNight(t *testing.T) {
 	resetDB(t)
 	user, _ := createTestUser(t, "squeeze@example.com")
 	trip := createTestTrip(t, user.ID, 0)
@@ -608,27 +778,34 @@ func TestPlanSetLegDatesSqueezeNoteNamesNextLeg(t *testing.T) {
 
 	s, rec := testPlanSession(true, user.ID)
 	s.boundTripID = &trip.ID
-	msg, isErr := runSetLegDatesTool(s, []byte(`{"city":"Kraków","start_date":"2026-08-27","end_date":"2026-09-01"}`))
+	msg, isErr := runSetLegDatesTool(s, []byte(`{"city":"Kraków","start_date":"2026-09-01"}`))
 	if isErr {
-		t.Fatalf("squeeze move errored: %s", msg)
+		t.Fatalf("zero-night move errored: %s", msg)
 	}
 	for _, want := range []string{
-		"Kraków is now 2026-08-27 to 2026-09-01",
-		"Berlin has no nights left",
-		"set_leg_dates once per leg in order",
+		"Kraków is now 2026-09-01 to 2026-09-01 on the trip page (0 nights)",
+		"WARNING",
+		"Kraków renders ZERO nights — the next city (Berlin) arrives on or before it",
+		"- Prague: 2026-08-24 to 2026-09-01",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("result missing %q: %s", want, msg)
 		}
 	}
-	if !strings.Contains(rec.Body.String(), "trip_updated") {
-		t.Fatal("squeeze move did not emit trip_updated")
+	for _, stale := range []string{"has no nights left", "set_leg_dates once per leg in order", "uncovered night(s)"} {
+		if strings.Contains(msg, stale) {
+			t.Fatalf("result carries the retired raw-span NOTE %q: %s", stale, msg)
+		}
 	}
+	if !strings.Contains(rec.Body.String(), "trip_updated") {
+		t.Fatal("zero-night move did not emit trip_updated")
+	}
+	assertDatesFromRenderedLegs(t, msg, trip.ID, user.ID)
 	if got := legDays(t, trip.ID, "Kraków"); !daysEqual(got, 9) {
-		t.Fatalf("Kraków day = %v, want [9] (Sep 1, the departure)", got)
+		t.Fatalf("Kraków day = %v, want [9] (Sep 1, the new arrival)", got)
 	}
 	if got := legDays(t, trip.ID, "Prague"); !daysEqual(got, 4) {
-		t.Fatalf("Prague day = %v, want [4] (contiguous — no boundary move)", got)
+		t.Fatalf("Prague day = %v, want [4] (item-dated neighbours get no boundary write)", got)
 	}
 	if got := legDays(t, trip.ID, "Berlin"); !daysEqual(got, 9) {
 		t.Fatalf("Berlin day = %v, want [9] (next leg never auto-moves)", got)
@@ -638,26 +815,28 @@ func TestPlanSetLegDatesSqueezeNoteNamesNextLeg(t *testing.T) {
 // An INVERTED pair (Kraków's item day sits past Berlin's) no longer collapses
 // Berlin: under the boundary rule Berlin's day-9 item is its ARRIVAL and the
 // trip-end anchor runs it to Sep 27, while Kraków is the leg that pinches.
-// The no-op report must quote the range the page actually renders, not the
-// stale item dates; and the natural fix ask (move Berlin to Kraków's end) must
-// be a real move, not a no-op.
+// The no-op report must quote the range the page actually renders — and the
+// neighbour's RENDERED end, not its raw item day; and the natural fix ask
+// (move Berlin's arrival to Sep 2) must be a real move, not a no-op.
 func TestPlanSetLegDatesInvertedLegNoOpQuotesRenderedRange(t *testing.T) {
 	resetDB(t)
 	user, _ := createTestUser(t, "inverted@example.com")
 	trip := createTestTrip(t, user.ID, 0)
-	// Kraków day 10 (Sep 2) ends AFTER Berlin's day 9 (Sep 1): strict inversion.
+	// Kraków day 10 (Sep 2) sits AFTER Berlin's day 9 (Sep 1): strict inversion.
 	seedPragueKrakowBerlinTrip(t, trip, user.ID, 10)
 
 	s1, rec1 := testPlanSession(true, user.ID)
 	s1.boundTripID = &trip.ID
-	msg, isErr := runSetLegDatesTool(s1, []byte(`{"city":"Berlin","start_date":"2026-09-01","end_date":"2026-09-01"}`))
+	msg, isErr := runSetLegDatesTool(s1, []byte(`{"city":"Berlin","start_date":"2026-09-01"}`))
 	if isErr {
 		t.Fatalf("inverted no-op errored: %s", msg)
 	}
 	for _, want := range []string{
 		"No saved rows changed",
 		"itinerary items sit on 2026-09-01 to 2026-09-01 (trip days 9-9)",
-		"the previous leg (Kraków) ends 2026-09-02",
+		// Kraków pinches to a zero-night stop at its own Sep 2 arrival — that
+		// is its rendered end, and the only end a result may quote.
+		"on the page the previous leg (Kraków) runs through 2026-09-02",
 		"shows this leg as 2026-09-01 to 2026-09-27",
 		"was NOT refreshed",
 	} {
@@ -672,15 +851,15 @@ func TestPlanSetLegDatesInvertedLegNoOpQuotesRenderedRange(t *testing.T) {
 		t.Fatalf("Berlin day = %v, want [9] unchanged", got)
 	}
 
-	// The fix: move Berlin to the arrival day — a real move.
+	// The fix: move Berlin's arrival to Sep 2 — a real move.
 	s2, rec2 := testPlanSession(true, user.ID)
 	s2.boundTripID = &trip.ID
-	msg, isErr = runSetLegDatesTool(s2, []byte(`{"city":"Berlin","start_date":"2026-09-02","end_date":"2026-09-02"}`))
+	msg, isErr = runSetLegDatesTool(s2, []byte(`{"city":"Berlin","start_date":"2026-09-02"}`))
 	if isErr {
 		t.Fatalf("fix move errored: %s", msg)
 	}
-	if !strings.Contains(msg, "Berlin is now 2026-09-02 to 2026-09-02") {
-		t.Fatalf("fix result missing new range: %s", msg)
+	if !strings.Contains(msg, "Berlin is now 2026-09-02 to 2026-09-27 on the trip page") {
+		t.Fatalf("fix result missing new rendered range: %s", msg)
 	}
 	if !strings.Contains(rec2.Body.String(), "trip_updated") {
 		t.Fatal("fix move did not emit trip_updated")
@@ -703,9 +882,9 @@ func TestPlanSetLegDatesShrinkClampsItems(t *testing.T) {
 	if isErr {
 		t.Fatalf("shrink errored: %s", msg)
 	}
-	// Day 9 is the end-carrier (an anchor move, not a fold), so only day 8
-	// counts as clamped.
-	for _, want := range []string{"folded onto 2026-09-25", "1 item(s)"} {
+	// Items ride the start (+4 → days 10..13); the window ends day 11, so days
+	// 12 and 13 both fold — no end-carrier exemption exists anymore.
+	for _, want := range []string{"folded onto 2026-09-25", "2 item(s)"} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("result missing %q: %s", want, msg)
 		}
@@ -907,13 +1086,14 @@ func TestPlanSetLegDatesFreshChatNextTurnLineage(t *testing.T) {
 	if got := legDays(t, tid, "Santorini"); !daysEqual(got, 3, 4) {
 		t.Fatalf("Santorini days = %v, want [3 4]", got)
 	}
-	// Athens has no confirmed stay, so the boundary extension moves its last
-	// itinerary day to Santorini's new start — and the result says so.
-	if got := legDays(t, tid, "Athens"); !daysEqual(got, 3) {
-		t.Fatalf("Athens days = %v, want [3] (boundary extension)", got)
+	// Athens is item-dated, so it needs NO boundary write: its rendered end IS
+	// Santorini's new arrival, and the result's legs block states it. (The old
+	// items-case extension physically dragged Athens' day-1 item to day 3.)
+	if got := legDays(t, tid, "Athens"); !daysEqual(got, 1) {
+		t.Fatalf("Athens days = %v, want [1] untouched", got)
 	}
-	if reqs := fa2.requestBodies(); len(reqs) < 2 || !strings.Contains(string(reqs[1]), "Athens now ends 2026-06-03 (was 2026-06-01)") {
-		t.Fatalf("missing Athens boundary narration in follow-up request")
+	if reqs := fa2.requestBodies(); len(reqs) < 2 || !strings.Contains(string(reqs[1]), "- Athens: 2026-06-01 to 2026-06-03") {
+		t.Fatalf("missing Athens rendered range in follow-up request")
 	}
 	if _, end := tripDates(t, tid); end != "2026-06-04" {
 		t.Fatalf("trip end = %s, want extended to 2026-06-04", end)
@@ -928,13 +1108,172 @@ func TestPlanSetLegDatesFreshChatNextTurnLineage(t *testing.T) {
 	}
 }
 
-// The two ways a spine's dates go wrong, named ABOVE the leg list so the model
-// meets them before the ranges they describe.
+// The ticket's spine — the Berlin/Gothenburg incident, replayed against the
+// gate. The observed failure: Berlin's places end Sep 10, Gothenburg's first
+// place is Sep 12, and the tool reported "a 2-night gap between Berlin (ends
+// Sep 10) and Gothenburg (starts Sep 12)" while the page drew Berlin running
+// to Sep 12 — raw item spans quoted as screen dates. Now: the end-change
+// refuses (Berlin's departure IS Gothenburg's arrival), the refusal quotes
+// only rendered dates, names the exact replacement call, and claims no gap.
+func TestPlanSetLegDatesEndOnInteriorLegRefusesAndSteers(t *testing.T) {
+	resetDB(t)
+	user, _ := createTestUser(t, "berlingot@example.com")
+	trip := createTestTrip(t, user.ID, 0)
+	ctx := context.Background()
+	q := store.New(dbPool)
+	if _, err := q.UpdateTrip(ctx, store.UpdateTripParams{
+		ID: trip.ID, UserID: user.ID,
+		StartDate: validDate("2026-09-07"), EndDate: validDate("2026-09-15"),
+	}); err != nil {
+		t.Fatalf("seed trip dates: %v", err)
+	}
+	for i, seed := range []struct {
+		name, city string
+		day        int
+	}{
+		{"Museum Island", "Berlin", 1},
+		{"East Side Gallery", "Berlin", 4}, // Sep 10 — Berlin's last place
+		{"Haga District", "Gothenburg", 6}, // Sep 12 — Berlin's rendered end
+		{"Liseberg", "Gothenburg", 8},
+	} {
+		d := int32(seed.day)
+		city := seed.city
+		if _, err := q.CreateItineraryItem(ctx, store.CreateItineraryItemParams{
+			TripID: trip.ID, Position: int32(i), Name: seed.name,
+			City: &city, Day: &d, Latitude: 52.51, Longitude: 13.39,
+		}); err != nil {
+			t.Fatalf("seed item %s: %v", seed.name, err)
+		}
+	}
+
+	s, rec := testPlanSession(true, user.ID)
+	s.boundTripID = &trip.ID
+	msg, isErr := runSetLegDatesTool(s, []byte(`{"city":"Berlin","start_date":"2026-09-07","end_date":"2026-09-10"}`))
+	if !isErr {
+		t.Fatalf("interior end change did not refuse: %s", msg)
+	}
+	for _, want := range []string{
+		"Berlin's departure day is the next city's arrival",
+		"shows Berlin ending 2026-09-12 because Gothenburg arrives then",
+		`set_leg_dates(city="Gothenburg", start_date="2026-09-10")`,
+		"shift_days_from",
+		"Nothing was changed",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("steer missing %q: %s", want, msg)
+		}
+	}
+	// No result text claims a date gap between two legs — a gap is
+	// unrepresentable on the page under the boundary rule.
+	for _, banned := range []string{"gap", "uncovered"} {
+		if strings.Contains(msg, banned) {
+			t.Fatalf("refusal claims a between-legs %s the page cannot draw: %s", banned, msg)
+		}
+	}
+	assertDatesFromRenderedLegs(t, msg, trip.ID, user.ID, "2026-09-10")
+	if strings.Contains(rec.Body.String(), "trip_updated") {
+		t.Fatal("refusal emitted trip_updated")
+	}
+	if got := legDays(t, trip.ID, "Berlin"); !daysEqual(got, 1, 4) {
+		t.Fatalf("Berlin days = %v, want [1 4] untouched", got)
+	}
+	if got := legDays(t, trip.ID, "Gothenburg"); !daysEqual(got, 6, 8) {
+		t.Fatalf("Gothenburg days = %v, want [6 8] untouched", got)
+	}
+}
+
+// A place on the leg's last item day survives a set_leg_dates call unmoved —
+// the ticket's headline regression. An end-only move on a stay-anchored leg
+// used to drag the last item onto the new check-out day; now the check-out
+// (and the departing transport, and the trip end) move while every place
+// stays exactly where the traveler put it.
+func TestPlanSetLegDatesEndMoveLeavesItemsAlone(t *testing.T) {
+	resetDB(t)
+	user, _ := createTestUser(t, "endonly@example.com")
+	trip := createTestTrip(t, user.ID, 0)
+	seedMultiCityTrip(t, trip, user.ID)
+
+	s, rec := testPlanSession(true, user.ID)
+	s.boundTripID = &trip.ID
+	msg, isErr := runSetLegDatesTool(s, []byte(`{"city":"Los Angeles","start_date":"2026-09-20","end_date":"2026-09-26"}`))
+	if isErr {
+		t.Fatalf("end-only move errored: %s", msg)
+	}
+	for _, want := range []string{
+		"Los Angeles is now 2026-09-20 to 2026-09-26 on the trip page (6 nights)",
+		"Trip end extended to 2026-09-26",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("result missing %q: %s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "folded onto") {
+		t.Fatalf("a lengthening end move folded items: %s", msg)
+	}
+	if !strings.Contains(rec.Body.String(), "trip_updated") {
+		t.Fatal("end-only move did not emit trip_updated")
+	}
+	assertDatesFromRenderedLegs(t, msg, trip.ID, user.ID)
+	if got := legDays(t, trip.ID, "Los Angeles"); !daysEqual(got, 6, 7, 8, 9) {
+		t.Fatalf("LA days = %v, want [6 7 8 9] — no place rides a departure day", got)
+	}
+	if in, out := scanDates(t, `SELECT check_in, check_out FROM accommodations WHERE trip_id = $1 AND name = $2`, trip.ID, "Stay in Los Angeles"); in != "2026-09-20" || out != "2026-09-26" {
+		t.Fatalf("LA stay = %s/%s, want 2026-09-20/2026-09-26", in, out)
+	}
+	if dep, _ := scanDates(t, `SELECT depart_date, arrive_date FROM trip_segments WHERE trip_id = $1 AND origin = $2`, trip.ID, "Los Angeles"); dep != "2026-09-26" {
+		t.Fatalf("departure segment departs %s, want 2026-09-26 (rides the check-out)", dep)
+	}
+	if _, end := tripDates(t, trip.ID); end != "2026-09-26" {
+		t.Fatalf("trip end = %s, want extended to 2026-09-26", end)
+	}
+}
+
+// Shortening the FINAL leg is shortening the trip: its rendered end is the
+// trip's end date, which this tool only extends. The refusal steers to
+// set_trip_dates with the exact dates, and start-only remains offered.
+func TestPlanSetLegDatesLastLegShrinkSteersToTripDates(t *testing.T) {
+	resetDB(t)
+	user, _ := createTestUser(t, "lastshrink@example.com")
+	trip := createTestTrip(t, user.ID, 0)
+	seedPragueKrakowBerlinTrip(t, trip, user.ID, 6)
+
+	s, rec := testPlanSession(true, user.ID)
+	s.boundTripID = &trip.ID
+	msg, isErr := runSetLegDatesTool(s, []byte(`{"city":"Berlin","start_date":"2026-09-01","end_date":"2026-09-05"}`))
+	if !isErr {
+		t.Fatalf("last-leg shrink did not refuse: %s", msg)
+	}
+	for _, want := range []string{
+		"Berlin is the trip's last city",
+		"2026-09-27",
+		"set_trip_dates",
+		"end_date=2026-09-05",
+		"start_date only",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("steer missing %q: %s", want, msg)
+		}
+	}
+	if strings.Contains(rec.Body.String(), "trip_updated") {
+		t.Fatal("refusal emitted trip_updated")
+	}
+	if got := legDays(t, trip.ID, "Berlin"); !daysEqual(got, 9) {
+		t.Fatalf("Berlin day = %v, want [9] untouched", got)
+	}
+	if _, end := tripDates(t, trip.ID); end != "2026-09-27" {
+		t.Fatalf("trip end = %s, want untouched 2026-09-27", end)
+	}
+}
+
+// The ways a spine's rendered dates go wrong, named ABOVE the leg list so the
+// model meets them before the ranges they describe — plus the SOFT unplanned-
+// stretches block and its one-night silence threshold.
 func TestLegsRenderWarning(t *testing.T) {
 	// Porto and Madrid share the Sep 4 arrival: Porto is a genuine zero-night
-	// stop, and it is NOT the last leg, so this must warn. (An arrival-anchor
-	// spine no longer collapses — a leg runs to the next arrival — so a shared
-	// arrival day is the one shape left that renders zero nights.)
+	// stop (ZeroNight, read from the derivation), it is NOT the last leg, and
+	// the line names the city that arrives with it. The remedy must steer to
+	// arrival moves — never to planting a place on a day (the retired
+	// convention that produced the Prague Airport Starbucks).
 	collapsed := legsRenderSummary(rlTrip("2026-09-01", "2026-09-08"), []store.ItineraryItem{
 		rlItem(0, "Time Out Market", rlCity("Lisbon"), 1),
 		rlItem(1, "Livraria Lello", rlCity("Porto"), 4),
@@ -943,9 +1282,36 @@ func TestLegsRenderWarning(t *testing.T) {
 	if !strings.HasPrefix(collapsed, "WARNING") {
 		t.Fatalf("a zero-night interior leg did not lead with a warning:\n%s", collapsed)
 	}
-	for _, want := range []string{"Porto renders ZERO nights", "set_leg_dates"} {
+	for _, want := range []string{
+		"Porto renders ZERO nights",
+		"the next city (Madrid) arrives on or before it",
+		"set_leg_dates", "shift_days_from",
+		"never add a place just to hold a date",
+	} {
 		if !strings.Contains(collapsed, want) {
 			t.Fatalf("warning missing %q:\n%s", want, collapsed)
+		}
+	}
+	for _, stale := range []string{"no place sits on the day they move on", "give the city a place"} {
+		if strings.Contains(collapsed, stale) {
+			t.Fatalf("warning still carries the retired convention %q:\n%s", stale, collapsed)
+		}
+	}
+
+	// A place dated after the day its leg ends on the page: the boundary rule
+	// strands it instead of widening the leg, and the warning reads the
+	// derivation's own finding (RenderLeg.itemsPastEnd) — never a re-derived
+	// condition. Kraków ends at Berlin's Sep 1 arrival; its Sep 2 item is
+	// outside its own city's dates.
+	stranded := legsRenderSummary(rlTrip("2026-08-24", "2026-09-27"), []store.ItineraryItem{
+		rlItem(0, "Old Town Square", rlCity("Prague"), 4),
+		rlItem(1, "Wawel Castle", rlCity("Kraków"), 6),
+		rlItem(2, "Schindler's Factory", rlCity("Kraków"), 10),
+		rlItem(3, "Brandenburg Gate", rlCity("Berlin"), 9),
+	}, nil)
+	for _, want := range []string{"WARNING", "Kraków has a place dated after 2026-09-01", "outside its own city's rendered dates"} {
+		if !strings.Contains(stranded, want) {
+			t.Fatalf("stranded-item warning missing %q:\n%s", want, stranded)
 		}
 	}
 
@@ -961,6 +1327,42 @@ func TestLegsRenderWarning(t *testing.T) {
 		t.Fatalf("an auto-dated leg's line did not state its provenance:\n%s", guessed)
 	}
 
+	// The unplanned-stretches threshold, both sides of it. ONE place-free
+	// night before a departure is the normal spine — every correctly-built
+	// trip has one — and must stay silent or the block fires on everything
+	// and gets averaged away. TWO earn the soft line (the Berlin/Gothenburg
+	// shape: Berlin's last place Sep 10, Gothenburg arrives Sep 12 — the
+	// nights are unplanned INSIDE Berlin; there is no gap between legs).
+	oneNight := legsRenderSummary(rlTrip("2026-09-01", "2026-09-06"), []store.ItineraryItem{
+		rlItem(0, "Time Out Market", rlCity("Lisbon"), 1),
+		rlItem(1, "Pastéis de Belém", rlCity("Lisbon"), 3), // departs Sep 4: 1 free night
+		rlItem(2, "Livraria Lello", rlCity("Porto"), 4),
+		rlItem(3, "Cais da Ribeira", rlCity("Porto"), 5), // trip ends Sep 6: 1 free night
+	}, nil)
+	if strings.Contains(oneNight, "Unplanned") || strings.Contains(oneNight, "WARNING") {
+		t.Fatalf("the normal one-night spine was not silent:\n%s", oneNight)
+	}
+	twoNights := legsRenderSummary(rlTrip("2026-09-07", "2026-09-14"), []store.ItineraryItem{
+		rlItem(0, "Museum Island", rlCity("Berlin"), 1),
+		rlItem(1, "East Side Gallery", rlCity("Berlin"), 4), // Sep 10
+		rlItem(2, "Haga District", rlCity("Gothenburg"), 6), // arrives Sep 12
+	}, nil)
+	for _, want := range []string{
+		"Unplanned stretches",
+		"Berlin renders 2026-09-07 to 2026-09-12 (5 nights) but its last place is 2026-09-10 — 2 nights with nothing planned",
+		"mention, don't fix",
+	} {
+		if !strings.Contains(twoNights, want) {
+			t.Fatalf("two free nights missing %q:\n%s", want, twoNights)
+		}
+	}
+	if strings.Contains(twoNights, "WARNING") {
+		t.Fatalf("an unplanned stretch is not a render defect and must not be a WARNING:\n%s", twoNights)
+	}
+	if strings.Contains(twoNights, "gap") {
+		t.Fatalf("no result text may claim a date gap between legs:\n%s", twoNights)
+	}
+
 	// A healthy spine says nothing extra — the warning must not become noise
 	// every itinerary write carries.
 	clean := legsRenderSummary(rlTrip("2026-09-01", "2026-09-08"), []store.ItineraryItem{
@@ -969,8 +1371,9 @@ func TestLegsRenderWarning(t *testing.T) {
 		rlItem(2, "Livraria Lello", rlCity("Porto"), 4),
 		rlItem(3, "Cais da Ribeira", rlCity("Porto"), 6),
 		rlItem(4, "Museo del Prado", rlCity("Madrid"), 6),
+		rlItem(5, "Mercado San Miguel", rlCity("Madrid"), 7),
 	}, nil)
-	if strings.Contains(clean, "WARNING") {
+	if strings.Contains(clean, "WARNING") || strings.Contains(clean, "Unplanned") {
 		t.Fatalf("a well-formed spine warned:\n%s", clean)
 	}
 }
