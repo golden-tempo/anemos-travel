@@ -1622,6 +1622,36 @@ abstract class AppLocalizations {
   /// **'Remove'**
   String get bookingCardRemove;
 
+  /// No description provided for @bookingRemoveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove \"{title}\"?'**
+  String bookingRemoveTitle(String title);
+
+  /// No description provided for @bookingRemoveBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This can\'t be undone.'**
+  String get bookingRemoveBody;
+
+  /// No description provided for @bookingRemoveSavedOptions.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Its 1 saved option is deleted with it.} other{Its {count} saved options are deleted with it.}}'**
+  String bookingRemoveSavedOptions(int count);
+
+  /// No description provided for @bookingRemoveLinkedExpense.
+  ///
+  /// In en, this message translates to:
+  /// **'A linked expense stays in your budget, still counted in what you\'ve spent, with nothing pointing back at a booking.'**
+  String get bookingRemoveLinkedExpense;
+
+  /// No description provided for @bookingRemoveBooked.
+  ///
+  /// In en, this message translates to:
+  /// **'This doesn\'t cancel anything with the provider — if a real reservation exists, only you can cancel it.'**
+  String get bookingRemoveBooked;
+
   /// No description provided for @bookingCardBooked.
   ///
   /// In en, this message translates to:
