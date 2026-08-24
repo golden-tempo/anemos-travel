@@ -454,9 +454,97 @@ extension on _TripDetailScreenState {
   }
 
 
+  /// Asks before removing anything from the Bookings tab, and says what the
+  /// removal costs beyond the row itself.
+  ///
+  /// Every delete here is a hard `DELETE` server-side with no undo, so the ask
+  /// is unconditional. What varies is the stakes, and they are the same three
+  /// the AGENT is already held to before it may remove a booking
+  /// (`bookingTodoStateRefusal` in plan_tools_extra.go) — stated here so the
+  /// two paths to the same destructive act warn about the same things:
+  ///
+  /// - a saved shortlist, which `booking_options` CASCADEs away with the row
+  ///   (migration 00065) — hand-collected research, the most expensive of the
+  ///   three to lose and the only one that leaves no trace;
+  /// - a linked budget expense, which SURVIVES and stays summed into spend
+  ///   with a dangling `source_id` (migration 00061 has no FK by design);
+  /// - `booked`, because removing a checklist row cancels nothing with the
+  ///   provider and the traveler may believe otherwise.
+  ///
+  /// [savedOptions] is 0 for stays and segments: `booking_options` hangs off a
+  /// booking todo alone, and the promoted-option pointers back at a stay or a
+  /// segment are `ON DELETE SET NULL`, so nothing of theirs is destroyed.
+  ///
+  /// Returns true only on an explicit confirm — a dismissed dialog (barrier
+  /// tap, Escape, back gesture) returns null and is a no.
+  Future<bool> _confirmRemoval({
+    required String title,
+    required bool booked,
+    required int savedOptions,
+    required bool hasLinkedExpense,
+  }) async {
+    final l10n = context.l10n;
+    final stakes = [
+      if (savedOptions > 0) l10n.bookingRemoveSavedOptions(savedOptions),
+      if (hasLinkedExpense) l10n.bookingRemoveLinkedExpense,
+      if (booked) l10n.bookingRemoveBooked,
+    ];
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l10n.bookingRemoveTitle(title)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l10n.bookingRemoveBody),
+            for (final line in stakes) ...[
+              const SizedBox(height: AppSpacing.md),
+              Text(line),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(l10n.commonCancel)),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(l10n.bookingCardRemove),
+          ),
+        ],
+      ),
+    );
+    return confirm == true;
+  }
+
+  /// Whether a budget expense points at [id]. Read from the already-loaded
+  /// expenses (the same lookup [_removeLinkedAutoExpense] and the booked
+  /// prompt do); a failure answers "no" rather than blocking the removal —
+  /// a warning we cannot substantiate is not worth refusing a delete over.
+  Future<bool> _hasLinkedExpense(String id) async {
+    try {
+      final expenses = await ref.read(expensesProvider(widget.tripId).future);
+      return expenses.any((e) => e.sourceId == id);
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _deleteTodo(BookingTodo todo) async {
     if (_guardOffline()) return;
     final l10n = context.l10n;
+    if (!await _confirmRemoval(
+      title: todo.title,
+      booked: todo.booked,
+      savedOptions: _trip?.savedOptionsFor(todo.id) ?? 0,
+      hasLinkedExpense: await _hasLinkedExpense(todo.id),
+    )) {
+      return;
+    }
+    if (!mounted) return;
     try {
       await ref
           .read(bookingTodosApiServiceProvider)
@@ -518,6 +606,15 @@ extension on _TripDetailScreenState {
   Future<void> _deleteStay(Accommodation a) async {
     if (_guardOffline()) return;
     final l10n = context.l10n;
+    if (!await _confirmRemoval(
+      title: a.name,
+      booked: a.booked,
+      savedOptions: 0, // a shortlist hangs off a booking todo, not a stay
+      hasLinkedExpense: await _hasLinkedExpense(a.id),
+    )) {
+      return;
+    }
+    if (!mounted) return;
     try {
       await ref
           .read(accommodationsApiServiceProvider)
@@ -576,6 +673,19 @@ extension on _TripDetailScreenState {
   Future<void> _deleteSegment(TripSegment s) async {
     if (_guardOffline()) return;
     final l10n = context.l10n;
+    // The same "Athens → Naxos" the row itself shows (booking_detail_row.dart),
+    // falling back to the mode when neither end is named — a dialog that asks
+    // about "" would be asking about nothing.
+    final route = [s.origin, s.destination].whereType<String>().join(' → ');
+    if (!await _confirmRemoval(
+      title: route.isEmpty ? transportModeLabel(l10n, s.mode) : route,
+      booked: s.booked,
+      savedOptions: 0, // a shortlist hangs off a booking todo, not a segment
+      hasLinkedExpense: await _hasLinkedExpense(s.id),
+    )) {
+      return;
+    }
+    if (!mounted) return;
     try {
       await ref
           .read(transportApiServiceProvider)

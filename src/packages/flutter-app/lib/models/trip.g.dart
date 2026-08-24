@@ -59,6 +59,9 @@ Trip _$TripFromJson(Map<String, dynamic> json) => Trip(
       legs: (json['legs'] as List<dynamic>?)
           ?.map((e) => TripLegDto.fromJson(e as Map<String, dynamic>))
           .toList(),
+      bookingOptionTodoIds: json['booking_options'] == null
+          ? const []
+          : _bookingOptionTodoIdsFromJson(json['booking_options']),
     );
 
 Map<String, dynamic> _$TripToJson(Trip instance) => <String, dynamic>{
@@ -99,4 +102,6 @@ Map<String, dynamic> _$TripToJson(Trip instance) => <String, dynamic>{
       'next_transport_depart': instance.nextTransportDepart,
       'city_pins': instance.cityPins?.map((e) => e.toJson()).toList(),
       'legs': instance.legs?.map((e) => e.toJson()).toList(),
+      'booking_options':
+          _bookingOptionTodoIdsToJson(instance.bookingOptionTodoIds),
     };

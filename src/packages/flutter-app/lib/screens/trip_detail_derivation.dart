@@ -827,6 +827,34 @@ class TripDerivation {
       claimed.add(t.id);
       othersByRun[target].add(t);
     }
+    // Chronological within the city, because that is the order the traveler
+    // will actually do them in — server order is `position, created_at`, which
+    // is the order the AGENT happened to write them and reads as random next
+    // to a dated list ("Aug 25, Aug 25, Aug 24, Aug 26, Aug 24").
+    //
+    // Sorted HERE, at the one place a city's reservations are collected, so
+    // the rows and every count that iterates `bookingSlotEntries` can never
+    // disagree about the order.
+    //
+    // `depart_date` is optional on the row and on the agent's own tool, so an
+    // undated reservation has no place in a date sequence: those keep their
+    // relative order and go last, after everything that can be placed in time.
+    // Ties fall back to the incoming index because Dart's sort is NOT stable —
+    // without it, two reservations on the same day could swap between builds.
+    for (final run in othersByRun) {
+      final order = {for (var i = 0; i < run.length; i++) run[i].id: i};
+      run.sort((a, b) {
+        final da = DateTime.tryParse(a.departDate ?? '');
+        final db = DateTime.tryParse(b.departDate ?? '');
+        if (da == null || db == null) {
+          if (da != null) return -1;
+          if (db != null) return 1;
+        } else if (da != db) {
+          return da.compareTo(db);
+        }
+        return order[a.id]!.compareTo(order[b.id]!);
+      });
+    }
 
     final confirmedStays = stays.where((a) => !a.auto).toList();
     final confirmedSegments = segments.where((s) => !s.auto).toList();
