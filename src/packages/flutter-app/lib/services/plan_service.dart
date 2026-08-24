@@ -9,6 +9,16 @@ class PlanEvent {
   const PlanEvent({required this.type, required this.data});
 }
 
+/// The /plan SSE stream died mid-reply: it announced the terminal-frame
+/// protocol (`stream_start`) but closed without a `turn_end` saying the model
+/// finished — a deploy killing the API, a crash, a dropped network. The text
+/// streamed so far is a half-reply, not a message, so the provider discards it
+/// and carries this marker as [PlanState.error]; `friendlyError` maps it to a
+/// localized message at render time (providers have no BuildContext/l10n).
+class StreamInterruptedException implements Exception {
+  const StreamInterruptedException();
+}
+
 class PlanService {
   final String baseUrl;
 

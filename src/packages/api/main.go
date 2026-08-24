@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -526,11 +529,12 @@ func main() {
 	// reports panics.
 	if initSentry() {
 		slog.SetDefault(slog.New(newSentrySlogHandler(textHandler)))
-		// Best-effort flush of buffered events on return from main. Note the
-		// server has no graceful-shutdown hook today (startServer ends in
-		// log.Fatal, which skips deferred calls), so the flush that matters
-		// in practice is the one in recoveryMiddleware; this defer covers a
-		// future graceful-shutdown path for free.
+		// Best-effort flush of buffered events on return from main. The
+		// graceful-shutdown path reaches this: startServer returns normally
+		// after a SIGTERM/SIGINT drain, so this defer (and dbPool.Close below)
+		// actually run on every deploy. A log.Fatal elsewhere still skips
+		// deferred calls — for crashes the flush in recoveryMiddleware remains
+		// the one that matters.
 		defer sentry.Flush(2 * time.Second)
 	}
 
@@ -1032,6 +1036,30 @@ func startServer(router *mux.Router) {
 		IdleTimeout: 120 * time.Second,
 	}
 
+	// Graceful shutdown on SIGTERM/SIGINT — i.e. on every deploy's
+	// `docker stop`. Order matters: planDrainBegin first ends each in-flight
+	// /plan SSE stream with a terminal turn_end frame (plan_handler.go) —
+	// Shutdown alone would WAIT on those streams until compose's 10s grace
+	// expired in SIGKILL, which is exactly the torn-socket truncation the
+	// frame prevents. Then Shutdown closes the listener and waits out the
+	// remaining short-lived requests; 8s keeps the whole sequence inside the
+	// grace window. ListenAndServe returns ErrServerClosed, startServer
+	// returns, and main's deferred dbPool.Close + sentry.Flush finally run.
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+		s := <-sig
+		log.Printf("received %v: draining /plan streams and shutting down", s)
+		planDrainBegin()
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("graceful shutdown incomplete: %v", err)
+		}
+	}()
+
 	log.Printf("Starting Travel Route Planner API server on port %s", port)
 	log.Printf("Available endpoints:")
 	log.Printf("  GET /                        - Hello World")
@@ -1069,7 +1097,8 @@ func startServer(router *mux.Router) {
 	log.Printf("  POST/DELETE /api/v1/trips/{id}/booking-options/{id}/choose - Choose / un-choose one (auth)")
 	log.Printf("  GET  /api/v1/link-preview        - OpenGraph prefill for a pasted booking link (auth)")
 
-	if err := server.ListenAndServe(); err != nil {
+	if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal("Server failed to start:", err)
 	}
+	<-shutdownDone
 }

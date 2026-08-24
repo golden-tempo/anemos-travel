@@ -81,6 +81,30 @@ var planImageMediaTypes = map[string]bool{
 	"image/webp": true,
 }
 
+// planDrainCtx is canceled when graceful shutdown begins (startServer's signal
+// handler calls planDrainBegin before http.Server.Shutdown). Every in-flight
+// /plan request watches it: Shutdown alone cannot end an SSE stream — it waits
+// for active connections, and a stream mid-model-call would hold the process
+// until the deploy's SIGKILL, exactly the torn-socket truncation the turn_end
+// frame exists to prevent. Canceling each request's context instead unwinds
+// the model call promptly, and the handler tells the drain apart from a client
+// disconnect (planDraining) so it still writes the terminal frame to the live
+// socket.
+var planDrainCtx, planDrainBegin = context.WithCancel(context.Background())
+
+// planDraining reports whether graceful shutdown has begun. On a drain the
+// client's socket is still alive and is owed a turn_end frame; on a client
+// disconnect — the other way a request context cancels — there is nobody to
+// write to.
+func planDraining() bool {
+	select {
+	case <-planDrainCtx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
 type PlanRequest struct {
 	Messages []PlanChatMessage `json:"messages"`
 	// Summary is the compacted context from earlier turns, previously handed to
@@ -133,11 +157,41 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
 	}
+
+	// Every stream this handler opens MUST end with one turn_end frame — the
+	// terminal event that lets the client tell "the turn ended, and how" from
+	// "the connection died". Without it both are just bytes stopping, and the
+	// client resolved that by committing whatever partial text had arrived as
+	// a finished reply — which the deferred save below then persisted, so the
+	// next turn's model read its own half-sentence back as a completed
+	// message. Closed stop_reason vocabulary: "end_turn" (the model finished
+	// — the only reason a client may commit the streamed text), "error" (an
+	// error frame preceded this), "server_restart" (graceful shutdown drained
+	// the stream; retry cleanly).
+	endTurn := func(stopReason string) {
+		sendSSE(w, "turn_end", map[string]string{"stop_reason": stopReason})
+	}
+	// An error frame always ends the turn, so the terminal frame rides with
+	// it. New exit paths must go through this (or endTurn), never a bare
+	// sendSSE("error") — a return without a terminal frame reads as a dead
+	// socket and makes the client discard a reply the server priced and sent.
+	sendError := func(message string) {
+		sendSSE(w, "error", map[string]string{"message": message})
+		endTurn("error")
+	}
+
 	// Overall wall-clock ceiling on the whole request (see planMaxDuration): a
 	// stuck stream eventually closes and frees its goroutine + concurrency slot.
 	ctx, cancel := context.WithTimeout(r.Context(), planMaxDuration)
 	defer cancel()
 	r = r.WithContext(ctx)
+
+	// Graceful drain: when shutdown begins, cancel this request's context so a
+	// blocked model call unwinds now rather than at the deploy's SIGKILL. The
+	// Canceled handling in the loop below tells the drain apart from a client
+	// disconnect and writes the terminal frame that lets the client retry.
+	stopDrainWatch := context.AfterFunc(planDrainCtx, cancel)
+	defer stopDrainWatch()
 
 	// INVARIANT: fully consume the request body BEFORE the first response
 	// write or flush. Writing commits the response, and a reverse proxy
@@ -154,13 +208,13 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Printf("plan body read: %v (read=%d content_length=%d)", err, len(raw), r.ContentLength)
-		sendSSE(w, "error", map[string]string{"message": "invalid request body"})
+		sendError("invalid request body")
 		return
 	}
 	var req PlanRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
 		log.Printf("plan body decode: %v (read=%d content_length=%d)", err, len(raw), r.ContentLength)
-		sendSSE(w, "error", map[string]string{"message": "invalid request body"})
+		sendError("invalid request body")
 		return
 	}
 
@@ -171,49 +225,55 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, ": stream-open\n\n")
 	w.(http.Flusher).Flush()
 
+	// Protocol announcement: this server ends every turn with a terminal
+	// turn_end frame. The client requires the terminator only after seeing
+	// this, so a rolled-back API (sending neither event) degrades to the old
+	// commit-on-close behavior instead of erroring on every reply.
+	sendSSE(w, "stream_start", map[string]any{"protocol": 2})
+
 	// Cap the conversation before any model call: the whole history is resent
 	// on every agent-loop iteration, so these bounds are a hard cost lever.
 	if len(req.Messages) > planMaxMessages {
-		sendSSE(w, "error", map[string]string{"message": "This conversation is too long to continue. Please start a new chat to keep planning."})
+		sendError("This conversation is too long to continue. Please start a new chat to keep planning.")
 		return
 	}
 	totalImages := 0
 	for i, m := range req.Messages {
 		if utf8.RuneCountInString(m.Content) > planMaxMessageChars {
-			sendSSE(w, "error", map[string]string{"message": "One of the messages is too long for the planner. Please shorten it and try again."})
+			sendError("One of the messages is too long for the planner. Please shorten it and try again.")
 			return
 		}
 		if utf8.RuneCountInString(m.DisplayLabel) > planMaxDisplayLabelRunes {
 			req.Messages[i].DisplayLabel = truncateRunes(m.DisplayLabel, planMaxDisplayLabelRunes)
 		}
 		if len(m.Images) > 0 && m.Role != "user" {
-			sendSSE(w, "error", map[string]string{"message": "Images can only be attached to your own messages."})
+			sendError("Images can only be attached to your own messages.")
 			return
 		}
 		if len(m.Images) > planMaxImagesPerMessage {
-			sendSSE(w, "error", map[string]string{"message": "A message can include at most 4 images. Please remove some and try again."})
+			sendError("A message can include at most 4 images. Please remove some and try again.")
 			return
 		}
 		totalImages += len(m.Images)
 		if totalImages > planMaxImagesPerRequest {
-			sendSSE(w, "error", map[string]string{"message": "This conversation has too many images to continue. Please start a new chat to keep planning."})
+			sendError("This conversation has too many images to continue. Please start a new chat to keep planning.")
 			return
 		}
 		for _, img := range m.Images {
 			// Empty Data is the stripped placeholder shape from a resumed
 			// transcript — valid on the wire, skipped at conversion time.
 			if img.Data != "" && !planImageMediaTypes[img.MediaType] {
-				sendSSE(w, "error", map[string]string{"message": "That image format isn't supported. Please use a JPEG, PNG, GIF, or WebP image."})
+				sendError("That image format isn't supported. Please use a JPEG, PNG, GIF, or WebP image.")
 				return
 			}
 			if len(img.Data) > planMaxImageBase64Len {
-				sendSSE(w, "error", map[string]string{"message": "One of the images is too large. Please attach images under 5 MB."})
+				sendError("One of the images is too large. Please attach images under 5 MB.")
 				return
 			}
 		}
 	}
 	if utf8.RuneCountInString(req.Summary) > planMaxMessageChars {
-		sendSSE(w, "error", map[string]string{"message": "This conversation is too long to continue. Please start a new chat to keep planning."})
+		sendError("This conversation is too long to continue. Please start a new chat to keep planning.")
 		return
 	}
 
@@ -224,7 +284,7 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 		// A token was presented but the DB was unreachable — don't silently
 		// downgrade to anonymous (losing personalization + persistence). Ask
 		// the client to retry rather than proceeding half-authenticated.
-		sendSSE(w, "error", map[string]string{"message": "The service is temporarily unavailable. Please try again in a moment."})
+		sendError("The service is temporarily unavailable. Please try again in a moment.")
 		return
 	}
 
@@ -236,13 +296,13 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 		safeGo("recordAnonPlanCap", func() {
 			recordEventOpt(nil, "anon_plan_cap_hit", nil, map[string]any{"per_day": anonPlanPerDay()})
 		})
-		sendSSE(w, "error", map[string]string{"message": "You've reached today's free planning limit. Sign in to keep planning, or check back tomorrow."})
+		sendError("You've reached today's free planning limit. Sign in to keep planning, or check back tomorrow.")
 		return
 	}
 
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
-		sendSSE(w, "error", map[string]string{"message": "ANTHROPIC_API_KEY not configured"})
+		sendError("ANTHROPIC_API_KEY not configured")
 		return
 	}
 
@@ -336,12 +396,12 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.TripID) != "" {
 		tid, err := uuid.Parse(req.TripID)
 		if err != nil || !authed {
-			sendSSE(w, "error", map[string]string{"message": "sign in to refine this trip"})
+			sendError("sign in to refine this trip")
 			return
 		}
 		boundTrip, err := store.New(dbPool).GetEditableTripByID(r.Context(), store.GetEditableTripByIDParams{ID: tid, UserID: uid})
 		if err != nil {
-			sendSSE(w, "error", map[string]string{"message": "trip not found"})
+			sendError("trip not found")
 			return
 		}
 		boundTripID = &tid
@@ -388,6 +448,17 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	persistSession := saveTurn != nil
 	var turnText strings.Builder
+	// Set on the exit paths where the CLIENT keeps none of the streamed text —
+	// a graceful-shutdown drain (turn_end "server_restart" makes it discard)
+	// or a client disconnect (stop button, closed tab: the client rolled the
+	// turn back or is gone). The deferred save below then stores the
+	// transcript WITHOUT the half-streamed assistant text, keeping the stored
+	// history identical to what the client kept: a persisted half-reply is
+	// what the next turn's model reads back as its own finished message and
+	// apologises for. Error-frame paths deliberately still persist the
+	// partial — the client commits it there too (plan_provider.dart's error
+	// case), and the two sides must agree.
+	var discardStreamedText bool
 	// Set when an iteration ended in tool calls with text already streamed:
 	// the next text delta opens a new paragraph, in the streamed bytes and
 	// the persisted transcript alike, so live, resumed, and stale-client
@@ -426,7 +497,7 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 		})
 		defer func() {
 			msgs := persistMsgs
-			if t := turnText.String(); t != "" {
+			if t := turnText.String(); t != "" && !discardStreamedText {
 				msgs = append(append([]PlanChatMessage{}, persistMsgs...),
 					PlanChatMessage{Role: "assistant", Content: t})
 			}
@@ -517,7 +588,7 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 		planIterations++
 		if planIterations > planMaxIterations {
 			planCapHit = true
-			sendSSE(w, "error", map[string]string{"message": "This planning session hit its step limit. Send another message to continue from where we left off."})
+			sendError("This planning session hit its step limit. Send another message to continue from where we left off.")
 			return
 		}
 
@@ -584,12 +655,21 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		streamErr := stream.Err()
 		cancelCall() // the deadline only needs to cover the streaming call above
-		// Client went away (stop button / closed tab): the model call was torn
-		// down on purpose — not an AI failure. No health record, no ERROR log
-		// (Sentry tee), no SSE to a dead socket. Canceled-only, on the request
+		// The request context cancels mid-call in exactly two ways, told apart
+		// because only one leaves a live socket to write to. A graceful-
+		// shutdown drain (planDraining) owes the client the terminal frame so
+		// it discards the half-reply and offers a clean retry. A client gone
+		// (stop button / closed tab) was a deliberate teardown — not an AI
+		// failure: no health record, no ERROR log (Sentry tee), no SSE to a
+		// dead socket. Either way the client keeps none of the streamed text,
+		// so the deferred save must not either. Canceled-only, on the request
 		// ctx: planModelCallTimeout and planMaxDuration expiries surface as
 		// DeadlineExceeded (here or on callCtx) and keep recording as before.
 		if errors.Is(ctx.Err(), context.Canceled) {
+			discardStreamedText = true
+			if planDraining() {
+				endTurn("server_restart")
+			}
 			return
 		}
 		// Exactly one health record per model call (ai_health.go); nil records
@@ -607,7 +687,7 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 			if aiClass == aiClassFatal {
 				msg = "The AI planning service is temporarily unavailable. Please try again later."
 			}
-			sendSSE(w, "error", map[string]string{"message": msg})
+			sendError(msg)
 			return
 		}
 		planTokensIn += resp.Usage.InputTokens
@@ -619,7 +699,7 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 		// previously this failed silently and produced an empty itinerary.
 		// Surface it instead of continuing with garbage.
 		if resp.StopReason == anthropic.StopReasonMaxTokens {
-			sendSSE(w, "error", map[string]string{"message": "The response was cut off before it finished. Try asking for a shorter plan or fewer places at once."})
+			sendError("The response was cut off before it finished. Try asking for a shorter plan or fewer places at once.")
 			return
 		}
 		if resp.StopReason != anthropic.StopReasonToolUse {
@@ -676,10 +756,28 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 
 		select {
 		case <-ctx.Done():
+			switch {
+			case errors.Is(ctx.Err(), context.DeadlineExceeded):
+				// planMaxDuration expired between model calls. The client is
+				// still connected — say so rather than just closing the pipe.
+				sendError("This planning session ran too long and was stopped. Send another message to continue from where we left off.")
+			case planDraining():
+				discardStreamedText = true
+				endTurn("server_restart")
+			default:
+				// Client gone between iterations — dead socket, nothing to say.
+				discardStreamedText = true
+			}
 			return
 		default:
 		}
 	}
+
+	// The model finished the turn (the loop's one success exit): the terminal
+	// frame with stop_reason "end_turn" is what authorizes the client to
+	// commit the streamed text as a finished reply rather than guessing from
+	// the connection closing.
+	endTurn("end_turn")
 }
 
 // resolveIATA turns a city name or IATA code into an IATA code for flight

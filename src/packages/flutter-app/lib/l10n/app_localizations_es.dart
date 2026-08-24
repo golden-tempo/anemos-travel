@@ -3609,6 +3609,10 @@ class AppLocalizationsEs extends AppLocalizations {
   String get chatRemoveQueued => 'Quitar mensaje en cola';
 
   @override
+  String get chatStreamInterrupted =>
+      'La conexión se interrumpió antes de que terminara la respuesta, así que no se conservó.';
+
+  @override
   String get agentScreenTitle => 'Planea tu viaje';
 
   @override
