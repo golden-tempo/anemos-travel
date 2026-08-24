@@ -822,6 +822,33 @@ class AppLocalizationsEn extends AppLocalizations {
   String get bookingCardRemove => 'Remove';
 
   @override
+  String bookingRemoveTitle(String title) {
+    return 'Remove \"$title\"?';
+  }
+
+  @override
+  String get bookingRemoveBody => 'This can\'t be undone.';
+
+  @override
+  String bookingRemoveSavedOptions(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Its $count saved options are deleted with it.',
+      one: 'Its 1 saved option is deleted with it.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get bookingRemoveLinkedExpense =>
+      'A linked expense stays in your budget, still counted in what you\'ve spent, with nothing pointing back at a booking.';
+
+  @override
+  String get bookingRemoveBooked =>
+      'This doesn\'t cancel anything with the provider — if a real reservation exists, only you can cancel it.';
+
+  @override
   String get bookingCardBooked => 'Booked';
 
   @override
@@ -889,6 +916,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get bookingRowAddDetails => 'Add details…';
+
+  @override
+  String get bookingRowMoveTo => 'Move to…';
+
+  @override
+  String get bookingMoveToTitle => 'Move to';
+
+  @override
+  String get bookingsReservations => 'Reservations';
 
   @override
   String get bookingRowOptions => 'Booking options';

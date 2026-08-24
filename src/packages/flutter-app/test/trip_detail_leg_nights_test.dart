@@ -87,7 +87,9 @@ Future<void> _pump(WidgetTester tester, Trip trip, {Locale? locale}) async {
 }
 
 /// Prague Aug 24 – Aug 27 (3 nights), Kraków Aug 27 – Sep 1 (5 nights) —
-/// the canonical example the feature was asked for.
+/// the canonical example the feature was asked for. Day numbers encode each
+/// city's ARRIVAL: a leg runs until the next leg's first item day
+/// (specs/leg-departure-dates), with the last leg carried to the trip end.
 Trip _pragueKrakowTrip() => Trip(
       id: 't1',
       title: 'Big Summer',
@@ -96,8 +98,8 @@ Trip _pragueKrakowTrip() => Trip(
       createdAt: '2026-08-01',
       updatedAt: '2026-08-01',
       items: [
-        _item(0, 'Prague', 'Prague', day: 4),
-        _item(1, 'Kraków', 'Kraków', day: 9),
+        _item(0, 'Prague', 'Prague', day: 1),
+        _item(1, 'Kraków', 'Kraków', day: 4),
       ],
     );
 
@@ -115,15 +117,15 @@ Trip _threeCityTrip() => Trip(
       createdAt: '2026-08-01',
       updatedAt: '2026-08-01',
       items: [
-        _item(0, 'Prague', 'Prague', day: 4),
-        _item(1, 'Kraków', 'Kraków', day: 20),
-        _item(2, 'Vienna', 'Vienna', day: 22),
+        _item(0, 'Prague', 'Prague', day: 1),
+        _item(1, 'Kraków', 'Kraków', day: 4),
+        _item(2, 'Vienna', 'Vienna', day: 20),
       ],
     );
 
-/// Quito is squeezed onto its Sep 6 arrival (see
-/// trip_detail_squeezed_leg_test.dart) — a zero-night leg with a bare
-/// single-date chip between two counted legs.
+/// Quito shares Galápagos's Sep 6 arrival — a genuine zero-night leg
+/// (specs/leg-departure-dates) with a bare single-date chip between two
+/// counted legs.
 Trip _squeezeTrip() => Trip(
       id: 't1',
       title: 'Squeeze',
@@ -134,14 +136,15 @@ Trip _squeezeTrip() => Trip(
       items: [
         _item(0, 'Museo', 'Medellín', day: 1),
         _item(1, 'Comuna 13', 'Medellín', day: 6),
-        _item(2, 'Quito', 'Quito', day: 5),
+        _item(2, 'Quito', 'Quito', day: 6),
         _item(3, 'Mitad del Mundo', 'Galápagos', day: 6),
         _item(4, 'Tortuga Bay', 'Galápagos', day: 7),
       ],
     );
 
 /// Prague plus an item whose locality can't be resolved — the 'Other places'
-/// group, whose header has no refine sparkle to align against.
+/// group, whose header has no refine sparkle to align against. Its day-4
+/// arrival ends Prague at Aug 27 and the last-leg anchor runs it to Sep 1.
 Trip _pragueMysteryTrip() => Trip(
       id: 't1',
       title: 'Big Summer',
@@ -150,7 +153,7 @@ Trip _pragueMysteryTrip() => Trip(
       createdAt: '2026-08-01',
       updatedAt: '2026-08-01',
       items: [
-        _item(0, 'Prague', 'Prague', day: 4),
+        _item(0, 'Prague', 'Prague', day: 1),
         // No city AND no address: cityOf falls back to parsing the address,
         // so only a fully unlocatable item lands in 'Other places'.
         ItineraryItem(
@@ -160,7 +163,7 @@ Trip _pragueMysteryTrip() => Trip(
           latitude: 0,
           longitude: 0,
           category: 'attraction',
-          day: 9,
+          day: 4,
         ),
       ],
     );

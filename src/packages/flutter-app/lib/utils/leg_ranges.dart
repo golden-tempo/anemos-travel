@@ -111,52 +111,81 @@ List<LegRange> rawLegRanges(Trip trip) {
   return result;
 }
 
-/// The ranges the page RENDERS: [rawLegRanges] plus the arrival rule, as one
-/// forward pass. A leg renders from its arrival — the previous group's
-/// VISIBLE end — when that comes first, and COLLAPSES to a zero-night stop at
-/// the arrival when the previous leg has run past the leg's own last day (the
-/// interim state a set_leg_dates squeeze leaves behind, narrated as "no
-/// nights left" in chat). Cascading: each leg clamps against the previous
-/// VISIBLE end, so consecutive squeezed legs chain and the inter-city leg
-/// dates (previous end) follow automatically. A confirmed stay's explicit
-/// dates are never collapsed (same carve-out as the first-leg anchor); an
-/// arrival strictly inside a leg's own span keeps the leg's start (partial
-/// overlap — unchanged). Stay todos, inter-city leg dates, header chips, and
-/// the per-city weather and events lookups consume THIS — anything that makes
-/// a promise about the dates ON SCREEN has to be derived from the dates on
-/// screen (a "while you're here" events section on the raw ranges queried one
-/// day of a four-day Berlin stay; friction-log 2026-08-14). Map pins and
-/// leg-nights stay on the raw ranges: a pin is a point, and nights must not
-/// double-count the arrival day.
+/// The ranges the page RENDERS: [rawLegRanges] plus the boundary rule
+/// (specs/leg-departure-dates), as one forward pass. A leg runs until the
+/// NEXT leg's arrival — that leg's own raw start: its stay's check-in, its
+/// first item day, or its auto-slice start. A leg's end is written by its
+/// neighbour, never by its own last item day, so "Friday is my last planned
+/// day, Saturday I fly" renders three nights with Saturday empty, and moving
+/// a place inside a city cannot change any city's dates. When the next
+/// arrival is on (or before) a leg's own, the span pinches to a genuine
+/// zero-night stop — two cities sharing one arrival day.
 ///
-/// Then the LAST-leg trip-end anchor, the mirror of [rawLegRanges]' first-leg
-/// one: the leg that renders last, when item-derived, runs through the trip's
-/// end date. The traveler is in the final city until the day they travel home,
-/// and that day carries no places — the planner reserves it for the journey —
-/// so its item-derived end falls a day or more short, and a 2-night stay whose
-/// departure day is empty would render "1 night" and drag the return-home
-/// booking date back with it. It runs after the arrival pass and skips a
-/// COLLAPSED leg: a zero-night stop is an interim overrun state, and stretching
-/// it to the trip's end would invent the nights the squeeze says are gone.
+/// Two carve-outs, both pre-existing. A confirmed stay's explicit dates never
+/// move: its checkout is not extended, so a gap AFTER a stay closes from the
+/// other side — the next leg's start pulls back to the checkout (a gap
+/// between legs is unrepresentable on the page under either rule) — and stay
+/// dates that contradict a neighbour's places render as the overlap they are.
+/// A leg with no range adopts the previous end as its start and RESETS the
+/// chain (the documented pre-cutover divergence: the server skips spanless
+/// legs and closes the boundary across them).
+///
+/// Stay todos, inter-city leg dates, header chips, and the per-city weather
+/// and events lookups consume THIS — anything that makes a promise about the
+/// dates ON SCREEN has to be derived from the dates on screen (a "while
+/// you're here" events section on the raw ranges queried one day of a
+/// four-day Berlin stay; friction-log 2026-08-14). Map pins stay on the raw
+/// ranges: a pin is a point.
+///
+/// Then the LAST-leg trip-end anchor, the tail case of the same rule (the
+/// first-leg anchor in [rawLegRanges] is the head case): the leg that renders
+/// last, when item-derived, runs through the trip's end date. The traveler is
+/// in the final city until the day they travel home, and that day carries no
+/// places — the planner reserves it for the journey — so its item-derived end
+/// falls a day or more short. Stretch-only, and no collapsed-leg check is
+/// needed: a zero-night pinch requires a NEXT ranged leg, so the tail leg can
+/// never carry one.
 ///
 /// The server mirrors the whole function in computeTripLegs (steps 5 and 6,
 /// trip_render_legs.go).
 List<LegRange> visibleLegRanges(Trip trip) {
   final raw = rawLegRanges(trip);
   final result = <LegRange>[];
-  final collapsed = <bool>[];
   DateTime? prevEnd;
-  for (final r in raw) {
+  var prevStay = false;
+  for (var i = 0; i < raw.length; i++) {
+    final r = raw[i];
     var start = r.start;
     var end = r.end;
-    var zeroNight = false;
-    if (prevEnd != null) {
-      if (start == null || prevEnd.isBefore(start)) {
-        start = prevEnd;
-      } else if (end != null && prevEnd.isAfter(end) && !r.stayAnchored) {
-        start = prevEnd;
-        end = prevEnd;
-        zeroNight = true;
+    if (start == null) {
+      // Rangeless leg: adopt the previous end as the start, keep the null
+      // end, and break the chain for whatever follows (pre-cutover client
+      // rule — the Go twin skips these legs instead).
+      result.add((
+        label: r.label,
+        start: prevEnd,
+        end: end,
+        coord: r.coord,
+        stayAnchored: r.stayAnchored,
+        itemDerived: r.itemDerived,
+      ));
+      prevEnd = end;
+      prevStay = false;
+      continue;
+    }
+    // A gap after a confirmed stay closes on THIS side: the checkout is
+    // explicit and cannot extend forward.
+    if (prevStay && prevEnd != null && prevEnd.isBefore(start)) {
+      start = prevEnd;
+    }
+    // The boundary rule: this leg's end is the next leg's arrival. The next
+    // leg's RAW start is its arrival evidence (check-in / first item day /
+    // auto start); a rangeless next leg extends nothing (the chain-reset
+    // divergence above).
+    if (!r.stayAnchored && i + 1 < raw.length) {
+      final nextArrival = raw[i + 1].start;
+      if (nextArrival != null) {
+        end = nextArrival.isAfter(start) ? nextArrival : start;
       }
     }
     result.add((
@@ -167,8 +196,8 @@ List<LegRange> visibleLegRanges(Trip trip) {
       stayAnchored: r.stayAnchored,
       itemDerived: r.itemDerived,
     ));
-    collapsed.add(zeroNight);
     prevEnd = end;
+    prevStay = r.stayAnchored;
   }
 
   // Walks from the tail the way the first-leg anchor sits at the head, so it
@@ -180,7 +209,7 @@ List<LegRange> visibleLegRanges(Trip trip) {
     for (var i = result.length - 1; i >= 0; i--) {
       final r = result[i];
       if (r.end == null) continue;
-      if (r.itemDerived && !collapsed[i] && r.end!.isBefore(tripEnd)) {
+      if (r.itemDerived && r.end!.isBefore(tripEnd)) {
         result[i] = (
           label: r.label,
           start: r.start,

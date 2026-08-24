@@ -1014,6 +1014,36 @@ func TestOpenDaysSummary(t *testing.T) {
 	}
 }
 
+// Day attribution follows the rendered span, and the rendered span follows the
+// boundary rule (specs/leg-departure-dates): a leg runs until the next city's
+// arrival, so the unplanned days after Lisbon's last place belong to LISBON —
+// the city the traveler is still in — not to Porto, which the old chain
+// dragged back to meet them. This is the behaviour change under legLabelOnDay,
+// pinned on the surface travelers meet it on.
+func TestOpenDaysSummaryAttributesGapToEarlierCity(t *testing.T) {
+	d := exportData{
+		Trip: store.Trip{ID: uuid.New(),
+			StartDate: dateVal(t, "2026-09-01"), EndDate: dateVal(t, "2026-09-08")},
+		Items: []store.ItineraryItem{
+			rlItem(0, "Time Out Market", rlCity("Lisbon"), 1),
+			rlItem(1, "Alfama walk", rlCity("Lisbon"), 2),
+			rlItem(2, "Livraria Lello", rlCity("Porto"), 5),
+		},
+	}
+	got := openDaysSummary(d)
+	for _, want := range []string{"days 3-4 in Lisbon", "days 6-7 in Porto"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("open-days summary missing %q:\n%s", want, got)
+		}
+	}
+	if label := legLabelOnDay(d, 4); label != "Lisbon" {
+		t.Fatalf("day 4 attributed to %q, want Lisbon (the leg renders Sep 1-5)", label)
+	}
+	if label := legLabelOnDay(d, 6); label != "Porto" {
+		t.Fatalf("day 6 attributed to %q, want Porto", label)
+	}
+}
+
 // A trip with every plannable day covered says nothing — so the note never
 // becomes boilerplate on an ordinary dense itinerary.
 func TestOpenDaysSummaryQuietWhenCovered(t *testing.T) {
@@ -1042,28 +1072,50 @@ func TestOpenDaysSummarySkipsSegmentDays(t *testing.T) {
 	}
 }
 
-// checkLegShape is the HUMAN channel for the failure the spine rests on not
-// happening. Both cases are invisible everywhere else: the page draws no nights
-// label below one night, and RenderLeg.ZeroNight has never had a consumer.
+// checkLegShape is the HUMAN channel for the failures the leg derivation can
+// no longer shout about. Every case is invisible everywhere else: the page
+// draws no nights label below one night, RenderLeg.ZeroNight has never had a
+// consumer, and a stranded item sits under a plausible-looking header.
 func TestCheckLegShape(t *testing.T) {
-	// Arrival anchors only — Lisbon renders zero nights, Porto absorbs them.
-	collapsed := exportData{
+	// Two cities share the Sep 4 arrival — Porto is a genuine zero-night stop.
+	pinched := exportData{
 		Trip: store.Trip{ID: uuid.New(),
 			StartDate: dateVal(t, "2026-09-01"), EndDate: dateVal(t, "2026-09-08")},
 		Items: []store.ItineraryItem{
 			rlItem(0, "Time Out Market", rlCity("Lisbon"), 1),
 			rlItem(1, "Livraria Lello", rlCity("Porto"), 4),
+			rlItem(2, "Museo del Prado", rlCity("Madrid"), 4),
 		},
 	}
-	fs := checkLegShape("en", collapsed)
+	fs := checkLegShape("en", pinched)
 	if len(fs) != 1 {
 		t.Fatalf("findings = %+v, want one", fs)
 	}
 	if fs[0].Severity != "warn" {
 		t.Fatalf("severity = %q, want warn — this one has to reach the badge", fs[0].Severity)
 	}
-	if fs[0].Message != "Lisbon shows no nights — you arrive and leave on the same day." {
+	if fs[0].Message != "Porto shows no nights — you arrive and leave on the same day." {
 		t.Fatalf("message = %q", fs[0].Message)
+	}
+
+	// An item dated past the day its leg ends: under the boundary rule the
+	// span stays plausible (Lisbon runs to Porto's day-4 arrival), so the
+	// stranded day-6 place must surface here rather than nowhere.
+	stranded := exportData{
+		Trip: store.Trip{ID: uuid.New(),
+			StartDate: dateVal(t, "2026-09-01"), EndDate: dateVal(t, "2026-09-08")},
+		Items: []store.ItineraryItem{
+			rlItem(0, "Time Out Market", rlCity("Lisbon"), 1),
+			rlItem(1, "Pastéis de Belém", rlCity("Lisbon"), 6),
+			rlItem(2, "Livraria Lello", rlCity("Porto"), 4),
+		},
+	}
+	fs = checkLegShape("en", stranded)
+	if len(fs) != 1 {
+		t.Fatalf("stranded findings = %+v, want one", fs)
+	}
+	if fs[0].Message != "Lisbon has a place scheduled after day 4, the day you leave." {
+		t.Fatalf("stranded message = %q", fs[0].Message)
 	}
 
 	// Undated places: the split was computed, not chosen.

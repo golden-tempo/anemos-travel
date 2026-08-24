@@ -42,17 +42,18 @@ func TestPlanSessionToolsOrderStable(t *testing.T) {
 		// replace_leg is gated on a BOUND trip (like update_itinerary_section),
 		// so it lands in the trip-bound shape only.
 		//
-		// migrate_booking_todo is last and authed-gated like the rest of the
-		// booking-todo family, so it lands in both authed shapes: the anonymous
-		// tools array stays byte-identical and takes no cache re-warm.
+		// migrate_booking_todo and shift_days_from are last and authed-gated
+		// like the rest of the date/booking tools, so they land in both authed
+		// shapes: the anonymous tools array stays byte-identical and takes no
+		// cache re-warm.
 		{"anonymous", &planSession{}, append(append([]string{}, base...), "create_itinerary", "set_travel_mode", "suggest_replies", "search_nearby", "find_parking", "search_hotels")},
 		{"authed", &planSession{authed: true},
 			append(append([]string{}, base...), "create_itinerary", "save_preferences", "get_trip",
-				"add_booking_todo", "update_booking_todo", "remove_booking_todo", "add_packing_item", "set_travel_mode", "suggest_replies", "search_nearby", "find_parking", "set_trip_dates", "set_leg_dates", "set_trip_origin", "set_leg_transport_mode", "search_hotels", "set_trip_description", "migrate_booking_todo")},
+				"add_booking_todo", "update_booking_todo", "remove_booking_todo", "add_packing_item", "set_travel_mode", "suggest_replies", "search_nearby", "find_parking", "set_trip_dates", "set_leg_dates", "set_trip_origin", "set_leg_transport_mode", "search_hotels", "set_trip_description", "migrate_booking_todo", "shift_days_from")},
 		{"authed trip-bound", &planSession{authed: true, boundTripID: &tid},
 			append(append([]string{}, base...), "update_itinerary_section", "save_preferences", "get_trip",
 				"add_booking_todo", "update_booking_todo", "remove_booking_todo", "add_packing_item", "review_trip",
-				"add_accommodation", "add_transport_segment", "move_itinerary_item", "set_travel_mode", "suggest_replies", "search_nearby", "find_parking", "set_trip_dates", "set_leg_dates", "set_trip_origin", "set_leg_transport_mode", "search_hotels", "set_trip_description", "replace_leg", "migrate_booking_todo")},
+				"add_accommodation", "add_transport_segment", "move_itinerary_item", "set_travel_mode", "suggest_replies", "search_nearby", "find_parking", "set_trip_dates", "set_leg_dates", "set_trip_origin", "set_leg_transport_mode", "search_hotels", "set_trip_description", "replace_leg", "migrate_booking_todo", "shift_days_from")},
 	}
 	for _, tc := range cases {
 		tools := planSessionTools(tc.session)

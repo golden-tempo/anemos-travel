@@ -329,6 +329,37 @@ func (q *Queries) ShiftAccommodationDates(ctx context.Context, arg ShiftAccommod
 	return result.RowsAffected(), nil
 }
 
+const shiftAccommodationDatesFrom = `-- name: ShiftAccommodationDatesFrom :execrows
+UPDATE accommodations
+SET check_in  = CASE WHEN check_in  >= $1::date THEN check_in  + $2::int ELSE check_in  END,
+    check_out = CASE WHEN check_out >= $1::date THEN check_out + $2::int ELSE check_out END
+WHERE trip_id = $3
+  AND (check_in >= $1::date OR check_out >= $1::date)
+`
+
+type ShiftAccommodationDatesFromParams struct {
+	FromDate pgtype.Date `json:"from_date"`
+	Days     int32       `json:"days"`
+	TripID   uuid.UUID   `json:"trip_id"`
+}
+
+// Suffix date shift (agent shift_days_from): ShiftAccommodationDates with a
+// date floor, applied PER DATE. A stay's two dates are two independent leg
+// boundaries (check-in = arrival, check-out = departure), so a stay that
+// straddles the pivot keeps its check-in and rides only its check-out — that
+// is exactly how the city before the pivot gains its nights. A raw UPDATE, so
+// auto drafts shift without being confirmed (unlike UpdateAccommodation,
+// whose auto = false would adopt a suggestion the traveler never chose).
+// NULL dates stay NULL and rows with no date on or after the floor are not
+// counted.
+func (q *Queries) ShiftAccommodationDatesFrom(ctx context.Context, arg ShiftAccommodationDatesFromParams) (int64, error) {
+	result, err := q.db.Exec(ctx, shiftAccommodationDatesFrom, arg.FromDate, arg.Days, arg.TripID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateAccommodation = `-- name: UpdateAccommodation :one
 UPDATE accommodations
 SET name       = COALESCE($1, name),

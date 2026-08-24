@@ -149,10 +149,11 @@ void main() {
     expect(find.text('Wed, Jun 10'), findsOneWidget);
     expect(find.text('Thu, Jun 11'), findsOneWidget);
 
-    // Paris spans days 1–2 -> Jun 10 – Jun 11 (1 night) next to the city name.
-    // (Chip-level: renders regardless of expansion.)
-    expect(chipTextIn('Paris', 'Jun 10 – Jun 11'), findsOneWidget);
-    expect(chipTextIn('Paris', '· 1 night'), findsOneWidget);
+    // Paris runs until Rome's day-4 arrival (the boundary rule) -> Jun 10 –
+    // Jun 13, 3 nights, next to the city name. (Chip-level: renders
+    // regardless of expansion.)
+    expect(chipTextIn('Paris', 'Jun 10 – Jun 13'), findsOneWidget);
+    expect(chipTextIn('Paris', '· 3 nights'), findsOneWidget);
 
     // The Versailles day trip still nests under its day (Paris group body).
     expect(find.text('Day trip · Versailles'), findsOneWidget);

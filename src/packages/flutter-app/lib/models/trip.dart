@@ -140,6 +140,31 @@ class Trip {
   /// snapshots, where clients fall back to the local derivation.
   final List<TripLegDto>? legs;
 
+  /// The `booking_todo_id` of every saved shortlist option on this trip — one
+  /// entry per option, so the count for a booking is how many times its id
+  /// appears.
+  ///
+  /// A **projection, not the shortlist**. The server sends whole options
+  /// (`booking_options`, editors and above only — a viewer gets none and can
+  /// delete nothing either), and the app reads exactly one thing from them
+  /// today: how many hang off a booking, which is what removing that booking
+  /// must warn it is about to CASCADE away (specs/booking-remove-confirm; the
+  /// FK is `ON DELETE CASCADE` in migration 00065). Kept as the ids alone
+  /// rather than a partial `BookingOption` that would read as the whole
+  /// object; when a shortlist UI needs the rest, that becomes a real model and
+  /// this field goes with it.
+  ///
+  /// Round-trips deliberately: [TripCache] stores `toJson` and reads it back,
+  /// so writing this out as the same `{booking_todo_id: …}` shape is what
+  /// stops a cached (offline) trip from reporting zero saved options and
+  /// promising a removal costs nothing. Lossless for every consumer that
+  /// exists, because no other one does.
+  @JsonKey(
+      name: 'booking_options',
+      fromJson: _bookingOptionTodoIdsFromJson,
+      toJson: _bookingOptionTodoIdsToJson)
+  final List<String> bookingOptionTodoIds;
+
   const Trip({
     required this.id,
     required this.title,
@@ -177,6 +202,7 @@ class Trip {
     this.nextTransportDepart,
     this.cityPins,
     this.legs,
+    this.bookingOptionTodoIds = const [],
   });
 
   /// True when the current user may edit this trip: owner or editor
@@ -189,4 +215,25 @@ class Trip {
 
   factory Trip.fromJson(Map<String, dynamic> json) => _$TripFromJson(json);
   Map<String, dynamic> toJson() => _$TripToJson(this);
+
+  /// How many saved shortlist options would be deleted along with the booking
+  /// [bookingTodoId] — the CASCADE in migration 00065, counted client-side
+  /// from [bookingOptionTodoIds].
+  int savedOptionsFor(String bookingTodoId) =>
+      bookingOptionTodoIds.where((id) => id == bookingTodoId).length;
 }
+
+/// See [Trip.bookingOptionTodoIds]. Tolerant of a missing/garbage list rather
+/// than throwing: a trip that cannot say what its shortlist is must still
+/// render, and the removal dialog degrades to "no saved options" — which is
+/// also what an older cached payload says.
+List<String> _bookingOptionTodoIdsFromJson(Object? raw) => raw is List
+    ? [
+        for (final option in raw.whereType<Map<String, dynamic>>())
+          if (option['booking_todo_id'] is String)
+            option['booking_todo_id'] as String,
+      ]
+    : const [];
+
+List<Map<String, dynamic>> _bookingOptionTodoIdsToJson(List<String> ids) =>
+    [for (final id in ids) {'booking_todo_id': id}];

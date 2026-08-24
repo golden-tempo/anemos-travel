@@ -15,15 +15,15 @@ package main
 // transcription exercise rather than warn about it.
 //
 // THE INVARIANT. itineraryLocationSchema's `day` description states the
-// convention the whole calendar rests on: "The day the traveler moves between
-// cities carries the SAME day number in both — the easy place in the city they
-// leave (time_of_day 'morning') and the arrival place in the city they reach
-// ('afternoon' or 'evening')." So a leg occupying days [a..d] shares BOTH ends
-// with its neighbours: day a also holds the previous city's morning place, day
-// d also holds the next city's arrival. computeTripLegs derives every leg's
-// span from its own items' day range, so moving either end moves a neighbour's
-// rendered dates. This file preserves [a..d] exactly. That is what makes a swap
-// leave every other city byte-identical.
+// convention the calendar was built around: "The day the traveler moves
+// between cities carries the SAME day number in both — the easy place in the
+// city they leave (time_of_day 'morning') and the arrival place in the city
+// they reach ('afternoon' or 'evening')." Since specs/leg-departure-dates a
+// leg's rendered span is [its own first item day → the NEXT leg's first item
+// day], so of a leg occupying days [a..d] it is day a — the arrival — that is
+// load-bearing twice over: it dates this leg's start AND the previous leg's
+// end. This file preserves [a..d] exactly, which holds every arrival still.
+// That is what makes a swap leave every other city byte-identical.
 //
 // Any `day` the caller sends is DROPPED before anything else looks at the
 // place. Assigning days here IS the fix; accepting them would rebuild the bug
@@ -187,15 +187,14 @@ func (s legSplice) SameCity() bool { return sameHub(s.OldHub, s.NewHub) }
 //
 // There is deliberately no start_date/end_date parameter, diverging from the
 // plan artifact's sketched interface. Moving [a..d] cannot be made correct
-// here: the neighbours' items still sit on the OLD boundary days, so a moved
-// span leaves the previous city ending on day a while this leg starts on a'.
-// computeTripLegs' arrival chain (step 5) then pulls the leg's rendered start
-// back to the neighbour's end and the requested date never appears — unless the
-// neighbour's items move too, which is set_leg_dates' previous-boundary
-// extension, its gap/overlap/squeeze narration, and its stay and transport
-// moves. Rebuilding that here would be a second writer of leg dates. So this
-// tool answers WHAT is in a leg and set_leg_dates answers WHEN, and the tool
-// description says to chain them.
+// here: the leg's arrival day is the boundary the PREVIOUS leg's rendered end
+// derives from (computeTripLegs step 5), so re-dating this leg's items
+// silently moves a neighbour's dates nobody asked to move — and says nothing
+// about the stays, the boundary transport, or the trip's end date, which are
+// set_leg_dates' stay and transport moves and its narration. Rebuilding that
+// here would be a second writer of leg dates. So this tool answers WHAT is in
+// a leg and set_leg_dates answers WHEN, and the tool description says to
+// chain them.
 func spliceLeg(existing []store.ItineraryItem, city, newCity string, places []map[string]any) (legSplice, error) {
 	addr := parseLegAddress(city)
 	if addr.hub == "" {
@@ -304,12 +303,14 @@ func legLocations(places []map[string]any, newHub string, first, last int) ([]ma
 			len(strays), len(out), newHub, describeStrays(strays), newHub, newHub, newHub)
 	}
 
-	// The two boundary days are shared with the neighbouring cities, so one of
-	// them cannot double as the other: a single place cannot sit on both the
-	// arrival day and the day they move on. Without a place on the move-on day
-	// the leg renders as though they left the day they arrived, and the NEXT
-	// city swallows its nights (computeTripLegs step 5's zero-night collapse) —
-	// the exact failure the spine rule in plan_handler.go's prompt is about.
+	// A single place cannot sit on both the arrival day and the day they move
+	// on, so a one-place refill of a multi-day leg is refused. Since
+	// specs/leg-departure-dates the DATES no longer depend on it — a leg runs
+	// to the next city's arrival whatever its own last item day is — so this
+	// is a planning-shape floor, not a calendar guard: a spine gives each city
+	// its arrival place and an easy move-on-morning place. Relaxing it to one
+	// place per city is the spec's open product call, not a consequence of the
+	// rule change.
 	if first < last && len(out) < 2 {
 		return nil, fmt.Errorf("the leg being replaced runs trip days %d-%d, and day %d is the day the traveler moves on to the next city — one place cannot sit on both ends, and nothing was changed. Send at least two places for %s: the one they arrive at on day %d, and one easy place near their lodging for day %d. The days in between are meant to stay empty until the traveler asks for that city",
 			first, last, last, newHub, first, last)

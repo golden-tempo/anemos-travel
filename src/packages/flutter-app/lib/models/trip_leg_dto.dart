@@ -32,8 +32,9 @@ class TripLegDto {
   @JsonKey(name: 'date_source')
   final String? dateSource;
 
-  /// True when a squeeze collapsed the leg to a zero-night stop at its
-  /// arrival (the interim state chat narrates as "no nights left").
+  /// True when the leg pinched to a zero-night stop: the next leg's arrival
+  /// is on (or before) this leg's own, so the traveler arrives and moves on
+  /// the same day (specs/leg-departure-dates).
   @JsonKey(name: 'zero_night')
   final bool? zeroNight;
 

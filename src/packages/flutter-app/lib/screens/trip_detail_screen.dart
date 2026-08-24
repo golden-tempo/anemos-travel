@@ -1331,8 +1331,8 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   /// Builds the auto-TODO payload from the itinerary's location groups: a stay
   /// per city (with its dates) and a transport leg between consecutive cities.
   /// Dates come from [visibleLegRanges], so stay check-ins, inter-city leg
-  /// dates, and the header chips all agree — including squeezed legs, which
-  /// read as a zero-night stop at their arrival.
+  /// dates, and the header chips all agree — including zero-night legs
+  /// (cities sharing an arrival day), which read as a stop at that arrival.
   List<Map<String, dynamic>> _deriveTodos(Trip trip) {
     final l10n = context.l10n;
     final derived = _derive(trip);
@@ -4277,10 +4277,14 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                                                     cityCollapsed: false))),
                                         // The city's embedded booking rows —
                                         // slots are index-aligned with groups.
+                                        // Leg rows only: reservations live on
+                                        // the Bookings tab under their city
+                                        // (specs/booking-city-grouping); the
+                                        // itinerary keeps the day plan.
                                         if (gi < grouped.slots.length)
                                           _boxSliver(_bookingRowWidgets(
                                               grouped.slots[gi],
-                                              departureOnly: false)),
+                                              part: BookingSlotPart.legs)),
                                         ..._buildGroupItemSlivers(
                                             group.label,
                                             group.key,
@@ -4303,7 +4307,8 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                                             gi < grouped.slots.length)
                                           _boxSliver(_bookingRowWidgets(
                                               grouped.slots[gi],
-                                              departureOnly: true)),
+                                              part:
+                                                  BookingSlotPart.departure)),
                                       ],
                                     ),
                               ]),

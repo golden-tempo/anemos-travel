@@ -171,9 +171,32 @@ DELETE FROM booking_todos
 WHERE trip_id = $1 AND auto = true AND todo_key <> ALL(@keys::text[]);
 
 -- name: CreateBookingTodo :one
-INSERT INTO booking_todos (trip_id, kind, todo_key, title, subtitle, provider, search_url, depart_date, return_date, position, auto)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false)
+INSERT INTO booking_todos (trip_id, kind, todo_key, title, subtitle, provider, search_url, depart_date, return_date, position, auto, city_label)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false, $11)
 RETURNING *;
+
+-- name: SetBookingTodoCityLabel :one
+-- THE writer of booking_todos.city_label (00074, specs/booking-city-grouping):
+-- the "Move to…" sheet and the agent's update_booking_todo `city` param both
+-- land here. Plain narg, no COALESCE, because COALESCE cannot carry "write
+-- NULL" (the 00071 lesson) and moving a booking back to "Other bookings" IS a
+-- clear. auto = false only: an auto row is a leg — its city is its identity
+-- (todo_key / labels), not a tag someone can move.
+UPDATE booking_todos
+SET city_label = sqlc.narg('city_label')
+WHERE id = sqlc.arg('id') AND trip_id = sqlc.arg('trip_id') AND auto = false
+RETURNING *;
+
+-- name: DeriveBookingTodoCityLabel :execrows
+-- The sync-time date fallback's write (booking_todo_identity.go): fills a city
+-- the server derived from depart_date. `city_label IS NULL` is the
+-- never-overwrite rule enforced where it cannot be forgotten — an explicit
+-- value (traveler's Move to…, the agent's `city`, or an earlier fill) always
+-- wins, and a concurrent explicit write between the handler's read and this
+-- statement loses nothing.
+UPDATE booking_todos
+SET city_label = sqlc.arg('city_label')::text
+WHERE id = sqlc.arg('id') AND trip_id = sqlc.arg('trip_id') AND city_label IS NULL;
 
 -- name: SetBookingTodoBooked :one
 UPDATE booking_todos SET booked = $3 WHERE id = $1 AND trip_id = $2 RETURNING *;
@@ -230,6 +253,21 @@ SET depart_date = depart_date + sqlc.arg(days)::int,
     return_date = return_date + sqlc.arg(days)::int
 WHERE trip_id = sqlc.arg(trip_id)
   AND (depart_date IS NOT NULL OR return_date IS NOT NULL);
+
+-- name: ShiftBookingTodoDatesFrom :execrows
+-- Suffix date shift (agent shift_days_from): ShiftBookingTodoDates with a
+-- date floor, applied PER DATE like ShiftAccommodationDatesFrom — a row's two
+-- dates can be two separate bookings (a round-trip flight todo departs before
+-- the pivot and returns after it; only the return moves). A raw UPDATE works
+-- on auto rows too, which UpdateBookingTodo refuses; the next client sync
+-- re-derives them either way, this just keeps them true in the meantime.
+-- NULL dates stay NULL and rows with no date on or after the floor are not
+-- counted.
+UPDATE booking_todos
+SET depart_date = CASE WHEN depart_date >= sqlc.arg(from_date)::date THEN depart_date + sqlc.arg(days)::int ELSE depart_date END,
+    return_date = CASE WHEN return_date >= sqlc.arg(from_date)::date THEN return_date + sqlc.arg(days)::int ELSE return_date END
+WHERE trip_id = sqlc.arg(trip_id)
+  AND (depart_date >= sqlc.arg(from_date)::date OR return_date >= sqlc.arg(from_date)::date);
 
 -- name: GetBookingTodo :one
 -- Single leg, scoped to its trip so a foreign id can never be read or attached

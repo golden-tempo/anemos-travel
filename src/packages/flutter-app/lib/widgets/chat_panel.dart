@@ -5,6 +5,13 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:flutter/services.dart'
+    show
+        HardwareKeyboard,
+        KeyDownEvent,
+        KeyEvent,
+        KeyRepeatEvent,
+        LogicalKeyboardKey;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import '../l10n/l10n.dart';
@@ -157,6 +164,21 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
   /// Whether a drag hovers over the panel — drives the drop overlay.
   bool _dragging = false;
 
+  /// Where Up/Down have walked back to in [_sentHistory], newest first.
+  /// **-1 means not browsing** — the composer holds the user's own words.
+  /// Typing resets it (see [_saveDraft]), so the next Up always starts from
+  /// the most recent message.
+  int _historyIndex = -1;
+
+  /// True only while [_recallHistory] writes [_controller], so [_saveDraft]
+  /// can tell a browse step from the user actually typing.
+  bool _recalling = false;
+
+  /// The text the composer last held. [_saveDraft] compares against it so a
+  /// caret move — which notifies identically to a keystroke — is not mistaken
+  /// for an edit.
+  String _composerText = '';
+
   static const _maxAttachments = 4;
 
   @override
@@ -166,6 +188,13 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
     // host ever swaps the notifier it passes.
     _draftKey = chatDraftKeyFor(ref.read(widget.notifier).tripId);
     _restoreDraft();
+    // On the field's OWN node, not a Focus above it: an ancestor handler sits
+    // above the focused node in the bubble chain and never sees arrow keys
+    // while a text field has focus (konami_listener.dart explains the same
+    // trap from the other side). The focused node is dispatched first, so this
+    // also gets Up/Down before DefaultTextEditingShortcuts near the root — and
+    // declining leaves that default caret movement completely untouched.
+    _inputFocus.onKeyEvent = (_, event) => _onComposerKey(event);
     _dictation = ref.read(dictationControllerFactoryProvider)(_controller);
     _dictation.addListener(_onDictationChanged);
     // Paste-from-clipboard (web only): focus-gated so exactly one mounted
@@ -194,6 +223,7 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
       selection: TextSelection.collapsed(offset: draft.text.length),
     );
     _pending.addAll(draft.attachments);
+    _composerText = draft.text;
     // After the seed, so restoring cannot echo back into the draft it read.
     _controller.addListener(_saveDraft);
   }
@@ -203,9 +233,29 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
   /// the trip body re-inflating when it opens or crosses the docked width —
   /// and by the time `dispose` runs the element is already unmounted, so `ref`
   /// throws there.
-  void _saveDraft() => ref
-      .read(chatDraftProvider(_draftKey).notifier)
-      .setText(_controller.text);
+  ///
+  /// Also the one place that can tell the user typed something, which is what
+  /// ends a history browse — every other write to [_controller] announces
+  /// itself with [_recalling].
+  void _saveDraft() {
+    final text = _controller.text;
+    // A [TextEditingController] notifies for a caret move exactly as it does
+    // for a keystroke, and clicking into a recalled message to edit it is an
+    // ordinary thing to do. Treating that as typing would end the browse and
+    // overwrite the stash with the message being browsed — losing the draft
+    // the user was actually writing.
+    if (text == _composerText) return;
+    _composerText = text;
+    // A browse step must not overwrite the kept draft either: while browsing,
+    // the draft IS the stash of what the user was composing, and holding it
+    // there rather than in a second field is what lets Down walk back to it.
+    if (_recalling) return;
+    // A keystroke, a dictated phrase, a paste — whatever it was, the composer
+    // holds the user's own words again, so browsing is over and these are the
+    // words to keep.
+    _historyIndex = -1;
+    ref.read(chatDraftProvider(_draftKey).notifier).setText(text);
+  }
 
   /// The attachment half. Separate from [_saveDraft] because the two are
   /// edited by different gestures and the list write copies.
@@ -282,6 +332,131 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
     ref.read(widget.notifier).sendMessage(text, attachments: attachments);
     _stickToBottom = true;
     _scrollToBottom();
+  }
+
+  /// The inverse of [_send]. The notifier rolls the in-flight turn out of the
+  /// transcript and hands back the message that started it; it goes into the
+  /// composer exactly as it left — same text, same attachments, caret at the
+  /// end, focus back in the field — so the thing the user stopped to change is
+  /// already there to change.
+  ///
+  /// A null hand-back still stopped the turn; it means there is nothing for
+  /// the composer to take (a chip-seeded turn, or one that went back to the
+  /// queue). See [PlanNotifier.stopStreaming] for which is which.
+  void _stop() {
+    final restored = ref.read(widget.notifier).stopStreaming();
+    if (restored == null) return;
+    // Never assign `controller.text` — that setter parks the selection at -1
+    // and the next keystroke lands in front of the restored text (see
+    // [_restoreDraft]). The controller's own listener mirrors this into the
+    // kept draft, so as in [_send] only the attachment half is said twice.
+    _controller.value = TextEditingValue(
+      text: restored.content,
+      selection: TextSelection.collapsed(offset: restored.content.length),
+    );
+    // Taken wholesale: the button is a Stop only while the composer is empty,
+    // and an in-flight message's attachments are the real bytes the composer
+    // handed over a moment ago — resume placeholders (null `bytes`) only ever
+    // belong to messages that were already sent.
+    setState(() {
+      _pending
+        ..clear()
+        ..addAll(restored.attachments);
+    });
+    _saveDraftAttachments();
+    _inputFocus.requestFocus();
+  }
+
+  /// What Up walks back through: every message the user actually typed and
+  /// sent in this chat, oldest first. Read fresh each keystroke rather than
+  /// cached — the transcript is the only copy, and a second one would drift
+  /// the moment a turn lands, is resumed, or is undone by [_stop].
+  ///
+  /// Two exclusions. Chip-seeded turns ([PlanMessage.displayLabel]) are the
+  /// app's words, not the user's — recalling several hundred words of
+  /// generated seed is not what Up is for. Assistant messages, obviously.
+  /// Queued messages ARE included: they were sent, they are only waiting.
+  List<String> _sentHistory() {
+    final chat = ref.read(widget.state);
+    return [
+      for (final m in chat.messages)
+        if (m.role == MessageRole.user && m.displayLabel == null) m.content,
+      for (final q in chat.queuedMessages)
+        if (q.displayLabel == null) q.text,
+    ];
+  }
+
+  /// Steps [delta] entries back (+1, Up) or forward (-1, Down) through
+  /// [_sentHistory]. Returns false when there is nowhere left to go, so the
+  /// key falls through to its ordinary caret movement instead of dead-ending.
+  ///
+  /// Text only: attachments stay where they were. Up recalls what you *wrote*,
+  /// and silently re-attaching photos from an old message would be a surprise
+  /// on the way to editing a sentence.
+  bool _recallHistory(int delta) {
+    final history = _sentHistory();
+    if (history.isEmpty) return false;
+    final next = _historyIndex + delta;
+    // -1 is a real destination (back to the draft); past either end is not.
+    if (next < -1 || next >= history.length) return false;
+
+    // Leaving history: the kept draft was never overwritten while browsing
+    // (see [_saveDraft]), so what the user was composing is still exactly
+    // there — no separate stash to keep in sync.
+    final text = next == -1
+        ? ref.read(chatDraftProvider(_draftKey)).text
+        : history[history.length - 1 - next];
+
+    _historyIndex = next;
+    _recalling = true;
+    // Never assign `controller.text` — see [_restoreDraft] for why. Caret at
+    // the end so editing a recalled message continues it.
+    _controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    _recalling = false;
+    return true;
+  }
+
+  /// Up/Down in the composer recall history, shell-style — but only from the
+  /// edge of the text, so a multi-line draft still moves the caret by line the
+  /// way every other text field does. Declining (`ignored`) is what leaves
+  /// that default behaviour in place.
+  KeyEventResult _onComposerKey(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final up = event.logicalKey == LogicalKeyboardKey.arrowUp;
+    if (!up && event.logicalKey != LogicalKeyboardKey.arrowDown) {
+      return KeyEventResult.ignored;
+    }
+    // Any modifier makes this a different gesture — Shift extends a selection,
+    // Alt/Ctrl/Meta jump by word or to the ends — and none of them mean
+    // "history".
+    final keys = HardwareKeyboard.instance;
+    if (keys.isShiftPressed ||
+        keys.isControlPressed ||
+        keys.isAltPressed ||
+        keys.isMetaPressed) {
+      return KeyEventResult.ignored;
+    }
+
+    final selection = _controller.selection;
+    if (!selection.isValid || !selection.isCollapsed) {
+      return KeyEventResult.ignored;
+    }
+    // First line for Up, last line for Down: mid-draft the arrows are the
+    // user navigating their own text, not asking for history.
+    final text = _controller.text;
+    final onEdgeLine = up
+        ? !text.substring(0, selection.baseOffset).contains('\n')
+        : !text.substring(selection.baseOffset).contains('\n');
+    if (!onEdgeLine) return KeyEventResult.ignored;
+
+    return _recallHistory(up ? 1 : -1)
+        ? KeyEventResult.handled
+        : KeyEventResult.ignored;
   }
 
   void _notify(String message) {
@@ -438,7 +613,7 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
             hint: widget.inputHint ?? context.l10n.chatInputHint,
             shortHint: widget.shortInputHint ?? context.l10n.chatInputHintShort,
             onSend: _send,
-            onStop: () => ref.read(widget.notifier).stopStreaming(),
+            onStop: _stop,
             hasDraftAttachments: _pending.isNotEmpty || _processingCount > 0,
             onAttach: _pickImages,
             dictation: _dictation,

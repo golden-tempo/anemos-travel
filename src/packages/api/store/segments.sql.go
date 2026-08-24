@@ -324,6 +324,36 @@ func (q *Queries) ShiftSegmentDates(ctx context.Context, arg ShiftSegmentDatesPa
 	return result.RowsAffected(), nil
 }
 
+const shiftSegmentDatesFrom = `-- name: ShiftSegmentDatesFrom :execrows
+UPDATE trip_segments
+SET depart_date = depart_date + $1::int,
+    arrive_date = arrive_date + $1::int
+WHERE trip_id = $2
+  AND COALESCE(arrive_date, depart_date) >= $3::date
+`
+
+type ShiftSegmentDatesFromParams struct {
+	Days     int32       `json:"days"`
+	TripID   uuid.UUID   `json:"trip_id"`
+	FromDate pgtype.Date `json:"from_date"`
+}
+
+// Suffix date shift (agent shift_days_from): ShiftSegmentDates with a date
+// floor. Unlike ShiftAccommodationDatesFrom this moves a segment AS A UNIT,
+// membership decided by its arrival (fallback departure): a segment's two
+// dates are one physical journey (specs/overnight-arrivals), so an overnight
+// ride into the pivot city departs later too rather than being stretched
+// across the shift. A journey is part of the suffix when it LANDS in it.
+// Raw UPDATE: auto drafts shift without being confirmed. Undated segments
+// don't move and aren't counted.
+func (q *Queries) ShiftSegmentDatesFrom(ctx context.Context, arg ShiftSegmentDatesFromParams) (int64, error) {
+	result, err := q.db.Exec(ctx, shiftSegmentDatesFrom, arg.Days, arg.TripID, arg.FromDate)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateSegment = `-- name: UpdateSegment :one
 UPDATE trip_segments
 SET mode        = COALESCE($1, mode),

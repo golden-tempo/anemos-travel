@@ -9,6 +9,7 @@ import 'package:travel_route_planner/models/trip.dart';
 import 'package:travel_route_planner/models/itinerary_item.dart';
 import 'package:travel_route_planner/models/traveler_preferences.dart';
 import 'package:travel_route_planner/providers/flights_provider.dart';
+import 'package:travel_route_planner/providers/home_overlay_provider.dart';
 import 'package:travel_route_planner/providers/preferences_provider.dart';
 import 'package:travel_route_planner/providers/trips_provider.dart';
 import 'package:travel_route_planner/screens/trip_detail_screen.dart';
@@ -161,17 +162,24 @@ void main() {
 
   final trip = makeTrip();
 
+  /// [homeChoice] stands in for the traveler's show/hide toggle: the inline
+  /// card now defaults the overlay OFF, so the leg-gating tests force it on
+  /// to keep exercising a visible overlay. Pass null to test the default.
   Future<void> pumpScreen(
     WidgetTester tester, {
     bool withHome = true,
     Trip? tripOverride,
     List<Override> extraOverrides = const [],
+    bool? homeChoice = true,
   }) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           tripsApiServiceProvider
               .overrideWithValue(_FakeTripsApiService(tripOverride ?? trip)),
+          if (homeChoice != null)
+            homeOverlayChoiceProvider.overrideWith((ref) =>
+                HomeOverlayChoiceNotifier()..setShown(homeChoice)),
           if (withHome) ...[
             // Populates _homeAirport via the screen's prefs load...
             preferencesApiServiceProvider.overrideWithValue(_FakePrefsApi()),
@@ -230,6 +238,25 @@ void main() {
     expect(home.single.outboundTo, isNotNull);
     expect(home.single.returnFrom, isNotNull);
     expect(home.single.kind, TripMapHomeKind.home);
+    expect(homePin, findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the overlay defaults off; the toggle turns it on',
+      (WidgetTester tester) async {
+    // No choice made this session: even on the wide pinned card the inline
+    // map opens with the destinations owning the frame, and the toggle —
+    // dimmed, still present — is the way back to the hop home.
+    await pumpScreen(tester, homeChoice: null);
+
+    expect(map(tester).home, isEmpty);
+    expect(homePin, findsNothing);
+    expect(homeToggle, findsOneWidget);
+
+    await tester.tap(homeToggle);
+    await tester.pumpAndSettle();
+
+    expect(map(tester).home, hasLength(1));
     expect(homePin, findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -379,6 +406,8 @@ void main() {
           preferencesApiServiceProvider.overrideWithValue(prefsApi),
           homeAirportPointProvider('EWR')
               .overrideWith((ref) async => homePoint),
+          homeOverlayChoiceProvider.overrideWith(
+              (ref) => HomeOverlayChoiceNotifier()..setShown(true)),
         ],
         child: MaterialApp(
           localizationsDelegates: testLocalizationsDelegates,
@@ -411,8 +440,9 @@ void main() {
       (WidgetTester tester) async {
     await pumpScreen(tester);
 
-    // Default ON at the wide surface: lit toggle, left of the fullscreen
-    // button — beside, not above, the zoom column (PR #291's row shape).
+    // Overlay shown (the forced choice standing in for the toggle): lit
+    // toggle, left of the fullscreen button — beside, not above, the zoom
+    // column (PR #291's row shape).
     expect(homeToggle, findsOneWidget);
     expect(tester.widget<Icon>(homeToggle).color, Colors.white);
     final fullscreen = find.byIcon(Icons.fullscreen);
@@ -479,7 +509,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.fullscreen));
     await tester.pumpAndSettle();
     expect(find.byType(TripMapScreen), findsOneWidget);
-    // The 800px window keeps the wide default, but the explicit choice wins.
+    // The explicit choice rides into the modal, over the off default.
     expect(homePin, findsNothing);
     expect(tester.widget<Icon>(homeToggle).color, Colors.white38);
 
@@ -497,14 +527,15 @@ void main() {
 
   testWidgets('phone flow: bare preview, toggle lives on the full map, '
       'an explicit ON rides back to the preview', (WidgetTester tester) async {
-    // The default is a window question on the full map, so shrink the VIEW —
-    // setSurfaceSize only resizes layout, not MediaQuery.sizeOf.
+    // Shrink the VIEW to get the phone layout (bare preview, no toggle —
+    // the full map carries it): setSurfaceSize only resizes layout, not
+    // MediaQuery.sizeOf.
     tester.view.physicalSize = const Size(375, 667);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await pumpScreen(tester);
+    await pumpScreen(tester, homeChoice: null);
 
     // Phone default: tight city framing, and no toggle on the preview — the
     // full-screen map (one tap away) carries it.

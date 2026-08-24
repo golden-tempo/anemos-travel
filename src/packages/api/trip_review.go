@@ -342,18 +342,24 @@ func walkDayCoverage(d exportData) dayCoverage {
 }
 
 // checkLegShape flags a city leg whose rendered dates are not the ones anybody
-// chose (specs/shape-before-schedule). Both cases are silent everywhere else,
+// chose (specs/shape-before-schedule). Every case is silent everywhere else,
 // which is the reason this check exists rather than a comment:
 //
-//   - A leg renders ZERO nights because no place sits on the day the traveler
-//     moves on. Its nights land on the NEXT city, whose range starts at this
-//     leg's end. The page draws no nights label at all below one night, and
+//   - A leg renders ZERO nights: the next city's arrival is on this leg's own
+//     arrival day (specs/leg-departure-dates — a leg's end is the NEXT leg's
+//     arrival, so only a shared arrival day can pinch a span to nothing). The
+//     page draws no nights label at all below one night, and
 //     RenderLeg.ZeroNight has ridden the trip payload since the leg-dates work
-//     with no consumer anywhere — so today nothing tells anyone. Worse, the
+//     with no consumer anywhere — so nothing else tells anyone. Worse, the
 //     booking walk reads a zero-length stay slot as vacuously covered
 //     (stayNightsCovered), so Next Step stops asking the traveler to book that
 //     city while Trip Health's own night walk still says there is no lodging.
 //     This is the finding that makes those two agree.
+//   - A leg holds a place dated AFTER the day it ends. Under the old
+//     derivation such an item widened its own leg and loudly collapsed the
+//     neighbour; under the boundary rule the spans stay plausible while the
+//     item sits stranded outside its leg's window, so the derivation names it
+//     (RenderLeg.itemsPastEnd) and this finding is what keeps it visible.
 //   - A leg's span came from the weighted auto-allocation: no place on it
 //     carries a day, so its share of the trip was computed, not chosen. Under a
 //     spine every city holds the same couple of places, which makes that split
@@ -377,6 +383,12 @@ func checkLegShape(locale string, d exportData) []Finding {
 			out = append(out, Finding{
 				Severity: "warn", Category: "dates", TripID: tripID,
 				Message: tr(locale, "review.legNoNights", leg.Label),
+			})
+		case leg.itemsPastEnd:
+			endDay := nightsBetween(d.Trip.StartDate.Time, *leg.End) + 1
+			out = append(out, Finding{
+				Severity: "warn", Category: "dates", TripID: tripID,
+				Message: tr(locale, "review.legItemsPastEnd", leg.Label, endDay),
 			})
 		case leg.DateSource == "auto":
 			out = append(out, Finding{

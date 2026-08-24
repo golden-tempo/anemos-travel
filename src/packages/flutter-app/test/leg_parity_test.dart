@@ -37,14 +37,15 @@ void main() {
   ];
 
   test('a matching payload yields no mismatches', () {
-    // Values mirror the leg_ranges_test.dart visible expectations.
+    // Values mirror the leg_ranges_test.dart visible expectations:
+    // Gothenburg runs until Madrid's day-5 arrival (the boundary rule).
     final trip = _trip(gothenburgMadrid, const [
       TripLegDto(
         key: 'Gothenburg',
         label: 'Gothenburg',
         hub: 'Gothenburg',
         startDate: '2026-08-24',
-        endDate: '2026-08-26',
+        endDate: '2026-08-28',
         dateSource: 'items',
         firstPosition: 0,
         lastPosition: 1,
@@ -53,7 +54,7 @@ void main() {
         key: 'Madrid',
         label: 'Madrid',
         hub: 'Madrid',
-        startDate: '2026-08-26',
+        startDate: '2026-08-28',
         endDate: '2026-08-28',
         dateSource: 'items',
         firstPosition: 2,
@@ -69,24 +70,24 @@ void main() {
         key: 'Gothenburg',
         label: 'Gothenburg',
         startDate: '2026-08-24',
-        endDate: '2026-08-25', // local says 08-26
+        endDate: '2026-08-25', // local says 08-28
         firstPosition: 0,
         lastPosition: 1,
       ),
       TripLegDto(
         key: 'Madrid',
         label: 'Madrid',
-        startDate: '2026-08-26',
+        startDate: '2026-08-28',
         endDate: '2026-08-28',
         firstPosition: 2,
         lastPosition: 2,
       ),
     ]);
     final diffs = legParityMismatches(trip);
-    // Madrid's payload start (08-26) still equals the LOCAL arrival — the
-    // local derivation is self-consistent — so only the end diff reports.
+    // Madrid's payload span still equals the local one — the local
+    // derivation is self-consistent — so only the end diff reports.
     expect(diffs, hasLength(1));
-    expect(diffs[0], contains('Gothenburg end: 2026-08-25 vs 2026-08-26'));
+    expect(diffs[0], contains('Gothenburg end: 2026-08-25 vs 2026-08-28'));
   });
 
   test('leg-count differences are reported once', () {
@@ -95,7 +96,7 @@ void main() {
         key: 'Gothenburg',
         label: 'Gothenburg',
         startDate: '2026-08-24',
-        endDate: '2026-08-26',
+        endDate: '2026-08-28',
         firstPosition: 0,
         lastPosition: 1,
       ),

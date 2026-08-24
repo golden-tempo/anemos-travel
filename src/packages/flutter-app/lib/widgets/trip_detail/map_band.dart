@@ -188,11 +188,12 @@ class TripDetailMapBand extends StatelessWidget {
               firstCityPoint: endpoints.first,
               lastCityPoint: endpoints.last,
             );
-            // !expandable == _mapPinned at both _mapCard call sites, so the
-            // wide default rides the same slot-width answer as the layout.
+            // The inline card defaults the overlay OFF at every width: the
+            // hop home is context, not the trip, so the destinations own the
+            // frame until the traveler toggles it on (a choice the shared
+            // provider then carries to the full-screen map too).
             final showHome = homeOverlayVisible(
               choice: ref.watch(homeOverlayChoiceProvider),
-              wideLayout: !expandable,
             );
             return TripMap(
               items: derivation.legFilteredItems(focusKey),

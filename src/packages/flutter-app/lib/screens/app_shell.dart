@@ -4,6 +4,7 @@ import '../l10n/l10n.dart';
 import '../navigation/app_nav.dart';
 import '../navigation/shell_scope.dart';
 import '../navigation/url_sync.dart';
+import '../providers/trips_provider.dart';
 import '../theme/spacing.dart';
 import '../widgets/account_menu.dart';
 import '../widgets/brand_logo.dart';
@@ -18,7 +19,10 @@ import 'trips_list_screen.dart';
 /// root, while Trips keeps your place — first tap returns to the trip you
 /// were viewing, a second tap pops to the list. Programmatic switch+push
 /// flows (Home trip cards, boot restore, shared-trip join) write
-/// [navIndexProvider] directly, so their pushes survive regardless.
+/// [navIndexProvider] directly, so their pushes survive regardless. Tab
+/// subtrees build lazily on first visit and stay mounted from then on
+/// ([_AppShellState._visited]); hidden visited tabs stay out of the
+/// semantics tree.
 ///
 /// [navDestinations] carries the icons and ordering; its labels are display
 /// copy, so the shell renders the localized label for each tab instead
@@ -30,13 +34,56 @@ String _destinationLabel(AppLocalizations l10n, int index) =>
       AppTab.trips => l10n.shellNavTrips,
     };
 
-class AppShell extends ConsumerWidget {
+class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends ConsumerState<AppShell> {
+  /// Tabs that have been the selected index at least once this shell
+  /// lifetime. A tab's subtree builds on FIRST VISIT and stays mounted for
+  /// good; an unvisited tab's IndexedStack slot holds an empty box instead
+  /// (lazy first build — 2026-08 perf audit, finding-3 hardening: boot
+  /// builds one tab's subtree, not three, and the live widget/semantics
+  /// surface starts at one tab). Once every tab has been visited the steady
+  /// state is identical to the always-mounted shell this replaces.
+  ///
+  /// Programmatic switch+push flows (Home trip cards, boot restore,
+  /// shared-trip join) need no special casing: they write [navIndexProvider]
+  /// before pushing onto the target tab's navigator, and becoming the index
+  /// IS what builds the slot — pushOnTabWhenReady's frame-retry loop
+  /// (app_nav.dart) bridges the one frame between the write and the
+  /// navigator mounting, exactly as it already did for cold boot. Boot
+  /// deep-links are the same story one frame earlier: the boot target sets
+  /// the index before this widget first builds, so the targeted tab is the
+  /// one slot built on frame one.
+  final Set<int> _visited = {};
+
+  @override
+  void initState() {
+    super.initState();
+    // The boot trips load lives HERE, not in TripsListScreen's initState,
+    // because Home consumes tripsProvider too (live-trip hero, travels band,
+    // the returning-user gate) and under lazy first build no tab screen can
+    // be assumed mounted. The shell is the one widget that always mounts
+    // when a signed-in session starts — and it remounts on the same root
+    // resets that used to remount the trips list, so the load-and-refresh
+    // cadence is unchanged: once per shell lifetime. TripsListScreen keeps a
+    // guarded self-load for mounts outside the shell (its widget tests).
+    // Post-frame because loadTrips writes provider state, illegal mid-build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(tripsProvider.notifier).loadTrips();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = context.l10n;
     final index = ref.watch(navIndexProvider);
+    _visited.add(index);
     final navKeys = ref.watch(tabNavKeysProvider);
     final urlSync = ref.watch(urlSyncProvider);
     final isWide = MediaQuery.sizeOf(context).width >= kRailBreakpoint;
@@ -57,30 +104,58 @@ class AppShell extends ConsumerWidget {
         index: index,
         children: [
           for (var i = 0; i < navKeys.length; i++)
-            // TickerMode freezes hidden tabs' animations/tickers (an open
-            // TripDetailScreen on a background tab otherwise keeps animating
-            // offscreen) while keeping their state, scroll positions, and
-            // GlobalKeys mounted — deliberately NOT unmounting or swapping
-            // placeholders, and NOT keyed off ModalRoute.isCurrent (a hidden
-            // tab's top route still reports current).
-            //
-            // The catch, and it bites: a nested Navigator is the vsync for its
-            // own route transitions and sits INSIDE this TickerMode, so a
-            // push or pop started on a hidden tab does not advance — it parks
-            // fully painted and then plays its whole transition the moment
-            // this IndexedStack reveals the tab. Anything that changes a
-            // hidden tab's stack must therefore remove routes, never pop
-            // them: see resetToRoot and instantRoute (app_nav.dart).
-            TickerMode(
-              enabled: i == index,
-              child: _TabNavigator(
-                navKey: navKeys[i],
-                // Fresh observer instances every build: an observer may only
-                // be attached to one navigator at a time (url_sync.dart).
-                observers: [TabUrlObserver(urlSync, i)],
-                child: _tabRoots[i],
+            if (!_visited.contains(i))
+              // Lazy first build: this tab has never been selected, so its
+              // slot holds nothing — no screen subtree, no Navigator, no
+              // TabUrlObserver. First selection swaps the real subtree in
+              // (see [_visited]) and it stays mounted from then on.
+              const SizedBox.shrink()
+            else
+              // Hidden VISITED tabs drop out of the semantics tree while
+              // staying fully mounted: what a screen reader (or a
+              // DOM-scanning extension content script) can read is the tab
+              // on screen, nothing else. State, scroll positions, providers
+              // and in-flight fetches are untouched — only semantics
+              // exposure changes. Flutter's own IndexedStack already strips
+              // hidden children (its per-child Visibility omits
+              // maintainSemantics, and RenderIndexedStack visits only the
+              // displayed child for semantics), so this wrapper is the
+              // app-owned pin of that contract: stated here beside the
+              // shell's other lifecycle gates rather than inherited silently
+              // from SDK internals an upgrade could rework.
+              ExcludeSemantics(
+                excluding: i != index,
+                // TickerMode freezes hidden tabs' animations/tickers (an open
+                // TripDetailScreen on a background tab otherwise keeps
+                // animating offscreen) while keeping their state, scroll
+                // positions, and GlobalKeys mounted — deliberately NOT
+                // unmounting or swapping placeholders once a tab has been
+                // visited, and NOT keyed off ModalRoute.isCurrent (a hidden
+                // tab's top route still reports current). It doubles as the
+                // visibility signal AppMapVisibilityGate (app_map.dart)
+                // reads, so a hidden tab's map bands mount no live
+                // FlutterMap.
+                //
+                // The catch, and it bites: a nested Navigator is the vsync
+                // for its own route transitions and sits INSIDE this
+                // TickerMode, so a push or pop started on a hidden tab does
+                // not advance — it parks fully painted and then plays its
+                // whole transition the moment this IndexedStack reveals the
+                // tab. Anything that changes a hidden tab's stack must
+                // therefore remove routes, never pop them: see resetToRoot
+                // and instantRoute (app_nav.dart).
+                child: TickerMode(
+                  enabled: i == index,
+                  child: _TabNavigator(
+                    navKey: navKeys[i],
+                    // Fresh observer instances every build: an observer may
+                    // only be attached to one navigator at a time
+                    // (url_sync.dart).
+                    observers: [TabUrlObserver(urlSync, i)],
+                    child: _tabRoots[i],
+                  ),
+                ),
               ),
-            ),
         ],
       ),
     ));

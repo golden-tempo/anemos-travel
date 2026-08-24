@@ -101,10 +101,20 @@ class TravelFootprintCard extends StatelessWidget {
               height: _bandHeight,
               child: Semantics(
                 label: l10n.tripsListTravelMap,
-                child: _FootprintMap(
-                  pins: pins,
-                  tooltipFor: (p) => '${p.city} · '
-                      '${p.visited ? l10n.tripsListStatsTraveled : l10n.tripsListStatsPlanned}',
+                // RepaintBoundary: the page must composite the rasterized
+                // tile stack when it scrolls, not re-rasterize it every
+                // frame the band is on screen.
+                child: RepaintBoundary(
+                  // No live map while the hosting tab is hidden or its route
+                  // is covered; the fixed-height box above keeps the layout
+                  // identical either way (see AppMapVisibilityGate).
+                  child: AppMapVisibilityGate(
+                    child: _FootprintMap(
+                      pins: pins,
+                      tooltipFor: (p) => '${p.city} · '
+                          '${p.visited ? l10n.tripsListStatsTraveled : l10n.tripsListStatsPlanned}',
+                    ),
+                  ),
                 ),
               ),
             ),

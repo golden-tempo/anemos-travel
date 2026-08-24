@@ -254,6 +254,25 @@
   "quizLoadErrorBody": "No se pudieron cargar tus respuestas guardadas, así que el cuestionario aún no puede empezar. Comprueba tu conexión e inténtalo de nuevo.",
   "bookingCardEdit": "Editar",
   "bookingCardRemove": "Quitar",
+  "bookingRemoveTitle": "¿Quitar «{title}»?",
+  "@bookingRemoveTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingRemoveBody": "Esto no se puede deshacer.",
+  "bookingRemoveSavedOptions": "{count, plural, =1{Su opción guardada se elimina con él.} other{Sus {count} opciones guardadas se eliminan con él.}}",
+  "@bookingRemoveSavedOptions": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "bookingRemoveLinkedExpense": "Un gasto vinculado permanece en tu presupuesto, aún contado en lo que has gastado, sin nada que apunte a una reserva.",
+  "bookingRemoveBooked": "Esto no cancela nada con el proveedor: si existe una reserva real, solo tú puedes cancelarla.",
   "bookingCardBooked": "Reservado",
   "bookingCardOpenIn": "Abrir en {provider}",
   "bookingCardOpenSearch": "Abrir búsqueda",
@@ -273,6 +292,9 @@
   "bookingsSectionAllBooked": "Aquí está todo reservado",
   "tripOtherBookings": "Otras reservas",
   "bookingRowAddDetails": "Añadir detalles…",
+  "bookingRowMoveTo": "Mover a…",
+  "bookingMoveToTitle": "Mover a",
+  "bookingsReservations": "Reservas",
   "bookingRowOptions": "Opciones de la reserva",
   "bookingRowModeTooltip": "Cambiar el modo de transporte",
   "bookingRowDepartArrive": "{depart} → {arrive}",

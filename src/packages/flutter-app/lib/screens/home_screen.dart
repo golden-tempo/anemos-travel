@@ -110,8 +110,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // inside the readiness window, which is what "before you go" means. Also
     // live-trip-excluding, so nothing here has to. See departingTripOf.
     final departingTrip = ref.watch(departingTripProvider);
-    // Populated app-wide: AppShell's IndexedStack keeps TripsListScreen
-    // mounted, and its loadTrips() feeds tripsProvider — no fetch from here.
+    // Populated app-wide: AppShell fires the boot loadTrips() from its own
+    // initState (tab subtrees build lazily, so no tab screen can be assumed
+    // mounted) — no fetch from here.
     //
     // Every trips refresh rebuilds the Trip objects, so watching the derived
     // Trip? directly would fire on identical data. Watch an identity-stable
@@ -151,146 +152,173 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         actions: const [LanguageMenuButton(), AccountMenu()],
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
+        // Sections ride the ListView as independent children, each in the
+        // centered 700px column (stretch stands in for the old single
+        // Column's crossAxisAlignment.stretch), so off-screen sections are
+        // built on approach instead of up front. The page used to be one
+        // Column in a SingleChildScrollView, which mounted every section —
+        // the below-the-fold map hosts (HomeTravelsBand, the continue
+        // hero's route band) included — on the boot tab of a shell that
+        // never unmounts it (2026-08 perf audit, finding 1). Order is
+        // unchanged.
+        child: ListView(
           controller: _scroll,
           padding: const EdgeInsets.all(AppSpacing.lg),
-          child: PageContainer(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: AppSpacing.lg),
+          children: [
+            const SizedBox(height: AppSpacing.lg),
 
-                _GreetingHeader(displayName: displayName),
+            PageContainer(
+                stretch: true,
+                child: _GreetingHeader(displayName: displayName)),
 
-                // Space, not size, marks the greeting as the page's display
-                // moment — the largest gap on the page sits under it.
-                const SizedBox(height: AppSpacing.xxl),
+            // Space, not size, marks the greeting as the page's display
+            // moment — the largest gap on the page sits under it.
+            const SizedBox(height: AppSpacing.xxl),
 
-                // AI Travel Agent entry: the full photo hero sells the
-                // product to a brand-new account; returning users get a slim
-                // strip with the same CTA so their trips stay above the fold.
-                if (returning) ...[
-                  _PlanStrip(onStart: startPlanning),
-                  // The strip row is width-starved on phones, so the near-me
-                  // starter sits on its own line beneath it.
-                  const SizedBox(height: AppSpacing.md),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: NearMeChip(
-                      onSend: (text, {displayLabel}) => startPlanning(
-                          initialMessage: text, displayLabel: displayLabel),
-                    ),
+            // AI Travel Agent entry: the full photo hero sells the
+            // product to a brand-new account; returning users get a slim
+            // strip with the same CTA so their trips stay above the fold.
+            if (returning) ...[
+              PageContainer(
+                  stretch: true, child: _PlanStrip(onStart: startPlanning)),
+              // The strip row is width-starved on phones, so the near-me
+              // starter sits on its own line beneath it.
+              const SizedBox(height: AppSpacing.md),
+              PageContainer(
+                stretch: true,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: NearMeChip(
+                    onSend: (text, {displayLabel}) => startPlanning(
+                        initialMessage: text, displayLabel: displayLabel),
                   ),
-                ] else
-                  _AgentHeroCard(
-                    onStart: startPlanning,
-                    onImport: () => openImportOnTripsTab(ref),
-                  ),
-
-                const SizedBox(height: AppSpacing.xl),
-
-                // The trip happening today (specs/happening-now).
-                if (liveTrip != null) ...[
-                  LiveTripCard(
-                    trip: liveTrip,
-                    // The trips list owns this trip's route band; a second
-                    // one here would starve it (see TripHeroCard.showMap).
-                    showMap: false,
-                    // On the Trips tab (not pushed over Home): the Trips nav
-                    // item highlights, and `from` sends back here rather than
-                    // to a trips list this traveler never opened.
-                    onTap: () =>
-                        openTripOnTripsTab(ref, liveTrip.id, from: AppTab.home),
-                  ),
-                  const SizedBox(height: AppSpacing.xl),
-                ],
-                // One "Continue where you left off" section: the trip to pick
-                // back up (see continueTripProvider), then in-progress AI
-                // conversations that haven't produced a trip yet
-                // (specs/continue-where-you-left-off). Collapses to nothing
-                // only when the account genuinely has nothing to resume.
-                ContinueChatsSection(
-                  leading: continueTrip != null
-                      ? Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            ContinueTripHero(
-                              tripId: continueTrip.tripId,
-                              title: continueTrip.title,
-                              dateRange: continueTrip.dateRange,
-                              startDate: continueTrip.startDate,
-                              onTap: () => openTripOnTripsTab(
-                                  ref, continueTrip.tripId,
-                                  from: AppTab.home),
-                            ),
-                            // The hero's quiet sequel: what that trip still
-                            // needs. Collapses to nothing whenever the review
-                            // has no step to report, so the gap below is the
-                            // section's own — see HomeNextStepBand.
-                            const SizedBox(height: AppSpacing.sm),
-                            HomeNextStepBand(
-                              tripId: continueTrip.tripId,
-                              // Same destination AND same origin as the hero
-                              // above it: the pair is one target with two
-                              // rows, so back has to land where the hero's
-                              // back lands (PR #516).
-                              onTap: () => openTripOnTripsTab(
-                                  ref, continueTrip.tripId,
-                                  from: AppTab.home),
-                            ),
-                          ],
-                        )
-                      : null,
                 ),
-
-                // Pre-departure readiness for the trip that is close enough to
-                // pack for — which is departingTripProvider's trip, NOT the
-                // continue-trip above. The two answer different questions
-                // ("what am I about to take" vs "what did I last open"), and
-                // reading readiness off the second one silently reported the
-                // wrong trip whenever they disagreed. The card prints the name
-                // it is talking about either way. Renders nothing when it has
-                // no honest row to show (BeforeYouGoSection).
-                if (departingTrip != null)
-                  BeforeYouGoSection(
-                    tripId: departingTrip.tripId,
-                    tripTitle: departingTrip.title,
-                    startDate: departingTrip.startDate,
-                    // The health sheet, not the trip page: this card's rows
-                    // ARE that sheet's rows, and it is the only surface with
-                    // buttons that can act on them.
-                    onTap: () => openTripHealthOnTripsTab(
-                        ref, departingTrip.tripId,
-                        from: AppTab.home),
-                  ),
-
-                // Where the traveler has been, and where they are going next.
-                // Carries its own 2+ owned-trips gate, so it cannot appear
-                // half-empty on a first trip.
-                const HomeTravelsBand(),
-
-                // Inspiration no longer disappears the moment there is a trip
-                // to continue. The rule it used to enforce — inspiration must
-                // never push a traveler's actual trips down — is now kept by
-                // POSITION rather than by absence: the rail sits below the
-                // trip content instead of vanishing from the page. Gating it
-                // off inverted the intent in practice, because the traveler
-                // who HAD a trip got the emptiest home screen in the app.
-                HomeInspirationRail(
-                  onPrompt: (text) => startPlanning(initialMessage: text),
+              ),
+            ] else
+              PageContainer(
+                stretch: true,
+                child: _AgentHeroCard(
+                  onStart: startPlanning,
+                  onImport: () => openImportOnTripsTab(ref),
                 ),
+              ),
 
-                // Local guides discover row — published narrative guides
-                // across all cities. Renders nothing while loading, on
-                // error, or when there are none, so the section (header
-                // included) only appears when there is something to show.
-                const _LocalGuidesRow(),
+            const SizedBox(height: AppSpacing.xl),
 
-                const SizedBox(height: AppSpacing.lg),
-              ],
+            // The trip happening today (specs/happening-now).
+            if (liveTrip != null) ...[
+              PageContainer(
+                stretch: true,
+                child: LiveTripCard(
+                  trip: liveTrip,
+                  // The trips list owns this trip's route band; a second
+                  // one here would starve it (see TripHeroCard.showMap).
+                  showMap: false,
+                  // On the Trips tab (not pushed over Home): the Trips nav
+                  // item highlights, and `from` sends back here rather than
+                  // to a trips list this traveler never opened.
+                  onTap: () =>
+                      openTripOnTripsTab(ref, liveTrip.id, from: AppTab.home),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+            ],
+            // One "Continue where you left off" section: the trip to pick
+            // back up (see continueTripProvider), then in-progress AI
+            // conversations that haven't produced a trip yet
+            // (specs/continue-where-you-left-off). Collapses to nothing
+            // only when the account genuinely has nothing to resume.
+            PageContainer(
+              stretch: true,
+              child: ContinueChatsSection(
+                leading: continueTrip != null
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ContinueTripHero(
+                            tripId: continueTrip.tripId,
+                            title: continueTrip.title,
+                            dateRange: continueTrip.dateRange,
+                            startDate: continueTrip.startDate,
+                            onTap: () => openTripOnTripsTab(
+                                ref, continueTrip.tripId,
+                                from: AppTab.home),
+                          ),
+                          // The hero's quiet sequel: what that trip still
+                          // needs. Collapses to nothing whenever the review
+                          // has no step to report, so the gap below is the
+                          // section's own — see HomeNextStepBand.
+                          const SizedBox(height: AppSpacing.sm),
+                          HomeNextStepBand(
+                            tripId: continueTrip.tripId,
+                            // Same destination AND same origin as the hero
+                            // above it: the pair is one target with two
+                            // rows, so back has to land where the hero's
+                            // back lands (PR #516).
+                            onTap: () => openTripOnTripsTab(
+                                ref, continueTrip.tripId,
+                                from: AppTab.home),
+                          ),
+                        ],
+                      )
+                    : null,
+              ),
             ),
-          ),
+
+            // Pre-departure readiness for the trip that is close enough to
+            // pack for — which is departingTripProvider's trip, NOT the
+            // continue-trip above. The two answer different questions
+            // ("what am I about to take" vs "what did I last open"), and
+            // reading readiness off the second one silently reported the
+            // wrong trip whenever they disagreed. The card prints the name
+            // it is talking about either way. Renders nothing when it has
+            // no honest row to show (BeforeYouGoSection).
+            if (departingTrip != null)
+              PageContainer(
+                stretch: true,
+                child: BeforeYouGoSection(
+                  tripId: departingTrip.tripId,
+                  tripTitle: departingTrip.title,
+                  startDate: departingTrip.startDate,
+                  // The health sheet, not the trip page: this card's rows
+                  // ARE that sheet's rows, and it is the only surface with
+                  // buttons that can act on them.
+                  onTap: () => openTripHealthOnTripsTab(
+                      ref, departingTrip.tripId,
+                      from: AppTab.home),
+                ),
+              ),
+
+            // Where the traveler has been, and where they are going next.
+            // Carries its own 2+ owned-trips gate, so it cannot appear
+            // half-empty on a first trip.
+            const PageContainer(stretch: true, child: HomeTravelsBand()),
+
+            // Inspiration no longer disappears the moment there is a trip
+            // to continue. The rule it used to enforce — inspiration must
+            // never push a traveler's actual trips down — is now kept by
+            // POSITION rather than by absence: the rail sits below the
+            // trip content instead of vanishing from the page. Gating it
+            // off inverted the intent in practice, because the traveler
+            // who HAD a trip got the emptiest home screen in the app.
+            PageContainer(
+              stretch: true,
+              child: HomeInspirationRail(
+                onPrompt: (text) => startPlanning(initialMessage: text),
+              ),
+            ),
+
+            // Local guides discover row — published narrative guides
+            // across all cities. Renders nothing while loading, on
+            // error, or when there are none, so the section (header
+            // included) only appears when there is something to show.
+            // As the page's LAST content child it is also built last: the
+            // guides fetch now fires on first approach, not at boot.
+            const PageContainer(stretch: true, child: _LocalGuidesRow()),
+
+            const SizedBox(height: AppSpacing.lg),
+          ],
         ),
       ),
     );

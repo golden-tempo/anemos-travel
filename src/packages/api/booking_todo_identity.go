@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 
 	"travel-route-planner/store"
 )
@@ -186,6 +190,86 @@ func classifyDerivedTodos(derived []DerivedBookingTodo) []derivedIdentity {
 		seen[key] = i
 	}
 	return out
+}
+
+// cityLabelForDate returns the label of the ONE leg whose rendered date range
+// covers d — or "" when no leg, or more than one, does (00074,
+// specs/booking-city-grouping).
+//
+// More-than-one is the case this function exists to refuse: two consecutive
+// legs legally share their transition day (Amsterdam Aug 24–26, Prague Aug
+// 26–29), and a reservation dated Aug 26 could be a last Amsterdam dinner or a
+// first Prague one — the date does not carry which. Guessing here would file
+// it somewhere plausible and wrong, so ambiguity answers "", the row stays
+// under "Other bookings", and the traveler (or the agent's `city`) says the
+// rest. Ends are inclusive on both sides for the same reason the legs share
+// the day at all: the traveler is in both cities on it.
+//
+// The ranges are computeTripLegs' — the same derivation the trip page renders
+// and the daily-spend card bills nights from — so what the server files under
+// "Amsterdam" is exactly what the page draws as Amsterdam (docs/zen.md: one
+// derivation, N call sites). An "Other places" leg never claims: it is a
+// placeholder for unresolvable localities, not a city a booking happens in.
+func cityLabelForDate(legs []RenderLeg, d time.Time) string {
+	day := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
+	label := ""
+	for _, leg := range legs {
+		if leg.Start == nil || leg.End == nil || leg.Label == otherPlacesLabel {
+			continue
+		}
+		if day.Before(*leg.Start) || day.After(*leg.End) {
+			continue
+		}
+		if label != "" {
+			return "" // two covering legs — a shared transition day; refuse
+		}
+		label = leg.Label
+	}
+	return label
+}
+
+// fillBookingTodoCityLabels is the sync-time date fallback (00074): `other`
+// rows whose city_label is NULL and whose depart_date sits inside exactly one
+// leg's rendered range get that leg's label. It lives on the sync because that
+// is where "the server owns derived state, refreshed every sync" already
+// lives (the derived_mode precedent) — but unlike derived_mode it fills only
+// NULL, never overwrites: the column is explicit and authoritative, and
+// DeriveBookingTodoCityLabel re-checks IS NULL in the statement so a
+// concurrent explicit write always wins. Best-effort by design — a row left
+// unfilled renders under "Other bookings", the stated degrade, and the next
+// sync tries again.
+func fillBookingTodoCityLabels(ctx context.Context, q *store.Queries, trip store.Trip, tripID uuid.UUID) {
+	todos, err := q.ListBookingTodosByTrip(ctx, tripID)
+	if err != nil {
+		return
+	}
+	var candidates []store.BookingTodo
+	for _, t := range todos {
+		if !t.Auto && t.Kind == "other" && t.CityLabel == nil && t.DepartDate.Valid {
+			candidates = append(candidates, t)
+		}
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	items, itemsErr := q.GetItineraryItemsByTrip(ctx, tripID)
+	stays, staysErr := q.ListAccommodationsByTrip(ctx, tripID)
+	if itemsErr != nil || staysErr != nil {
+		return
+	}
+	legs := computeTripLegs(trip, items, stays)
+	if len(legs) == 0 {
+		return
+	}
+	for _, t := range candidates {
+		label := cityLabelForDate(legs, t.DepartDate.Time)
+		if label == "" {
+			continue
+		}
+		_, _ = q.DeriveBookingTodoCityLabel(ctx, store.DeriveBookingTodoCityLabelParams{
+			ID: t.ID, TripID: tripID, CityLabel: label,
+		})
+	}
 }
 
 // tripEndpointLabels returns the labels this trip's two home legs must carry,

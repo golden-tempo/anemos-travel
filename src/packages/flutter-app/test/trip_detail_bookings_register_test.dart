@@ -52,7 +52,7 @@ ItineraryItem _item(int pos, String name, String city, int day) =>
     );
 
 BookingTodo _todo(String kind, String key, String title,
-        {bool auto = true, String? subtitle}) =>
+        {bool auto = true, String? subtitle, String? cityLabel}) =>
     BookingTodo(
       id: key,
       kind: kind,
@@ -60,6 +60,7 @@ BookingTodo _todo(String kind, String key, String title,
       title: title,
       auto: auto,
       subtitle: subtitle,
+      cityLabel: cityLabel,
     );
 
 /// Paris (days 1-2) → Rome (day 3) → Paris again (day 4): Rome owns exactly
@@ -190,14 +191,14 @@ void main() {
       await _openBookingsTab(tester);
 
       // Rome is one leg, so its head can speak for it. The string is the same
-      // chip the itinerary city header renders — Rome's items sit on day 3,
-      // but the leg RENDERS from its arrival (the previous leg's visible end,
-      // Jun 11), which is the visibleLegRanges rule. A head derived from the
-      // raw ranges would have said "Jun 12" and contradicted the city header.
+      // chip the itinerary city header renders — Rome runs from its own day-3
+      // arrival (Jun 12) to the Paris revisit's day-4 arrival (Jun 13), the
+      // visibleLegRanges boundary rule. A head derived from the raw ranges
+      // would have said a bare "Jun 12" and contradicted the city header.
       //
       // Anchored on the DATE, not on 'Rome': the destination filter chip also
       // renders the bare label, so scoping the other way round picks the chip.
-      final date = find.text('Jun 11 – Jun 12');
+      final date = find.text('Jun 12 – Jun 13');
       expect(date, findsOneWidget);
       final head = find.ancestor(of: date, matching: find.byType(Row)).first;
       expect(find.descendant(of: head, matching: find.text('Rome')),
@@ -220,8 +221,78 @@ void main() {
       // working everywhere; naming the two strings that MUST NOT appear is
       // what makes this fail for the right reason.
       expect(find.text('Paris'), findsWidgets); // the section is there…
-      expect(find.text('Jun 10 – Jun 11'), findsNothing); // …run 1's window
-      expect(find.text('Jun 12 – Jun 13'), findsNothing); // …and run 2's
+      expect(find.text('Jun 10 – Jun 12'), findsNothing); // …run 1's window
+      expect(find.text('Jun 13'), findsNothing); // …and run 2's bare arrival
+    });
+  });
+
+  group('city grouping (specs/booking-city-grouping)', () {
+    Trip cityTrip() => _trip(todos: [
+          _todo('stay', 'stay:paris', 'Stay in Paris'),
+          _todo('stay', 'stay:rome', 'Stay in Rome'),
+          _todo('other', 'custom:moeders', 'Reserve table at Moeders',
+              auto: false, cityLabel: 'Paris'),
+          _todo('other', 'custom:esim', 'Buy an eSIM', auto: false),
+        ]);
+
+    testWidgets(
+        'a labelled reservation renders as a slim row under its city, '
+        'beneath the Reservations sub-label', (tester) async {
+      _useTallViewport(tester);
+      await _pump(tester, cityTrip());
+      await _openBookingsTab(tester);
+
+      // Claimed into the city card: the slim row register, not the residual
+      // card one.
+      expect(
+          find.widgetWithText(BookingTodoRow, 'Reserve table at Moeders'),
+          findsOneWidget);
+      expect(
+          find.widgetWithText(BookingTodoCard, 'Reserve table at Moeders'),
+          findsNothing);
+      expect(find.text('Reservations'), findsOneWidget);
+
+      // "Other bookings" survives as the home of the truly city-less — and
+      // only for it, so its sub-label appears exactly once.
+      expect(find.widgetWithText(BookingTodoCard, 'Buy an eSIM'),
+          findsOneWidget);
+    });
+
+    testWidgets('a claimed reservation keeps move/edit/remove in its kebab',
+        (tester) async {
+      _useTallViewport(tester);
+      await _pump(tester, cityTrip());
+      await _openBookingsTab(tester);
+
+      final row =
+          find.widgetWithText(BookingTodoRow, 'Reserve table at Moeders');
+      final kebab =
+          find.descendant(of: row, matching: find.byIcon(Icons.more_vert));
+      expect(kebab, findsOneWidget);
+      await tester.tap(kebab);
+      await tester.pumpAndSettle();
+      expect(find.text('Move to…'), findsOneWidget);
+      expect(find.text('Edit'), findsOneWidget);
+      expect(find.text('Remove'), findsOneWidget);
+
+      // "Move to…" opens the picker sheet — cities in trip order plus the
+      // way back to "Other bookings" (a sheet, because the flat row menu
+      // cannot nest a submenu).
+      await tester.tap(find.text('Move to…'));
+      await tester.pumpAndSettle();
+      expect(find.text('Move to'), findsOneWidget);
+      // Paris appears in the sheet on top of its section head + filter chip.
+      expect(find.text('Paris'), findsNWidgets(3));
+      expect(find.text('Rome'), findsNWidgets(3));
+      expect(find.text('Other bookings'), findsWidgets);
+    });
+
+    testWidgets('no sub-label renders for a city with no reservations',
+        (tester) async {
+      _useTallViewport(tester);
+      await _pump(tester, _trip());
+      await _openBookingsTab(tester);
+      expect(find.text('Reservations'), findsNothing);
     });
   });
 }

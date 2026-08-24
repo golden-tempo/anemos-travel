@@ -346,6 +346,25 @@
   "quizLoadErrorBody": "Your saved answers couldn't be loaded, so the quiz can't start yet. Check your connection and try again.",
   "bookingCardEdit": "Edit",
   "bookingCardRemove": "Remove",
+  "bookingRemoveTitle": "Remove \"{title}\"?",
+  "@bookingRemoveTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingRemoveBody": "This can't be undone.",
+  "bookingRemoveSavedOptions": "{count, plural, =1{Its 1 saved option is deleted with it.} other{Its {count} saved options are deleted with it.}}",
+  "@bookingRemoveSavedOptions": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "bookingRemoveLinkedExpense": "A linked expense stays in your budget, still counted in what you've spent, with nothing pointing back at a booking.",
+  "bookingRemoveBooked": "This doesn't cancel anything with the provider — if a real reservation exists, only you can cancel it.",
   "bookingCardBooked": "Booked",
   "bookingCardOpenIn": "Open in {provider}",
   "@bookingCardOpenIn": {
@@ -393,6 +412,9 @@
   },
   "tripOtherBookings": "Other bookings",
   "bookingRowAddDetails": "Add details…",
+  "bookingRowMoveTo": "Move to…",
+  "bookingMoveToTitle": "Move to",
+  "bookingsReservations": "Reservations",
   "bookingRowOptions": "Booking options",
   "bookingRowModeTooltip": "Change transport mode",
   "bookingRowDepartArrive": "{depart} → {arrive}",

@@ -172,6 +172,14 @@ SELECT * FROM itinerary_items WHERE trip_id = $1 ORDER BY position ASC;
 UPDATE itinerary_items SET position = position + 1
 WHERE trip_id = $1 AND position >= $2;
 
+-- name: ShiftItineraryItemDaysFrom :execrows
+-- Suffix day shift (agent shift_days_from): every item on or after the pivot
+-- day moves by the delta; earlier and undated items stay put and are not
+-- counted. The set_trip_dates Shift* family with a day floor.
+UPDATE itinerary_items
+SET day = day + sqlc.arg(days)::int
+WHERE trip_id = sqlc.arg(trip_id) AND day >= sqlc.arg(from_day)::int;
+
 -- name: DeleteItineraryItemsByTrip :exec
 DELETE FROM itinerary_items WHERE trip_id = $1;
 

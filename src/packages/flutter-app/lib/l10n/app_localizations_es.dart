@@ -831,6 +831,33 @@ class AppLocalizationsEs extends AppLocalizations {
   String get bookingCardRemove => 'Quitar';
 
   @override
+  String bookingRemoveTitle(String title) {
+    return '¿Quitar «$title»?';
+  }
+
+  @override
+  String get bookingRemoveBody => 'Esto no se puede deshacer.';
+
+  @override
+  String bookingRemoveSavedOptions(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Sus $count opciones guardadas se eliminan con él.',
+      one: 'Su opción guardada se elimina con él.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get bookingRemoveLinkedExpense =>
+      'Un gasto vinculado permanece en tu presupuesto, aún contado en lo que has gastado, sin nada que apunte a una reserva.';
+
+  @override
+  String get bookingRemoveBooked =>
+      'Esto no cancela nada con el proveedor: si existe una reserva real, solo tú puedes cancelarla.';
+
+  @override
   String get bookingCardBooked => 'Reservado';
 
   @override
@@ -898,6 +925,15 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get bookingRowAddDetails => 'Añadir detalles…';
+
+  @override
+  String get bookingRowMoveTo => 'Mover a…';
+
+  @override
+  String get bookingMoveToTitle => 'Mover a';
+
+  @override
+  String get bookingsReservations => 'Reservas';
 
   @override
   String get bookingRowOptions => 'Opciones de la reserva';

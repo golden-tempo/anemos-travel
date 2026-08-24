@@ -835,20 +835,68 @@ class PlanNotifier extends StateNotifier<PlanState> {
         displayLabel: failed.displayLabel, attachments: failed.attachments);
   }
 
-  /// Stops the in-flight turn: commits whatever the model already streamed as
-  /// a normal assistant message (matching what the server persists — its
-  /// deferred transcript upsert survives the abort) and aborts the transport.
-  void stopStreaming() {
-    if (!state.isStreaming) return; // idle / double-tap: no-op
+  /// Stops the in-flight turn and **undoes** it: the half-streamed reply is
+  /// discarded and the user message that started the turn leaves the
+  /// transcript, going back to where it was in line. It was at the head of
+  /// that line, so it returns to the head — pushed onto the front of
+  /// [PlanState.queuedMessages] when other messages are already waiting behind
+  /// it, and otherwise handed back here for the composer, which is what the
+  /// head of an empty line is. Either way it can never end up behind a message
+  /// that was sent after it.
+  ///
+  /// Post-state the caller will observe: `isStreaming` false, `streamingText`
+  /// null, no new assistant message, and a transcript identical to the one
+  /// before the stopped turn was sent. The transport is aborted, so the server
+  /// stops generating rather than streaming to a dead client.
+  ///
+  /// Returns the message for the composer to put back, or null when there is
+  /// nothing for it to put back — an idle notifier (double-tap), a turn that
+  /// went back to the queue instead, or a chip-seeded turn. A
+  /// [PlanMessage.displayLabel] means the text is a machine-written seed the
+  /// user never typed (a "Refine Athens" chip), so it has no composer form;
+  /// undoing it puts the chip back within reach, which is its way back.
+  ///
+  /// One thing this cannot undo: the server's own copy. `plan_handler.go`
+  /// upserts the transcript at turn START on a background context, precisely
+  /// so a client abort cannot cancel it, and the API exposes only GET and
+  /// DELETE for a stored transcript — nothing here can rewrite it. The next
+  /// successful turn's wholesale upsert overwrites it; until then a full app
+  /// reload resurrects the stopped message. See specs/chat-stop-undo/plan.md.
+  PlanMessage? stopStreaming() {
+    if (!state.isStreaming) return null; // idle / double-tap: no-op
     // Supersede FIRST: the abort surfaces in _sendNow as a stream teardown,
-    // and the turn guards must make it a no-op — never a second commit or an
-    // error banner.
+    // and the turn guards must make it a no-op — never a late commit or an
+    // error banner writing into the transcript we are about to roll back.
     _turn++;
-    // Read before _endStreamBuffer nulls the buffer; using the buffer (not
-    // state.streamingText) captures the un-flushed 48ms coalescing tail,
-    // exactly like the error-path commit.
-    final partial = _streamBuffer?.toString() ?? '';
+    // The partial is deliberately dropped, not read: undoing the turn means
+    // the reply goes too. Ending the buffer before the state write keeps a
+    // pending 48ms flush from resurrecting a ghost streaming bubble.
     _endStreamBuffer();
+
+    // The turn's own user message is the transcript tail — _sendNow appends it
+    // before the first event and nothing else appends while streaming (the
+    // assistant text commits only at turn end). Checked rather than assumed:
+    // if that ever stops holding, leaving the transcript alone beats deleting
+    // somebody else's message.
+    final messages = state.messages;
+    final sent = messages.isNotEmpty && messages.last.role == MessageRole.user
+        ? messages.last
+        : null;
+    final rolledBack =
+        sent == null ? messages : messages.sublist(0, messages.length - 1);
+
+    // A compaction that landed mid-turn can already have counted the message
+    // now leaving: the summary must never claim to cover more than remains.
+    final compacted = state.compactedCount.clamp(0, rolledBack.length);
+
+    final requeued = sent != null && state.queuedMessages.isNotEmpty
+        ? QueuedMessage(
+            id: _nextQueuedId++,
+            text: sent.content,
+            displayLabel: sent.displayLabel,
+            attachments: sent.attachments)
+        : null;
+
     state = state.copyWith(
       isStreaming: false,
       streamingText: null,
@@ -856,16 +904,20 @@ class PlanNotifier extends StateNotifier<PlanState> {
       isCompacting: false,
       isThinking: false,
       suggestedReplies: [],
-      messages: partial.isEmpty
-          ? state.messages
-          : [
-              ...state.messages,
-              PlanMessage(role: MessageRole.assistant, content: partial),
-            ],
+      messages: rolledBack,
+      compactedCount: compacted,
+      queuedMessages: requeued == null
+          ? state.queuedMessages
+          : [requeued, ...state.queuedMessages],
     );
-    // Queue stays put (same as post-error): stopping is not "success", and
-    // auto-draining would immediately start a turn the user just killed.
+    // No auto-drain (same as post-error): stopping is not "success", and
+    // draining would immediately start a turn the user just killed.
     _abortInFlight();
+
+    if (requeued != null || sent == null || sent.displayLabel != null) {
+      return null;
+    }
+    return sent;
   }
 
   void reset() {
