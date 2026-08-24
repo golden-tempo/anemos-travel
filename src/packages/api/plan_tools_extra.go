@@ -77,7 +77,7 @@ var addBookingTodoTool = anthropic.ToolParam{
 			},
 			"depart_date": map[string]any{
 				"type":        "string",
-				"description": "Optional YYYY-MM-DD the booking is for",
+				"description": "YYYY-MM-DD the booking is for. Set it whenever the booking is for a particular day — a timed entry, a dinner reservation, a ferry — because the trip page orders a city's bookings by this date, and one left unset sorts to the end no matter what the title says. Omit it only when no single day applies (travel insurance, an eSIM).",
 			},
 			"city": map[string]any{
 				"type":        "string",

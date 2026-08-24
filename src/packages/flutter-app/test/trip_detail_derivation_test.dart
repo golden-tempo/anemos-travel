@@ -478,6 +478,77 @@ void main() {
       expect(overall, (booked: 1, total: 4));
     });
 
+    // A city's reservations render in the order the traveler will do them,
+    // not the order the agent happened to write them.
+    test("city grouping: a city's reservations sort by date", () {
+      // The order off the wire is `position, created_at` — the shape the trip
+      // page actually showed: Sep 2, Sep 2, Sep 1, Sep 3, Sep 1.
+      final todos = [
+        _todo('custom:door74',
+            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-02'),
+        _todo('custom:renvy',
+            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-02'),
+        _todo('custom:rijksmuseum',
+            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-01'),
+        _todo('custom:lookout',
+            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-03'),
+        _todo('custom:moeders',
+            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-01'),
+      ];
+      final grouped = _compute(bookingTodos: todos).groupedBookings;
+      expect([for (final t in grouped.slots[0].others) t.todoKey], [
+        // Sep 1, in the order they arrived — same-day ties are not reshuffled.
+        'custom:rijksmuseum',
+        'custom:moeders',
+        // Sep 2, likewise.
+        'custom:door74',
+        'custom:renvy',
+        // Sep 3.
+        'custom:lookout',
+      ]);
+    });
+
+    test('city grouping: undated reservations keep their order, at the end',
+        () {
+      // depart_date is optional on the row and on the agent's own tool, so an
+      // undated reservation has no place in a date sequence. It must not
+      // displace one that can be placed, and two of them must not swap.
+      final todos = [
+        _todo('custom:no-date-first', kind: 'other', cityLabel: 'Paris'),
+        _todo('custom:late',
+            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-01'),
+        _todo('custom:no-date-second', kind: 'other', cityLabel: 'Paris'),
+        _todo('custom:early',
+            kind: 'other', cityLabel: 'Paris', departDate: '2026-08-31'),
+      ];
+      final grouped = _compute(bookingTodos: todos).groupedBookings;
+      expect([for (final t in grouped.slots[0].others) t.todoKey], [
+        'custom:early',
+        'custom:late',
+        'custom:no-date-first',
+        'custom:no-date-second',
+      ]);
+    });
+
+    test('city grouping: each city sorts alone', () {
+      // Paris' latest must not outrank Rome's earliest — runs sort separately.
+      final todos = [
+        _todo('custom:paris-late',
+            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-01'),
+        _todo('custom:rome-late',
+            kind: 'other', cityLabel: 'Rome', departDate: '2026-09-05'),
+        _todo('custom:paris-early',
+            kind: 'other', cityLabel: 'Paris', departDate: '2026-08-31'),
+        _todo('custom:rome-early',
+            kind: 'other', cityLabel: 'Rome', departDate: '2026-09-04'),
+      ];
+      final grouped = _compute(bookingTodos: todos).groupedBookings;
+      expect([for (final t in grouped.slots[0].others) t.todoKey],
+          ['custom:paris-early', 'custom:paris-late']);
+      expect([for (final t in grouped.slots[1].others) t.todoKey],
+          ['custom:rome-early', 'custom:rome-late']);
+    });
+
     test('city grouping: no city_label means Other, whatever the date says',
         () {
       // Sep 2 is the Paris→Rome transition day of this fixture — and even an
@@ -529,8 +600,11 @@ void main() {
         _todo('custom:rome-day-dinner',
             kind: 'other', cityLabel: 'Paris', departDate: '2026-09-03'),
       ]).groupedBookings;
+      // WHICH run each claims is what this test is about; the order inside a
+      // run is by date (Sep 1, Sep 3, then the undated one) — see the sorting
+      // tests above.
       expect([for (final t in d.slots[0].others) t.todoKey],
-          ['custom:run1-dinner', 'custom:undated', 'custom:rome-day-dinner']);
+          ['custom:run1-dinner', 'custom:rome-day-dinner', 'custom:undated']);
       expect([for (final t in d.slots[1].others) t.todoKey], isEmpty);
       expect([for (final t in d.slots[2].others) t.todoKey],
           ['custom:run2-dinner']);
