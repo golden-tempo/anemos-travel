@@ -51,7 +51,7 @@ export '../widgets/trip_map_destinations.dart' show groupLabelText;
 /// City-header date-chip parts, kept separate so the header can align them as
 /// columns across rows: [range] renders left-aligned after the calendar icon,
 /// [nights] (the localized "· N nights" suffix) renders flush right. Null
-/// [nights] = zero-night squeezed leg — no nights widget renders at all.
+/// [nights] = zero-night leg — no nights widget renders at all.
 typedef LegDateChip = ({String range, String? nights});
 
 /// One city group as built by [TripDerivation.compute] and consumed by the
@@ -78,12 +78,15 @@ typedef CityGroup = ({
   ///
   /// Built from the VISIBLE range — the span the header chip promises, and the
   /// rule that anything speaking about the dates on screen derives from the
-  /// dates on screen — minus the two days that span knowingly borrows:
+  /// dates on screen — minus the days that span knowingly borrows:
   ///
   ///  - the ARRIVAL day, when the previous leg's visible end is the same date.
-  ///    That day belongs to the city being left (it is that leg's departure),
-  ///    and counting it here would draw the same calendar day as unplanned
-  ///    under two cities at once.
+  ///    That calendar day is shared with the neighbour, and counting it here
+  ///    would draw the same day as unplanned under two cities at once.
+  ///  - the span's own LAST day: the move-on day. The boundary rule
+  ///    (specs/leg-departure-dates) runs a leg through the NEXT city's
+  ///    arrival, so that date's rows render under the next city — same
+  ///    two-owners argument, from the other side.
   ///  - the trip's FINAL day, the journey home, which the server also drops
   ///    outright (walkDayCoverage: "there is nothing to plan on it").
   ///
@@ -451,7 +454,7 @@ class TripDerivation {
   /// confirmed stay; under a leg, confirmed stays covering one of the leg's
   /// raw-range nights ([rawRanges] is index-aligned with [legs] — both run
   /// the same tripLegs split). Checkout-exclusive on both sides, so a
-  /// zero-night squeezed leg and an undated leg plot none. Stable List
+  /// zero-night leg and an undated leg plot none. Stable List
   /// identity per (derivation, key).
   List<Accommodation> legFilteredStays(String? legKey) {
     if (legKey == null) return confirmedStays;
@@ -602,9 +605,10 @@ class TripDerivation {
         },
     ];
 
-    // The gaps: every trip day inside a leg's rendered span that plans nothing.
-    // See [CityGroup.emptyDays] for why the arrival day and the trip's last day
-    // are excluded rather than counted.
+    // The gaps: every trip day inside a leg's rendered span that plans
+    // nothing. See [CityGroup.emptyDays] for why the borrowed arrival day,
+    // the span's own last day, and the trip's last day are excluded rather
+    // than counted.
     final tripLastDay = tripDayOn(trip.startDate, trip.endDate,
         DateTime.tryParse(trip.endDate ?? '') ?? DateTime(1900));
     final emptyDays = <List<int>>[];
@@ -616,11 +620,18 @@ class TripDerivation {
         continue;
       }
       final borrowedArrival = gi > 0 && visibleRanges[gi - 1].end == start;
+      final endDate = DateTime(end.year, end.month, end.day);
       final days = <int>[];
       for (var d = DateTime(start.year, start.month, start.day);
           !d.isAfter(end);
           d = DateTime(d.year, d.month, d.day + 1)) {
         if (borrowedArrival && d == start) continue;
+        // The span's last day is the move-on day (the boundary rule runs a
+        // leg through the next city's arrival), and that calendar date is
+        // drawn under the NEXT city's rows — listing it here as unplanned
+        // would draw one day under two cities at once. If something IS
+        // planned there, the plannedDays subtraction already keeps it.
+        if (d == endDate && d != start) continue;
         final n = tripDayOn(trip.startDate, trip.endDate, d);
         if (n == null || n == tripLastDay || plannedDays[gi].contains(n)) {
           continue;

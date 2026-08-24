@@ -253,6 +253,7 @@ var messages = map[string]map[string]string{
 	"review.emptyDay":              {"en": "Day %d has nothing planned.", "es": "El día %d no tiene nada planificado."},
 	"review.emptyDayRange":         {"en": "Days %d–%d have nothing planned.", "es": "Los días %d–%d no tienen nada planificado."},
 	"review.legGuessedDates":       {"en": "%s has no place assigned to a day, so its dates are a guess.", "es": "%s no tiene ningún lugar asignado a un día, así que sus fechas son una estimación."},
+	"review.legItemsPastEnd":       {"en": "%s has a place scheduled after day %d, the day you leave.", "es": "%s tiene un lugar programado después del día %d, el día en que te vas."},
 	"review.legNoNights":           {"en": "%s shows no nights — you arrive and leave on the same day.", "es": "%s no muestra noches — llegas y te vas el mismo día."},
 	"review.fix.addBus":            {"en": "Add bus", "es": "Añadir autobús"},
 	"review.fix.addDrive":          {"en": "Add drive", "es": "Añadir trayecto en coche"},

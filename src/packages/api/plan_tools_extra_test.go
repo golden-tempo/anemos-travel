@@ -1012,12 +1012,12 @@ func TestCreateItineraryResultNamesOpenDays(t *testing.T) {
 	}
 }
 
-// The failure the whole design rests on not happening, seen from the model's
-// side: a city with no place on the day the traveler moves on renders zero
-// nights and the next city absorbs them. Nothing on the trip page says so — no
-// nights label is drawn below one night — so the tool result is the only place
-// this is visible on the turn that caused it.
-func TestCreateItineraryResultWarnsOnACollapsedLeg(t *testing.T) {
+// The write that used to be the failure the whole design rested on not
+// happening: arrival anchors alone — no move-on places. Under the boundary
+// rule (specs/leg-departure-dates) each leg runs to the next arrival, so this
+// renders the full spine and the result must NOT warn: warning on a now-legal
+// shape would send the model off to "fix" a correct itinerary.
+func TestCreateItineraryArrivalAnchorsDoNotWarn(t *testing.T) {
 	resetDB(t)
 	owner, _ := createTestUser(t, "collapsedleg@example.com")
 
@@ -1030,11 +1030,15 @@ func TestCreateItineraryResultWarnsOnACollapsedLeg(t *testing.T) {
 		t.Fatalf("write errored: %s", msg)
 	}
 	for _, want := range []string{
-		"WARNING", "Lisbon renders ZERO nights", "the next city has absorbed those nights",
+		"- Lisbon: 2026-09-01 to 2026-09-04 (3 nights, dated by its places)",
+		"- Porto: 2026-09-04 to 2026-09-08 (4 nights, dated by its places)",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("result missing %q:\n%s", want, msg)
 		}
+	}
+	if strings.Contains(msg, "WARNING") {
+		t.Fatalf("an arrival-anchor itinerary warned:\n%s", msg)
 	}
 }
 

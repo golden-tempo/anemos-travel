@@ -1329,8 +1329,8 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   /// Builds the auto-TODO payload from the itinerary's location groups: a stay
   /// per city (with its dates) and a transport leg between consecutive cities.
   /// Dates come from [visibleLegRanges], so stay check-ins, inter-city leg
-  /// dates, and the header chips all agree — including squeezed legs, which
-  /// read as a zero-night stop at their arrival.
+  /// dates, and the header chips all agree — including zero-night legs
+  /// (cities sharing an arrival day), which read as a stop at that arrival.
   List<Map<String, dynamic>> _deriveTodos(Trip trip) {
     final l10n = context.l10n;
     final derived = _derive(trip);

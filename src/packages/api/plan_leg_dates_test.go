@@ -132,27 +132,27 @@ func TestLegRunsAndMatching(t *testing.T) {
 	}
 }
 
-// legsRenderSummary is the model-facing render truth: first-leg anchor,
-// arrival rule, and the zero-night collapse for an inverted leg all flow
-// through, one line per dated leg — each now carrying its NIGHT COUNT and how
-// its span was decided (specs/shape-before-schedule). A spine dates a city from
-// two rows, so "2026-09-02 to 2026-09-02" beside a neighbour's real range is
-// something the model has to be TOLD is zero nights rather than left to work
-// out from the dates.
+// legsRenderSummary is the model-facing render truth: first-leg anchor and the
+// boundary rule (a leg runs until the next leg's arrival) both flow through,
+// one line per dated leg — each carrying its NIGHT COUNT and how its span was
+// decided (specs/shape-before-schedule). A city whose places carry no day
+// numbers gets an equal share of the trip invented for it, which looks exactly
+// like a real range unless its provenance is named.
 //
 // Berlin lands zero-night here and raises no warning on purpose: it renders
-// LAST, and the last leg legitimately ends on the day the traveler flies home.
+// LAST (the trip has no end date, so its single item day is all it has), and
+// the last leg legitimately ends on the day the traveler flies home.
 // TestLegsRenderWarning covers the case that does warn.
 func TestLegsRenderSummary(t *testing.T) {
 	items := []store.ItineraryItem{
 		legItem(0, "Prague", "", 4),  // first leg, anchored to trip start
-		legItem(1, "Kraków", "", 10), // Sep 2
-		legItem(2, "Berlin", "", 9),  // Sep 1 — INVERTED, collapses to Sep 2
+		legItem(1, "Kraków", "", 10), // Sep 2 — Prague runs to this arrival
+		legItem(2, "Berlin", "", 12), // Sep 4
 	}
 	got := legsRenderSummary(rlTrip("2026-08-24", ""), items, nil)
-	want := "- Prague: 2026-08-24 to 2026-08-27 (3 nights, dated by its places)\n" +
-		"- Kraków: 2026-08-27 to 2026-09-02 (6 nights, dated by its places)\n" +
-		"- Berlin: 2026-09-02 to 2026-09-02 (0 nights, dated by its places)\n"
+	want := "- Prague: 2026-08-24 to 2026-09-02 (9 nights, dated by its places)\n" +
+		"- Kraków: 2026-09-02 to 2026-09-04 (2 nights, dated by its places)\n" +
+		"- Berlin: 2026-09-04 to 2026-09-04 (0 nights, dated by its places)\n"
 	if got != want {
 		t.Fatalf("legsRenderSummary =\n%s\nwant\n%s", got, want)
 	}
@@ -447,7 +447,13 @@ func TestPlanSetLegDatesNoOpIsHonest(t *testing.T) {
 		"No saved rows changed",
 		"itinerary items sit on 2026-09-27 to 2026-09-27 (trip days 13-13)",
 		"the previous leg (Panama City) ends 2026-09-24",
-		"shows this leg as 2026-09-24 to 2026-09-27",
+		// LA's single placeholder item sits on its DEPARTURE day (the old
+		// end-anchored renumber's doing), and under the boundary rule a leg's
+		// first item day is its arrival — so the page renders LA as a Sep 27
+		// arrival-day visit and the no-op quotes exactly that, not the range
+		// the earlier call requested. Ticket 2 (specs/leg-departure-dates)
+		// re-anchors the renumber; until then the honest quote IS the point.
+		"shows this leg as 2026-09-27 to 2026-09-27",
 		"was NOT refreshed",
 	} {
 		if !strings.Contains(msg, want) {
@@ -547,7 +553,9 @@ func TestPlanSetLegDatesFirstLegNoOpReportsAnchoredRange(t *testing.T) {
 	for _, want := range []string{
 		"No saved rows changed",
 		"itinerary items sit on 2026-08-27 to 2026-08-27 (trip days 4-4)",
-		"shows this leg as 2026-08-24 to 2026-08-27",
+		// The anchored START is still quoted; the end is now Kraków's day-9
+		// arrival (Sep 1), the boundary rule — not Prague's own item day.
+		"shows this leg as 2026-08-24 to 2026-09-01",
 		"was NOT refreshed",
 	} {
 		if !strings.Contains(msg, want) {
@@ -627,11 +635,13 @@ func TestPlanSetLegDatesSqueezeNoteNamesNextLeg(t *testing.T) {
 	}
 }
 
-// An INVERTED leg (previous leg ran past its departure day) renders as a
-// zero-night stop at the arrival — the no-op report must quote THAT range,
-// not the stale item dates the page no longer shows; and the natural fix ask
-// (move the leg to the arrival day) must be a real move, not a no-op.
-func TestPlanSetLegDatesInvertedLegNoOpShowsZeroNightStop(t *testing.T) {
+// An INVERTED pair (Kraków's item day sits past Berlin's) no longer collapses
+// Berlin: under the boundary rule Berlin's day-9 item is its ARRIVAL and the
+// trip-end anchor runs it to Sep 27, while Kraków is the leg that pinches.
+// The no-op report must quote the range the page actually renders, not the
+// stale item dates; and the natural fix ask (move Berlin to Kraków's end) must
+// be a real move, not a no-op.
+func TestPlanSetLegDatesInvertedLegNoOpQuotesRenderedRange(t *testing.T) {
 	resetDB(t)
 	user, _ := createTestUser(t, "inverted@example.com")
 	trip := createTestTrip(t, user.ID, 0)
@@ -648,8 +658,7 @@ func TestPlanSetLegDatesInvertedLegNoOpShowsZeroNightStop(t *testing.T) {
 		"No saved rows changed",
 		"itinerary items sit on 2026-09-01 to 2026-09-01 (trip days 9-9)",
 		"the previous leg (Kraków) ends 2026-09-02",
-		"shows this leg as 2026-09-02 to 2026-09-02",
-		"zero-night stop",
+		"shows this leg as 2026-09-01 to 2026-09-27",
 		"was NOT refreshed",
 	} {
 		if !strings.Contains(msg, want) {
@@ -922,16 +931,19 @@ func TestPlanSetLegDatesFreshChatNextTurnLineage(t *testing.T) {
 // The two ways a spine's dates go wrong, named ABOVE the leg list so the model
 // meets them before the ranges they describe.
 func TestLegsRenderWarning(t *testing.T) {
-	// Arrival anchors only: Lisbon renders zero nights and Porto absorbs them.
-	// Lisbon is NOT the last leg, so this must warn.
+	// Porto and Madrid share the Sep 4 arrival: Porto is a genuine zero-night
+	// stop, and it is NOT the last leg, so this must warn. (An arrival-anchor
+	// spine no longer collapses — a leg runs to the next arrival — so a shared
+	// arrival day is the one shape left that renders zero nights.)
 	collapsed := legsRenderSummary(rlTrip("2026-09-01", "2026-09-08"), []store.ItineraryItem{
 		rlItem(0, "Time Out Market", rlCity("Lisbon"), 1),
 		rlItem(1, "Livraria Lello", rlCity("Porto"), 4),
+		rlItem(2, "Museo del Prado", rlCity("Madrid"), 4),
 	}, nil)
 	if !strings.HasPrefix(collapsed, "WARNING") {
 		t.Fatalf("a zero-night interior leg did not lead with a warning:\n%s", collapsed)
 	}
-	for _, want := range []string{"Lisbon renders ZERO nights", "the next city has absorbed those nights", "set_leg_dates"} {
+	for _, want := range []string{"Porto renders ZERO nights", "set_leg_dates"} {
 		if !strings.Contains(collapsed, want) {
 			t.Fatalf("warning missing %q:\n%s", want, collapsed)
 		}

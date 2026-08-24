@@ -83,12 +83,13 @@ ItineraryItem _item(int pos, String name, String city, {int? day}) =>
 
 void main() {
   testWidgets(
-      'stay dates start at the arrival into the city, not its first item day',
+      'stay dates run to the next arrival, not the leg\'s own last item day',
       (WidgetTester tester) async {
-    // Gothenburg spans days 1–3 (Aug 24–26); Madrid has a single item on day 5
-    // (Aug 28), so its derived range collapses to that one day. The leg into
-    // Madrid departs on Gothenburg's end (Aug 26) — the stay must start there
-    // too, not read as a bare "Aug 28".
+    // Gothenburg's places stop on day 3 (Aug 26) but Madrid's single item —
+    // its arrival — sits on day 5 (Aug 28). Under the boundary rule
+    // (specs/leg-departure-dates) Gothenburg runs until that arrival, so its
+    // stay covers Aug 24–28 and the leg into Madrid departs Aug 28. Madrid is
+    // an arrive-the-last-day visit and its stay reads exactly that.
     final trip = Trip(
       id: 't1',
       title: 'Iberia',
@@ -121,21 +122,24 @@ void main() {
     final derived = fake.syncedPayloads.first;
 
     final madridStay = derived.singleWhere((t) => t['todo_key'] == 'stay:madrid');
-    expect(madridStay['subtitle'], 'Aug 26 – Aug 28');
-    expect(madridStay['depart_date'], '2026-08-26');
+    expect(madridStay['subtitle'], 'Aug 28');
+    expect(madridStay['depart_date'], '2026-08-28');
     expect(madridStay['return_date'], '2026-08-28');
 
-    // The inbound leg carries the same departure date as the stay's check-in.
+    // The inbound leg departs when Gothenburg's rendered span ends — Madrid's
+    // arrival day, not Gothenburg's own last item day (Aug 26).
     final leg = derived
         .singleWhere((t) => t['todo_key'] == 'transport:gothenburg>>madrid');
-    expect(leg['depart_date'], '2026-08-26');
+    expect(leg['depart_date'], '2026-08-28');
 
-    // The first city is anchored to the trip start — here its day-1 range
-    // already begins there, so the anchor is a no-op.
+    // Gothenburg's stay covers the whole rendered span, including the two
+    // unplanned nights before the move-on — the pin that stays and headers
+    // read visibleLegRanges, not the raw item span.
     final gothenburgStay =
         derived.singleWhere((t) => t['todo_key'] == 'stay:gothenburg');
-    expect(gothenburgStay['subtitle'], 'Aug 24 – Aug 26');
+    expect(gothenburgStay['subtitle'], 'Aug 24 – Aug 28');
     expect(gothenburgStay['depart_date'], '2026-08-24');
+    expect(gothenburgStay['return_date'], '2026-08-28');
   });
 
   testWidgets(
@@ -144,7 +148,9 @@ void main() {
     // Prague's single item is on day 4 (Aug 27) of an Aug 24 trip — the
     // shape a set_leg_dates boundary extension leaves behind. The traveler
     // is in Prague from the trip's first day, so the header, stay todo, and
-    // the EWR home leg must all read from Aug 24, never a bare "Aug 27".
+    // the EWR home leg must all read from Aug 24, never a bare "Aug 27" —
+    // and under the boundary rule Prague runs until Kraków's day-9 arrival
+    // (Sep 1), so the whole rendered span is Aug 24 – Sep 1.
     final trip = Trip(
       id: 't1',
       title: 'Big Summer',
@@ -177,8 +183,8 @@ void main() {
     // end date.
     // Scoped to Prague's row: the count must sit in the SAME chip as the
     // anchored range (nights from the same visibleLegRanges pair).
-    expect(chipTextIn('Prague', 'Aug 24 – Aug 27'), findsOneWidget);
-    expect(chipTextIn('Prague', '· 3 nights'), findsOneWidget);
+    expect(chipTextIn('Prague', 'Aug 24 – Sep 1'), findsOneWidget);
+    expect(chipTextIn('Prague', '· 8 nights'), findsOneWidget);
     expect(find.text('Aug 27'), findsNothing);
 
     // The prefs load is async and can re-trigger the derivation — assert on
@@ -188,29 +194,29 @@ void main() {
 
     final pragueStay =
         derived.singleWhere((t) => t['todo_key'] == 'stay:prague');
-    expect(pragueStay['subtitle'], 'Aug 24 – Aug 27');
+    expect(pragueStay['subtitle'], 'Aug 24 – Sep 1');
     expect(pragueStay['depart_date'], '2026-08-24');
-    expect(pragueStay['return_date'], '2026-08-27');
+    expect(pragueStay['return_date'], '2026-09-01');
 
     final homeLeg =
         derived.singleWhere((t) => t['todo_key'] == 'transport:ewr>>prague');
     expect(homeLeg['title'], 'EWR → Prague');
     expect(homeLeg['depart_date'], '2026-08-24');
 
-    // The second city's arrival stays the previous leg's end — the i>0
-    // arrival logic is untouched by the anchor.
+    // The second city's arrival is its own first item day (Sep 1) — the
+    // boundary Prague's rendered end derives from.
     final krakowStay =
         derived.singleWhere((t) => t['todo_key'] == 'stay:kraków');
-    expect(krakowStay['depart_date'], '2026-08-27');
+    expect(krakowStay['depart_date'], '2026-09-01');
   });
 
   testWidgets(
       'city header range is arrival-adjusted like the stay todos',
       (WidgetTester tester) async {
-    // Same collapsed-leg shape: Madrid's one item sits on day 5 (Aug 28), so
-    // its raw range is that single day. The header must read from the arrival
-    // (Gothenburg's end, Aug 26) — a bare "Aug 28" chip would contradict the
-    // stay row right beneath it.
+    // Same shape as above: Madrid's one item — its arrival — sits on day 5
+    // (Aug 28), the trip's last day. The header must agree with the stay row
+    // right beneath it: Gothenburg runs Aug 24–28 (the boundary rule) and
+    // Madrid is a bare arrival-day visit.
     final trip = Trip(
       id: 't1',
       title: 'Iberia',
@@ -239,11 +245,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Scoped to Madrid's row — Gothenburg is ALSO 2 nights, so a global
-    // find would be satisfied by the wrong chip.
-    expect(chipTextIn('Madrid', 'Aug 26 – Aug 28'), findsOneWidget);
-    expect(chipTextIn('Madrid', '· 2 nights'), findsOneWidget);
-    expect(find.text('Aug 28'), findsNothing);
+    // Scoped per row: Gothenburg carries the whole counted range; Madrid's
+    // zero-night chip is the bare arrival date with no nights text.
+    expect(chipTextIn('Gothenburg', 'Aug 24 – Aug 28'), findsOneWidget);
+    expect(chipTextIn('Gothenburg', '· 4 nights'), findsOneWidget);
+    expect(chipTextIn('Madrid', 'Aug 28'), findsOneWidget);
+    expect(find.textContaining('0 nights'), findsNothing);
   });
 
   testWidgets('a stated origin titles the home legs instead of the airport',

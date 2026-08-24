@@ -340,10 +340,10 @@ void main() {
       'Paris|2026-09-15': const WeatherReport(kind: 'forecast', days: [
         WeatherDay(date: '2026-09-15', tempMinC: 8, tempMaxC: 15),
       ]),
-      'Nice|2026-09-15': const WeatherReport(kind: 'forecast', days: [
+      'Nice|2026-09-16': const WeatherReport(kind: 'forecast', days: [
         WeatherDay(date: '2026-09-16', tempMinC: 14, tempMaxC: 22),
       ]),
-      'Paris|2026-09-16': const WeatherReport(kind: 'forecast', days: [
+      'Paris|2026-09-17': const WeatherReport(kind: 'forecast', days: [
         WeatherDay(date: '2026-09-17', tempMinC: 16, tempMaxC: 25),
       ]),
     });
@@ -362,14 +362,14 @@ void main() {
 
     // Two Paris rows with their own visit windows and temps, Nice between.
     // Displayed dates AND the weather queries are both the VISIBLE ranges
-    // (arrival-inclusive, matching the city headers), so the guidance can
-    // never describe a window the traveler was never shown.
-    expect(_inRecs('Paris · Sep 15 · 8° – 15°'), findsOneWidget);
-    expect(_inRecs('Nice · Sep 15 – Sep 16 · 14° – 22°'), findsOneWidget);
-    expect(_inRecs('Paris · Sep 16 – Sep 17 · 16° – 25°'), findsOneWidget);
+    // (each leg runs to the next arrival, matching the city headers), so the
+    // guidance can never describe a window the traveler was never shown.
+    expect(_inRecs('Paris · Sep 15 – Sep 16 · 8° – 15°'), findsOneWidget);
+    expect(_inRecs('Nice · Sep 16 – Sep 17 · 14° – 22°'), findsOneWidget);
+    expect(_inRecs('Paris · Sep 17 · 16° – 25°'), findsOneWidget);
     // Both Paris visit windows were genuinely queried (per-visit keys).
     expect(weather.calls, contains('Paris|2026-09-15'));
-    expect(weather.calls, contains('Paris|2026-09-16'));
+    expect(weather.calls, contains('Paris|2026-09-17'));
     // Header summary spans all three legs: 8..25, no rain.
     expect(find.text('8° – 25°'), findsOneWidget);
   });
@@ -385,7 +385,7 @@ void main() {
       'Paris|2026-09-15': const WeatherReport(kind: 'forecast', days: [
         WeatherDay(date: '2026-09-15', tempMinC: 16, tempMaxC: 24),
       ]),
-      'Nice|2026-09-15': const WeatherReport(kind: 'forecast', days: [
+      'Nice|2026-09-16': const WeatherReport(kind: 'forecast', days: [
         WeatherDay(date: '2026-09-16', tempMinC: 15, tempMaxC: 23),
       ]),
     });
@@ -407,7 +407,7 @@ void main() {
     expect(_inSheet('Beyond the 16-day forecast'), findsNothing);
     // The display merged, but weather stayed per-leg.
     expect(weather.calls, contains('Paris|2026-09-15'));
-    expect(weather.calls, contains('Nice|2026-09-15'));
+    expect(weather.calls, contains('Nice|2026-09-16'));
   });
 
   testWidgets('forecast + historical legs still merge; one footnote total',
@@ -418,7 +418,7 @@ void main() {
       'Paris|2026-09-15': const WeatherReport(kind: 'forecast', days: [
         WeatherDay(date: '2026-09-15', tempMinC: 16, tempMaxC: 24),
       ]),
-      'Nice|2026-09-15': const WeatherReport(kind: 'historical', days: [
+      'Nice|2026-09-16': const WeatherReport(kind: 'historical', days: [
         WeatherDay(date: '2025-09-16', tempMinC: 15, tempMaxC: 23),
       ]),
     });

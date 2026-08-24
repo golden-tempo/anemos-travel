@@ -191,14 +191,14 @@ void main() {
       await _openBookingsTab(tester);
 
       // Rome is one leg, so its head can speak for it. The string is the same
-      // chip the itinerary city header renders — Rome's items sit on day 3,
-      // but the leg RENDERS from its arrival (the previous leg's visible end,
-      // Jun 11), which is the visibleLegRanges rule. A head derived from the
-      // raw ranges would have said "Jun 12" and contradicted the city header.
+      // chip the itinerary city header renders — Rome runs from its own day-3
+      // arrival (Jun 12) to the Paris revisit's day-4 arrival (Jun 13), the
+      // visibleLegRanges boundary rule. A head derived from the raw ranges
+      // would have said a bare "Jun 12" and contradicted the city header.
       //
       // Anchored on the DATE, not on 'Rome': the destination filter chip also
       // renders the bare label, so scoping the other way round picks the chip.
-      final date = find.text('Jun 11 – Jun 12');
+      final date = find.text('Jun 12 – Jun 13');
       expect(date, findsOneWidget);
       final head = find.ancestor(of: date, matching: find.byType(Row)).first;
       expect(find.descendant(of: head, matching: find.text('Rome')),
@@ -221,8 +221,8 @@ void main() {
       // working everywhere; naming the two strings that MUST NOT appear is
       // what makes this fail for the right reason.
       expect(find.text('Paris'), findsWidgets); // the section is there…
-      expect(find.text('Jun 10 – Jun 11'), findsNothing); // …run 1's window
-      expect(find.text('Jun 12 – Jun 13'), findsNothing); // …and run 2's
+      expect(find.text('Jun 10 – Jun 12'), findsNothing); // …run 1's window
+      expect(find.text('Jun 13'), findsNothing); // …and run 2's bare arrival
     });
   });
 

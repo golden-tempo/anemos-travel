@@ -100,12 +100,12 @@ Trip _berlinTrip() => Trip(
       createdAt: '2026-08-01',
       updatedAt: '2026-08-01',
       items: [
-        // Kraków runs day 1–6 of a trip starting Aug 27, i.e. Aug 27 – Sep 1.
+        // Kraków's places stop on day 6, but its leg runs until Berlin's
+        // arrival (the boundary rule): Aug 27 – Sep 4.
         _item(0, 'Wawel', 'Kraków', day: 1),
         _item(1, 'Cloth Hall', 'Kraków', day: 6),
-        // One Berlin item, day-tagged to the trip's last day — the shape that
-        // collapses Berlin's RAW range to Sep 4 alone while the header chip
-        // still renders the arrival-adjusted Sep 1 – Sep 4.
+        // One Berlin item — its arrival — day-tagged to the trip's last day:
+        // Berlin renders as a bare Sep 4 visit.
         _item(2, 'Brandenburger Tor', 'Berlin', day: 9),
       ],
       bookingTodos: const [
@@ -273,10 +273,11 @@ void main() {
         seen: seen);
 
     final berlin = seen.firstWhere((q) => q.city == 'Berlin');
-    // Berlin's only item is day-tagged to Sep 4, so its RAW range is that one
-    // day; the header chip renders the arrival-adjusted Sep 1 – Sep 4 and the
-    // lookup must agree with it.
-    expect(berlin.startDate, '2026-09-01');
+    // Berlin's only item — its arrival — is day-tagged to Sep 4, the trip's
+    // last day, so the header chip renders a bare Sep 4 visit (the boundary
+    // rule leaves Kraków holding Aug 27 – Sep 4) and the lookup must agree
+    // with it rather than query days the traveler spends in Kraków.
+    expect(berlin.startDate, '2026-09-04');
     expect(berlin.endDate, '2026-09-04');
   });
 
