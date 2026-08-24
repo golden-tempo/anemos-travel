@@ -201,7 +201,7 @@ func runShiftDaysFromTool(s *planSession, input json.RawMessage) (string, bool) 
 	addr := parseLegAddress(in.City)
 	matched := matchLegRuns(runs, addr.hub)
 	if len(matched) == 0 {
-		if legs := legsSummary(runs, stays, tripStart); legs != "" {
+		if legs := legsSummary(trip, items, stays); legs != "" {
 			return fmt.Sprintf("No leg for '%s' in this trip. The legs are: %s. Use the city name as it appears in the itinerary.", addr.hub, legs), true
 		}
 		return "This trip's itinerary has no day-numbered city legs to shift from. Use set_trip_dates to move the whole trip instead.", true

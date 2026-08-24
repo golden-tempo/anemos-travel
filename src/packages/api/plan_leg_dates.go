@@ -2,24 +2,45 @@ package main
 
 // set_leg_dates (specs/set-leg-dates): the /plan agent's way to change WHEN
 // one city leg of a saved trip happens without moving the rest of the trip.
-// set_trip_dates shifts everything by one delta; a leg move is endpoint-
-// anchored instead — the start and end can shift by different amounts (LA
-// Sep 20-24 -> Sep 24-27 is +4 on check-in, +3 on check-out). One transaction
-// renumbers the leg's item days END-anchored (the old last day is the
-// departure day the trip screen renders), moves its matched confirmed stays
-// and boundary transport, and extends the trip's end date when the leg now
-// runs past it. The PREVIOUS leg's end extends to meet a later start in the
-// same transaction (decided 2026-08-05 — the screen draws a leg from the
-// neighbor's end, so an unmoved boundary makes the change invisible); an
-// earlier start (overlap) and the NEXT leg still only narrate — including a
-// SQUEEZE note when the new end consumes all the next leg's nights, which
-// the agent resolves by chaining further set_leg_dates calls. The FIRST
-// dated leg's visible start is the trip's start date (anchored, mirroring
-// the client's _locationGroupRanges clamp) so a first-leg start change
-// steers to set_trip_dates. A zero-change call commits nothing and reports
-// actual saved state — never the requested range, and no trip_updated SSE.
-// Gated authedOnly (per-conversation stable, prompt-cache safe); target-trip
-// resolution reuses resolveDateShiftTrip.
+// set_trip_dates shifts everything by one delta; shift_days_from moves a
+// suffix; this tool moves ONE leg.
+//
+// Under the boundary rule (specs/leg-departure-dates) a leg's items carry its
+// ARRIVAL and nothing else: the page renders a leg from its own arrival (first
+// item day / stay check-in, the trip's start for the first city) until the
+// NEXT city's arrival, with the last city running through the trip's end. So
+// a start move renumbers the run's item days START-anchored — every item
+// keeps its within-leg offset, and no item is ever dragged onto a departure
+// day (the old END-anchored renumber moved places the traveler deliberately
+// kept off the travel day; ticket 2 removed it). One transaction renumbers
+// the items, moves the leg's matched confirmed stays and boundary transport,
+// and extends the trip's end date when the leg now runs past it.
+//
+// An explicit end_date is honoured only where the departure actually lives on
+// this leg's own rows: a confirmed stay's check-out, or — for the trip's
+// final rendered leg — the trip's end date. Any other leg's end IS the next
+// city's arrival, so an end-change there refuses and steers to the call that
+// moves it (set_leg_dates on the next city, or shift_days_from); an end_date
+// merely echoing what the page already renders is treated as omitted.
+//
+// A PREVIOUS leg pinned by a confirmed stay has its check-out extended to
+// meet a later start in the same transaction — computeTripLegs closes a gap
+// after a stay by pulling THIS leg's rendered start back to the check-out, so
+// without the write the move would be invisible on screen. Item-dated
+// neighbours need no write at all: their rendered end is this leg's arrival,
+// wherever it lands. The FIRST dated leg's visible start is the trip's start
+// date (anchored) so a first-leg start change steers to set_trip_dates. A
+// zero-change call commits nothing and reports actual saved state — never
+// the requested range, and no trip_updated SSE.
+//
+// Everything a result says about what the traveler SEES derives from
+// computeTripLegs (renderedLegForRun) — the derivation the page, the `legs`
+// payload and legsRenderSummary share. The leg-dates arc paid for this rule:
+// the renumbering math above needs item-day semantics, but anything speaking
+// about the dates on screen derives from the dates on screen; quoting raw
+// item spans as neighbour dates is how the tool once reported a "2-night gap"
+// the page never drew. Gated authedOnly (per-conversation stable,
+// prompt-cache safe); target-trip resolution reuses resolveDateShiftTrip.
 
 import (
 	"encoding/json"
@@ -36,11 +57,12 @@ import (
 
 var setLegDatesTool = anthropic.ToolParam{
 	Name: "set_leg_dates",
-	Description: anthropic.String("Change the dates of ONE city's leg within the traveler's saved trip — 'make LA Sep 24 to 27', 'arrive in Rome a day later' — without moving the rest of the trip. " +
-		"It moves that city's itinerary days, its stay's check-in/check-out, and the transport into and out of that city, extending the trip's end date when the new leg runs past it. " +
-		"Moving a leg later also extends the PREVIOUS city's end to meet the new start (the result says so); other cities do not move — the result reports any remaining gap or overlap with neighboring legs, so relay every change it describes to the traveler and offer to fix those legs too. " +
-		"Omit end_date to keep the leg the same length. " +
+	Description: anthropic.String("Change when ONE city's leg of the traveler's saved trip happens — 'arrive in Rome a day later' — without moving the rest of the trip. " +
+		"start_date moves the city's ARRIVAL: its itinerary days shift together, its stay's dates move, and the transport into and out of the city follows. " +
+		"A city's departure day is the NEXT city's arrival, so to change when the traveler LEAVES a city, move the next city's start_date (or use shift_days_from to push it and everything after it together). " +
+		"end_date is honoured only where the departure lives on this city's own plan: its confirmed stay's check-out, or — for the trip's final city — the trip's end date, which extends when the leg runs past it. Anywhere else an explicit end_date is refused with the call to make instead. Omit end_date to keep the leg's saved length. " +
 		"When the WHOLE trip moves, use set_trip_dates instead. " +
+		"The result reports the dates the trip page now renders — relay any range that doesn't match what the traveler asked for. " +
 		"Only the saved plan changes: anything already booked with a real provider keeps its original dates, so remind the traveler to re-check those bookings."),
 	InputSchema: anthropic.ToolInputSchemaParam{
 		Properties: map[string]any{
@@ -54,7 +76,7 @@ var setLegDatesTool = anthropic.ToolParam{
 			},
 			"end_date": map[string]any{
 				"type":        "string",
-				"description": "Optional new last day (the departure day) as YYYY-MM-DD; omit to keep the leg's current length. Must not be before start_date.",
+				"description": "Optional new departure day as YYYY-MM-DD; only honoured when this city's departure lives on its own plan (a confirmed stay's check-out, or the trip's end for the final city). Must not be before start_date. Omit to keep the leg's saved length.",
 			},
 		},
 		Required: []string{"city", "start_date"},
@@ -190,31 +212,38 @@ func anchoredLegDisplayRange(runs []legRun, i int, stays []store.Accommodation, 
 	return s, e
 }
 
-// renderedLegRange resolves the span the trip page RENDERS for a hub, from
-// computeTripLegs — the one derivation the page, the `legs` payload and
-// legsRenderSummary already share.
-//
-// It replaced a third twin (visibleLegDisplayRange) that re-implemented the
-// arrival rule here. The twins ABOVE stay, deliberately: the renumbering math
-// needs item-day semantics, where a leg ends on its last item day. But a
-// result that promises what the traveler SEES cannot be built from those —
-// the page anchors the final leg to the trip's end date (computeTripLegs step
-// 6), which item days no longer imply now that the day home is left empty.
-// The leg-dates arc paid for this rule: anything speaking about the dates on
-// screen derives from the dates on screen. ok=false when the hub has no
-// spanned leg, in which case the caller must say nothing rather than quote a
-// number from the wrong derivation.
-func renderedLegRange(trip store.Trip, items []store.ItineraryItem, stays []store.Accommodation, hub string) (start, end time.Time, ok bool) {
-	want := strings.TrimSpace(hub)
-	for _, leg := range computeTripLegs(trip, items, stays) {
-		if leg.Start == nil || leg.End == nil || leg.Hub == nil {
-			continue
+// prevSpannedRenderedLeg / nextSpannedRenderedLeg find the spanned leg the
+// page renders immediately before/after `at` (a pointer into legs, the
+// renderedLegForRun convention). Nil when there is none, in which case the
+// caller must say nothing rather than quote a number from the wrong
+// derivation. These are how neighbour narration reads the screen: the
+// renumbering twins above keep item-day semantics, but anything speaking
+// about the dates on screen derives from the dates on screen.
+func prevSpannedRenderedLeg(legs []RenderLeg, at *RenderLeg) *RenderLeg {
+	var prev *RenderLeg
+	for i := range legs {
+		if &legs[i] == at {
+			return prev
 		}
-		if strings.EqualFold(strings.TrimSpace(*leg.Hub), want) {
-			return *leg.Start, *leg.End, true
+		if legs[i].Start != nil && legs[i].End != nil {
+			prev = &legs[i]
 		}
 	}
-	return time.Time{}, time.Time{}, false
+	return nil
+}
+
+func nextSpannedRenderedLeg(legs []RenderLeg, at *RenderLeg) *RenderLeg {
+	seen := false
+	for i := range legs {
+		if &legs[i] == at {
+			seen = true
+			continue
+		}
+		if seen && legs[i].Start != nil && legs[i].End != nil {
+			return &legs[i]
+		}
+	}
+	return nil
 }
 
 // legDateChange is the pure outcome of a leg move: the resolved new span,
@@ -270,16 +299,18 @@ func nightsText(nights int) string {
 	return fmt.Sprintf("%d nights", nights)
 }
 
-// legsSummary lists the trip's movable legs with their current spans — the
-// honest error payload when the requested city doesn't resolve.
-func legsSummary(runs []legRun, stays []store.Accommodation, tripStart time.Time) string {
+// legsSummary lists the trip's movable city legs with the spans the trip page
+// RENDERS for them (computeTripLegs) — the honest error payload when the
+// requested city doesn't resolve. Only legs a set_leg_dates/shift_days_from
+// call can actually address are listed: a named hub and at least one dated
+// item (matchLegRuns' criteria); hubless "Other places" legs are skipped.
+func legsSummary(trip store.Trip, items []store.ItineraryItem, stays []store.Accommodation) string {
 	var parts []string
-	for i, r := range runs {
-		if r.minDay < 1 || r.hub == "" {
+	for _, leg := range computeTripLegs(trip, items, stays) {
+		if leg.Hub == nil || leg.Start == nil || leg.End == nil || len(leg.itemDays) == 0 {
 			continue
 		}
-		s, e := anchoredLegDisplayRange(runs, i, stays, tripStart)
-		parts = append(parts, fmt.Sprintf("%s (%s)", r.hub, legRangeText(s, e)))
+		parts = append(parts, fmt.Sprintf("%s (%s)", leg.Label, legRangeText(*leg.Start, *leg.End)))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -307,7 +338,7 @@ func legsSummary(runs []legRun, stays []store.Accommodation, tripStart time.Time
 func legsRenderSummary(trip store.Trip, items []store.ItineraryItem, stays []store.Accommodation) string {
 	legs := computeTripLegs(trip, items, stays)
 	var b strings.Builder
-	b.WriteString(legsRenderWarning(legs))
+	b.WriteString(legsRenderWarning(trip, legs))
 	for _, leg := range legs {
 		if leg.Start == nil || leg.End == nil {
 			continue
@@ -393,38 +424,76 @@ func legDateSourceText(source string) string {
 	}
 }
 
-// legsRenderWarning names, ABOVE the list, the legs whose spans are wrong in
-// the two ways a sparse itinerary goes wrong — a leg that lost the place fixing
-// its departure date, and a leg whose dates were guessed. It leads because the
-// last-day arc showed a rule buried under a table gets averaged away ("putting
-// it FIRST fixed it outright"), and because both failures are silent on every
-// other surface: the trip page renders no nights label for a zero-night leg,
-// and RenderLeg.ZeroNight has never had a consumer.
+// legsRenderWarning names, ABOVE the list, the legs whose rendered spans
+// contradict the traveler's plan in the three ways that are silent on every
+// other surface — two cities sharing an arrival day (ZeroNight: the next
+// leg's arrival is on or before this leg's own), a place dated after the day
+// its leg ends on the page (itemsPastEnd — read from the derivation, never
+// re-derived here: a second derivation of the same condition is the defect
+// specs/leg-departure-dates exists to kill), and a span that was guessed
+// because no place carries a day. It leads because the last-day arc showed a
+// rule buried under a table gets averaged away ("putting it FIRST fixed it
+// outright"). The remedy deliberately never says to add a place: a
+// placeholder invented to hold a date is the corruption the boundary rule
+// retired (the Prague Airport Starbucks), and a leg's dates move by moving
+// arrivals, not by planting items.
 //
-// The FINAL leg is exempt from the zero-night check: it legitimately ends the
-// day the traveler flies home, and the trip-end anchor has already stretched it
-// if it could. Legs without a span are skipped — they print nothing either.
-func legsRenderWarning(legs []RenderLeg) string {
-	var problems []string
-	for i, leg := range legs {
+// A second, SOFT block follows for unplanned stretches — a leg whose last
+// place sits two or more nights before its rendered end. That is a true fact
+// about the page, not a render defect: under the boundary rule a leg runs to
+// the next city's arrival whether or not its tail nights hold plans, and the
+// honest narration for what used to be misreported as a "gap between legs"
+// (unrepresentable on screen) is unplanned nights INSIDE a leg. ONE night
+// stays silent: a place-free departure morning is the normal spine — every
+// correctly-built trip has one — and a line that fires on everything gets
+// averaged away with the hard warning above it.
+func legsRenderWarning(trip store.Trip, legs []RenderLeg) string {
+	var problems, unplanned []string
+	for i := range legs {
+		leg := &legs[i]
 		if leg.Start == nil || leg.End == nil {
 			continue
 		}
-		last := i == len(legs)-1
-		if !last && nightsBetween(*leg.Start, *leg.End) == 0 {
-			problems = append(problems, fmt.Sprintf("%s renders ZERO nights — the traveler arrives and leaves the same day, because no place sits on the day they move on; the next city has absorbed those nights", leg.Label))
+		if leg.ZeroNight {
+			nextLabel := "the next city"
+			if next := nextSpannedRenderedLeg(legs, leg); next != nil {
+				nextLabel = next.Label
+			}
+			problems = append(problems, fmt.Sprintf("%s renders ZERO nights — the next city (%s) arrives on or before it, so the traveler arrives and moves straight on", leg.Label, nextLabel))
+			continue
+		}
+		if leg.itemsPastEnd {
+			problems = append(problems, fmt.Sprintf("%s has a place dated after %s, the day it ends on the page — that place sits outside its own city's rendered dates", leg.Label, leg.End.Format(dateLayout)))
 			continue
 		}
 		if leg.DateSource == "auto" {
 			problems = append(problems, fmt.Sprintf("%s has no dated place, so its range is a guess, not the nights that were agreed", leg.Label))
+			continue
+		}
+		if trip.StartDate.Valid && len(leg.itemDays) > 0 {
+			last := leg.itemDays[0]
+			for _, d := range leg.itemDays[1:] {
+				if d > last {
+					last = d
+				}
+			}
+			lastDate := trip.StartDate.Time.AddDate(0, 0, int(last)-1)
+			if n := nightsBetween(lastDate, *leg.End); n >= 2 {
+				unplanned = append(unplanned, fmt.Sprintf("%s renders %s (%s) but its last place is %s — %d nights with nothing planned", leg.Label, legRangeText(*leg.Start, *leg.End), nightsText(nightsBetween(*leg.Start, *leg.End)), lastDate.Format(dateLayout), n))
+			}
 		}
 	}
-	if len(problems) == 0 {
-		return ""
+	var b strings.Builder
+	if len(problems) > 0 {
+		b.WriteString("WARNING — the page is not rendering what the traveler agreed to: " +
+			strings.Join(problems, "; ") +
+			". Fix it before you reply: a leg ends at the NEXT city's arrival, so adjust arrivals with set_leg_dates (start_date) or shift the schedule with shift_days_from — never add a place just to hold a date.\n")
 	}
-	return "WARNING — the page is not rendering what the traveler agreed to: " +
-		strings.Join(problems, "; ") +
-		". Fix it before you reply: give the city a place on the day they move on to the next one, or set its dates with set_leg_dates.\n"
+	if len(unplanned) > 0 {
+		b.WriteString("Unplanned stretches — true on the page, fine if intended (mention, don't fix): " +
+			strings.Join(unplanned, "; ") + ".\n")
+	}
+	return b.String()
 }
 
 func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
@@ -496,16 +565,20 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 	runs := legRuns(items)
 	matched := matchLegRuns(runs, city)
 	if len(matched) == 0 {
-		if legs := legsSummary(runs, stays, tripStart); legs != "" {
+		if legs := legsSummary(trip, items, stays); legs != "" {
 			return fmt.Sprintf("No leg for '%s' in this trip. The legs are: %s. Use the city name as it appears in the itinerary.", city, legs), true
 		}
 		return "This trip's itinerary has no day-numbered city legs to move. Use set_trip_dates for the whole trip instead.", true
 	}
+	// Rendered spans, not raw item-day math, label the pre-move state: anything
+	// speaking about the dates on screen derives from the dates on screen.
+	legsNow := computeTripLegs(trip, items, stays)
 	if len(matched) > 1 {
 		var spans []string
 		for _, i := range matched {
-			s0, e0 := anchoredLegDisplayRange(runs, i, stays, tripStart)
-			spans = append(spans, legRangeText(s0, e0))
+			if leg := renderedLegForRun(legsNow, runs[i]); leg != nil && leg.Start != nil && leg.End != nil {
+				spans = append(spans, legRangeText(*leg.Start, *leg.End))
+			}
 		}
 		return fmt.Sprintf("The itinerary visits %s more than once (%s), and moving just one of several visits isn't supported yet — tell the traveler plainly what you couldn't do.", runs[matched[0]].hub, strings.Join(spans, "; ")), true
 	}
@@ -513,6 +586,11 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 	run := runs[matched[0]]
 	hubLower := strings.ToLower(run.hub)
 	oldLegStart, oldLegEnd := anchoredLegDisplayRange(runs, matched[0], stays, tripStart)
+	movedLegNow := renderedLegForRun(legsNow, run)
+	var nextSpannedNow *RenderLeg
+	if movedLegNow != nil {
+		nextSpannedNow = nextSpannedRenderedLeg(legsNow, movedLegNow)
+	}
 
 	// The first leg's arrival IS the trip's start date (its span is anchored
 	// there), so a different start is really a trip-start change — steer to
@@ -520,23 +598,67 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 	// screen can't show. Carve-out: a confirmed stay anchors the leg's start
 	// instead, and its check-in stays movable like any other leg's.
 	if matched[0] == firstDatedRunIdx(runs) && matchedConfirmedStay(run, stays) == nil && !start.Time.Equal(tripStart) {
-		return fmt.Sprintf("%s is the trip's first city, so its arrival IS the trip's start date (%s). To move when the trip begins, use set_trip_dates; to change only the departure from %s, call set_leg_dates again with start_date=%s and the new end_date.",
-			run.hub, tripStart.Format(dateLayout), run.hub, tripStart.Format(dateLayout)), true
+		return fmt.Sprintf("%s is the trip's first city, so its arrival IS the trip's start date (%s). To move when the trip begins, use set_trip_dates; a city's departure day is the NEXT city's arrival, so to change when the traveler leaves %s, move the next city's start_date instead.",
+			run.hub, tripStart.Format(dateLayout), run.hub), true
 	}
 
-	// The previous leg's end is what the trip screen renders as this leg's
-	// visible start (arrival = the neighbor's departure), so a later start
-	// must drag that boundary along. Resolve it before any writes.
+	// What an explicit end_date means changed with the boundary rule
+	// (specs/leg-departure-dates): the page renders a leg's end as the NEXT
+	// city's arrival, its own confirmed stay's check-out, or — for the final
+	// leg — the trip's end date. Only the last two live on rows this leg owns,
+	// so those are the only end-moves this tool performs. An end_date merely
+	// echoing what the page already renders is treated as omitted ("make LA
+	// Sep 24 to 27" when Sep 27 is already the on-screen end is a start move);
+	// anything else refuses with the call that actually moves the boundary —
+	// applying the start half anyway would be the tool fighting the traveler.
+	endBasis := oldLegEnd
+	if newEnd != nil && matchedConfirmedStay(run, stays) == nil {
+		switch {
+		case movedLegNow != nil && movedLegNow.End != nil && newEnd.Equal(*movedLegNow.End):
+			newEnd = nil
+		case nextSpannedNow != nil:
+			steer := fmt.Sprintf("move those items to other days or use shift_days_from(city=%q, days=N)", nextSpannedNow.Label)
+			if nextSpannedNow.Hub != nil {
+				steer = fmt.Sprintf("call set_leg_dates(city=%q, start_date=%q) to move %s (keeping its length), or shift_days_from(city=%q, days=N) to push it and everything after it together",
+					nextSpannedNow.Label, newEnd.Format(dateLayout), nextSpannedNow.Label, nextSpannedNow.Label)
+			}
+			onScreen := ""
+			if movedLegNow.End != nil {
+				onScreen = fmt.Sprintf(" — the page currently shows %s ending %s because %s arrives then", run.hub, movedLegNow.End.Format(dateLayout), nextSpannedNow.Label)
+			}
+			return fmt.Sprintf("%s's departure day is the next city's arrival, not a date of its own%s. Nothing was changed. To have the traveler leave %s on %s, %s. To change only %s's arrival, call set_leg_dates again with start_date and no end_date.",
+				run.hub, onScreen, run.hub, newEnd.Format(dateLayout), steer, run.hub), true
+		case trip.EndDate.Valid && newEnd.Before(trip.EndDate.Time):
+			return fmt.Sprintf("%s is the trip's last city, so it runs through the trip's end date (%s) — an earlier end_date would shorten the whole trip. Nothing was changed. Use set_trip_dates (start_date=%s, end_date=%s) to end the trip on %s, or call set_leg_dates again with start_date only to move just %s's arrival.",
+				run.hub, trip.EndDate.Time.Format(dateLayout), tripStart.Format(dateLayout), newEnd.Format(dateLayout), newEnd.Format(dateLayout), run.hub), true
+		case trip.EndDate.Valid:
+			// Extending the final leg: the departure being moved is the trip's
+			// end date, so the end delta (departing transport) is measured off
+			// it — the raw last item day runs short of it by however many
+			// place-free tail nights the leg holds.
+			endBasis = trip.EndDate.Time
+		}
+	}
+
+	// A confirmed stay on the PREVIOUS leg pins that leg's rendered end to its
+	// check-out (explicit dates never chase an arrival), and computeTripLegs
+	// closes a gap after such a stay by pulling THIS leg's rendered start BACK
+	// to the check-out — which would silently undo the move on screen. So a
+	// later start extends that check-out in the same transaction: the write
+	// edits the same source that renders the boundary. Item-dated neighbours
+	// need no write at all — their rendered end IS this leg's arrival,
+	// wherever it lands. (The old items-case drag — the previous leg's last
+	// item moved onto the new boundary day — died with the end-anchored
+	// renumber: both wrote the retired "last item day = departure" convention
+	// onto days the traveler chose deliberately.) Resolve before any writes.
 	var prevRun *legRun
-	var prevEnd time.Time
 	var prevStay *store.Accommodation
 	if pi := prevDatedRunIdx(runs, matched[0]); pi >= 0 {
 		prevRun = &runs[pi]
-		_, prevEnd = anchoredLegDisplayRange(runs, pi, stays, tripStart)
 		prevStay = matchedConfirmedStay(*prevRun, stays)
 	}
 
-	ch, err := computeLegDateChange(tripStart, oldLegStart, oldLegEnd, start.Time, newEnd)
+	ch, err := computeLegDateChange(tripStart, oldLegStart, endBasis, start.Time, newEnd)
 	switch err {
 	case nil:
 	case errLegEndBeforeStart:
@@ -547,16 +669,21 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 		return "Could not compute the leg's new dates.", true
 	}
 
-	// Renumber the run's dated items endpoint-anchored: the old last day IS
-	// the leg's departure day (the trip screen renders a leg as [previous
-	// leg's end → max item day]), so its items ride the new END — a
-	// single-item placeholder leg is an end-carrier, not a start-carrier.
-	// Everything else keeps its within-leg offset and folds into the new span
-	// (the item-beyond-span review finding covers the same shape for manual
-	// edits). The shift is the DISPLAY start's delta, not min-item-day
+	// Renumber the run's dated items START-anchored: a leg's items carry its
+	// ARRIVAL and nothing else under the boundary rule, so every item keeps
+	// its within-leg offset and rides the start's delta — a single-item
+	// placeholder leg is a start-carrier. No item is ever dragged onto the new
+	// end: the old END-anchored drag encoded the retired "last item day = the
+	// departure day" convention and moved places the traveler deliberately
+	// kept off the travel day (the Prague Saturday loop). The leg's rendered
+	// end comes from its neighbour, its stay, or the trip's end — never from
+	// where its own items land. When the window shrinks (a stay's check-out
+	// moved earlier), items past the new end fold onto it and the result says
+	// so (the item-beyond-span review finding covers the same shape for
+	// manual edits). The shift is the DISPLAY start's delta, not min-item-day
 	// anchored: for the trip-start-anchored first leg a same-start ask yields
-	// zero, so interior items hold still while only the end-carrier moves;
-	// item-anchored legs get the identical value either way.
+	// zero, so items hold still; item-anchored legs get the identical value
+	// either way.
 	dayShift := ch.startDelta
 	itemsMoved, itemsClamped := 0, 0
 	for _, it := range run.items {
@@ -565,9 +692,7 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 		}
 		nd := int(*it.Day) + dayShift
 		clamped := false
-		if int(*it.Day) == run.maxDay {
-			nd = ch.newEndIdx
-		} else if nd > ch.newEndIdx {
+		if nd > ch.newEndIdx {
 			nd, clamped = ch.newEndIdx, true
 		} else if nd < ch.newStartIdx {
 			nd = ch.newStartIdx
@@ -654,41 +779,25 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 		}
 	}
 
-	// Previous-boundary extension (decided 2026-08-05): when the leg now
-	// starts after the previous leg's end, drag that boundary to the new
-	// start in the same transaction — editing the SAME source that produced
-	// prevEnd (its confirmed stay's check-out, else its departure-day items),
-	// so the visible arrival matches the ask. Gap-only: an earlier start
-	// (overlap) still narrates-and-asks, neighbors never shrink.
+	// Previous-boundary extension, stay case only (see the resolution comment
+	// above): a later start drags a pinned check-out along so the page's
+	// arrival matches the ask. Gap-only: an earlier start (overlap between two
+	// explicit stays) renders as it is and the result's legs block shows it —
+	// neighbors never shrink. Skipped when prevStay already moved as part of
+	// THIS leg (degenerate double-hub match): never move a boundary twice.
 	prevExtended := false
 	var prevWasEnd time.Time
-	if prevRun != nil && ch.newStart.After(prevEnd) {
-		prevWasEnd = prevEnd
-		switch {
-		case prevStay != nil && !movedStayIDs[prevStay.ID]:
-			// UpdateAccommodation flips auto=false — harmless, prevStay is
-			// already confirmed; COALESCE keeps check_in.
-			if _, err := q.UpdateAccommodation(s.ctx, store.UpdateAccommodationParams{
-				CheckOut: pgtype.Date{Time: ch.newStart, Valid: true},
-				ID:       prevStay.ID, TripID: tid,
-			}); err != nil {
-				return "Could not extend the previous leg's stay.", true
-			}
-			prevExtended = true
-		case prevStay == nil:
-			for _, it := range prevRun.items {
-				if it.Day == nil || int(*it.Day) != prevRun.maxDay {
-					continue
-				}
-				d32 := int32(ch.newStartIdx)
-				if _, err := q.UpdateItineraryItem(s.ctx, store.UpdateItineraryItemParams{Day: &d32, ID: it.ID, TripID: tid}); err != nil {
-					return "Could not extend the previous leg's days.", true
-				}
-				prevExtended = true
-			}
+	if prevStay != nil && !movedStayIDs[prevStay.ID] && ch.newStart.After(prevStay.CheckOut.Time) {
+		prevWasEnd = prevStay.CheckOut.Time
+		// UpdateAccommodation flips auto=false — harmless, prevStay is
+		// already confirmed; COALESCE keeps check_in.
+		if _, err := q.UpdateAccommodation(s.ctx, store.UpdateAccommodationParams{
+			CheckOut: pgtype.Date{Time: ch.newStart, Valid: true},
+			ID:       prevStay.ID, TripID: tid,
+		}); err != nil {
+			return "Could not extend the previous leg's stay.", true
 		}
-		// prevStay already moved as part of THIS leg (degenerate double-hub
-		// match): leave the boundary alone rather than moving it twice.
+		prevExtended = true
 	}
 
 	tripEndExtended := false
@@ -718,11 +827,11 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 		if a := matchedConfirmedStay(run, stays); a != nil {
 			fmt.Fprintf(&b, "; its confirmed stay %q runs %s", a.Name, legRangeText(a.CheckIn.Time, a.CheckOut.Time))
 		}
-		if prevRun != nil {
-			fmt.Fprintf(&b, "; the previous leg (%s) ends %s", prevRun.hub, prevEnd.Format(dateLayout))
+		if prevSpanned := prevSpannedRenderedLeg(legsNow, movedLegNow); prevSpanned != nil {
+			fmt.Fprintf(&b, "; on the page the previous leg (%s) runs through %s", prevSpanned.Label, prevSpanned.End.Format(dateLayout))
 		}
-		if visStart, visEnd, ok := renderedLegRange(trip, items, stays, run.hub); ok {
-			fmt.Fprintf(&b, ". The trip page shows this leg as %s (a leg renders from its arrival — the previous leg's visible end, or the trip's start date for the first leg — when that comes first, collapses to a zero-night stop at that arrival when the previous leg has run past this leg's last day, and the LAST leg runs through the trip's end date because the day home carries no places) and was NOT refreshed.", legRangeText(visStart, visEnd))
+		if movedLegNow != nil && movedLegNow.Start != nil && movedLegNow.End != nil {
+			fmt.Fprintf(&b, ". The trip page shows this leg as %s (a leg runs from its own arrival — its first place's day, its stay's check-in, or the trip's start date for the first city — until the NEXT city's arrival; the LAST leg runs through the trip's end date; a leg's own last place never sets its departure) and was NOT refreshed.", legRangeText(*movedLegNow.Start, *movedLegNow.End))
 		} else {
 			b.WriteString(". The trip page was NOT refreshed.")
 		}
@@ -763,21 +872,28 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 		safeGo("notifyCollabEdit", func() { notifyCollabEdit(tid, s.uid) })
 	}
 
-	rangeText := legRangeText(ch.newStart, ch.newEnd)
+	// The result speaks in the ranges the PAGE now renders, re-read after the
+	// commit (the in-scope items and stays are the pre-move values this
+	// function loaded before the transaction). ch.newStart/newEnd are item-day
+	// arithmetic; quoting them as leg dates is how a call that worked once
+	// reported a span the traveler's screen contradicted, and quoting raw
+	// neighbour spans is how the tool reported a "2-night gap" the page never
+	// drew — a date gap between legs is unrepresentable, the boundary rule
+	// closes it inside the earlier leg. renderedLegForRun keys by position, so
+	// a revisited hub cannot alias.
+	post, postOK := postMoveState(s, tid)
+	var postLegs []RenderLeg
+	var movedAfter *RenderLeg
+	if postOK {
+		postLegs = computeTripLegs(post.trip, post.items, post.stays)
+		movedAfter = renderedLegForRun(postLegs, run)
+	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s is now %s.", run.hub, rangeText)
-	// ...and then what the PAGE draws, which is not the same claim. rangeText is
-	// item-day math; the rendered span runs from the previous leg's departure
-	// and, on the last leg, through the trip's end date. The no-op branch above
-	// has echoed the rendered range since the Sep-24-27 loop; the SUCCESS branch
-	// never did, so a call that worked reported a span the traveler's screen
-	// contradicted. That gap was one day while every day carried places — the
-	// day-home rule — and is a whole leg once a spine leaves the last city a
-	// single dated place. Re-read post-commit: the in-scope items and stays are
-	// the pre-move values this function loaded before the transaction.
-	if legs := postMoveRenderedLeg(s, tid, run.hub); legs != "" && legs != rangeText {
-		fmt.Fprintf(&b, " The trip page renders this leg as %s — that, not the range above, is what the traveler sees.", legs)
+	if movedAfter != nil && movedAfter.Start != nil && movedAfter.End != nil {
+		fmt.Fprintf(&b, "%s is now %s on the trip page (%s).", run.hub, legRangeText(*movedAfter.Start, *movedAfter.End), nightsText(nightsBetween(*movedAfter.Start, *movedAfter.End)))
+	} else {
+		fmt.Fprintf(&b, "%s's saved dates changed; call get_trip to read the range the page now renders.", run.hub)
 	}
 	var parts []string
 	if itemsMoved > 0 {
@@ -802,39 +918,31 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 		fmt.Fprintf(&b, " Trip end extended to %s.", ch.newEnd.Format(dateLayout))
 	}
 	if prevExtended {
-		if prevStay != nil {
-			fmt.Fprintf(&b, " %s now ends %s (was %s) — its stay's check-out moved to match this leg's start.", prevRun.hub, ch.newStart.Format(dateLayout), prevWasEnd.Format(dateLayout))
-		} else {
-			fmt.Fprintf(&b, " %s now ends %s (was %s) — its last itinerary day moved to match this leg's start.", prevRun.hub, ch.newStart.Format(dateLayout), prevWasEnd.Format(dateLayout))
+		fmt.Fprintf(&b, " %s now ends %s (was %s) — its stay's check-out moved to match this leg's arrival.", prevRun.hub, ch.newStart.Format(dateLayout), prevWasEnd.Format(dateLayout))
+	}
+
+	// Overlaps ARE representable on the page (an explicit stay running past a
+	// neighbour's arrival), so they are the one neighbour condition still
+	// named here — from the RENDERED spans, never raw item math. Contiguous
+	// legs compare equal (prev.End == this.Start) and stay silent.
+	if movedAfter != nil && movedAfter.Start != nil && movedAfter.End != nil {
+		if prev := prevSpannedRenderedLeg(postLegs, movedAfter); prev != nil && prev.End.After(*movedAfter.Start) {
+			fmt.Fprintf(&b, " NOTE: %s still runs through %s on the page, overlapping this leg's new start — point that out and offer to shorten one of them.", prev.Label, prev.End.Format(dateLayout))
+		}
+		if next := nextSpannedRenderedLeg(postLegs, movedAfter); next != nil && movedAfter.End.After(*next.Start) {
+			fmt.Fprintf(&b, " NOTE: this leg now runs through %s, past %s's arrival (%s) — the two overlap on the page; point that out and offer to fix one of them.", movedAfter.End.Format(dateLayout), next.Label, next.Start.Format(dateLayout))
 		}
 	}
 
-	// Deterministic neighbor narration: the prompt's "point out the gap"
-	// instruction only works if the gap is computed here, not hoped for.
-	// prevEnd is the pre-move value, so the gap branch is skipped once the
-	// boundary extension closed it.
-	if prevRun != nil && !prevExtended {
-		if n := int(ch.newStart.Sub(prevEnd).Hours() / 24); n > 0 {
-			fmt.Fprintf(&b, " NOTE: the previous leg (%s) ends %s but this leg now starts %s — %d uncovered night(s). Point this out to the traveler and offer to extend that stay or fix it with another set_leg_dates call.", prevRun.hub, prevEnd.Format(dateLayout), ch.newStart.Format(dateLayout), n)
-		} else if n < 0 {
-			fmt.Fprintf(&b, " NOTE: the previous leg (%s) ends %s, which now overlaps this leg's start %s by %d night(s). Point this out to the traveler and offer to fix it.", prevRun.hub, prevEnd.Format(dateLayout), ch.newStart.Format(dateLayout), -n)
-		}
-	}
-	if ni := nextDatedRunIdx(runs, matched[0]); ni >= 0 {
-		next := &runs[ni]
-		nextStart, nextEnd := anchoredLegDisplayRange(runs, ni, stays, tripStart)
-		n := int(nextStart.Sub(ch.newEnd).Hours() / 24)
-		switch {
-		// Squeeze first: the next leg's visible span is [this leg's end → its
-		// own departure day], so newEnd reaching its END consumes ALL its
-		// nights even when the starts compare as contiguous (n == 0) — the
-		// exact case gap/overlap math is silent on.
-		case !ch.newEnd.Before(nextEnd):
-			fmt.Fprintf(&b, " NOTE: this leg now ends %s, which reaches the end of the next leg (%s, currently ending %s) — %s has no nights left. Point this out and offer to move %s later with set_leg_dates; if the traveler agrees, also move any legs after it, calling set_leg_dates once per leg in order (earliest first) in this same turn.", ch.newEnd.Format(dateLayout), next.hub, nextEnd.Format(dateLayout), next.hub, next.hub)
-		case n < 0:
-			fmt.Fprintf(&b, " NOTE: this leg now ends %s, overlapping the next leg (%s) which starts %s. Point this out to the traveler and offer to fix it.", ch.newEnd.Format(dateLayout), next.hub, nextStart.Format(dateLayout))
-		case n > 0:
-			fmt.Fprintf(&b, " NOTE: this leg now ends %s but the next leg (%s) starts %s — %d uncovered night(s). Point this out to the traveler and offer to fix it.", ch.newEnd.Format(dateLayout), next.hub, nextStart.Format(dateLayout), n)
+	// The full rendered picture, warning lines included (zero-night arrivals,
+	// stranded places, unplanned tail nights): what used to be bespoke
+	// gap/squeeze NOTEs computed from raw item spans — numbers the page never
+	// drew — is now the ONE summary every legs surface shares (the
+	// shift_days_from result convention).
+	if postOK {
+		if block := legsRenderSummary(post.trip, post.items, post.stays); block != "" {
+			b.WriteString(" The page now renders these city legs:\n" + block +
+				"That, not day arithmetic, is what the traveler sees — relay any range that doesn't match what they asked for, and act on any WARNING above the list.")
 		}
 	}
 
@@ -842,46 +950,42 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 	return b.String(), false
 }
 
-// postMoveRenderedLeg re-reads a trip a leg-date move just committed and
-// returns the span the page now renders for one hub, or "" when it can't say.
-// Best-effort by design: the write has already committed, so a failed read
-// costs the extra sentence, never the result.
-func postMoveRenderedLeg(s *planSession, tripID uuid.UUID, hub string) string {
+// postMoveTripState is a trip re-read after a leg-date move committed — the
+// state the traveler's refreshed page derives from.
+type postMoveTripState struct {
+	trip  store.Trip
+	items []store.ItineraryItem
+	stays []store.Accommodation
+}
+
+// postMoveState re-reads a trip a leg-date move just committed. Best-effort
+// by design: the write has already committed, so a failed read costs the
+// rendered-range sentences, never the result — and the fallback text sends
+// the model to get_trip rather than letting it quote unverified spans.
+func postMoveState(s *planSession, tripID uuid.UUID) (postMoveTripState, bool) {
 	q := store.New(dbPool)
 	trip, err := q.GetEditableTripByID(s.ctx, store.GetEditableTripByIDParams{ID: tripID, UserID: s.uid})
 	if err != nil {
-		return ""
+		return postMoveTripState{}, false
 	}
 	items, err := q.GetItineraryItemsByTrip(s.ctx, tripID)
 	if err != nil {
-		return ""
+		return postMoveTripState{}, false
 	}
 	stays, err := q.ListAccommodationsByTrip(s.ctx, tripID)
 	if err != nil {
-		return ""
+		return postMoveTripState{}, false
 	}
-	start, end, ok := renderedLegRange(trip, items, stays, hub)
-	if !ok {
-		return ""
-	}
-	return legRangeText(start, end)
+	return postMoveTripState{trip: trip, items: items, stays: stays}, true
 }
 
-// prevDatedRunIdx / nextDatedRunIdx find the nearest movable neighbor for
-// the boundary moves and gap/overlap/squeeze narration; hubless or undated
-// filler runs are skipped. -1 when there is none. Index-returning so callers
-// can resolve ranges through anchoredLegDisplayRange.
+// prevDatedRunIdx finds the nearest movable neighbor before a run — the leg
+// whose confirmed stay, when it has one, pins the boundary this leg's start
+// must drag along. Hubless or undated filler runs are skipped. -1 when there
+// is none. (Its next-side twin died with the raw-span neighbour narration:
+// everything said about a following leg now reads the rendered legs.)
 func prevDatedRunIdx(runs []legRun, i int) int {
 	for j := i - 1; j >= 0; j-- {
-		if runs[j].minDay >= 1 && runs[j].hub != "" {
-			return j
-		}
-	}
-	return -1
-}
-
-func nextDatedRunIdx(runs []legRun, i int) int {
-	for j := i + 1; j < len(runs); j++ {
 		if runs[j].minDay >= 1 && runs[j].hub != "" {
 			return j
 		}
