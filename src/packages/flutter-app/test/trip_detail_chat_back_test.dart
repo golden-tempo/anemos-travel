@@ -14,6 +14,7 @@ import 'package:travel_route_planner/services/api_client.dart';
 import 'package:travel_route_planner/services/plan_service.dart';
 import 'package:travel_route_planner/services/trips_api_service.dart';
 import 'package:travel_route_planner/screens/trip_detail_screen.dart';
+import 'package:travel_route_planner/widgets/refine_dock_handle.dart';
 import 'package:travel_route_planner/widgets/trip_refine_panel.dart';
 
 import 'support/l10n_test_app.dart';
@@ -199,12 +200,12 @@ void main() {
     await tester.pumpWidget(_app(_FakeTripsApiService(_trip())));
     await tester.pumpAndSettle();
     await _openTripAndChat(tester);
-    expect(find.byType(VerticalDivider), findsNothing); // sheet, not docked
+    expect(find.byType(RefineDockHandle), findsNothing); // sheet, not docked
 
     await tester.enterText(find.byType(TextField), 'and the ferry times?');
     tester.view.physicalSize = const Size(1400, 1000);
     await tester.pumpAndSettle();
-    expect(find.byType(VerticalDivider), findsOneWidget); // now docked
+    expect(find.byType(RefineDockHandle), findsOneWidget); // now docked
 
     expect(
       tester.widget<TextField>(find.byType(TextField)).controller!.text,
@@ -254,13 +255,13 @@ void main() {
     await tester.pumpWidget(_app(_FakeTripsApiService(_trip())));
     await tester.pumpAndSettle();
     await _openTripAndChat(tester);
-    expect(find.byType(VerticalDivider), findsOneWidget); // docked
+    expect(find.byType(RefineDockHandle), findsOneWidget); // docked
 
     expect(await _back(tester), isTrue);
     await tester.pumpAndSettle();
 
     expect(find.byType(TripRefinePanel), findsNothing);
-    expect(find.byType(VerticalDivider), findsNothing);
+    expect(find.byType(RefineDockHandle), findsNothing);
     expect(find.byType(TripDetailScreen), findsOneWidget);
   });
 

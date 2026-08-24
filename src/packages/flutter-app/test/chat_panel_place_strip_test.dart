@@ -14,6 +14,7 @@ import 'package:travel_route_planner/providers/auth_provider.dart';
 import 'package:travel_route_planner/providers/plan_provider.dart';
 import 'package:travel_route_planner/services/api_client.dart';
 import 'package:travel_route_planner/services/plan_service.dart';
+import 'package:travel_route_planner/providers/refine_dock_provider.dart';
 import 'package:travel_route_planner/widgets/chat_panel.dart';
 import 'package:travel_route_planner/widgets/place_photo_card.dart';
 import 'package:travel_route_planner/widgets/result_summary_chip.dart';
@@ -23,7 +24,7 @@ import 'support/l10n_test_app.dart';
 /// The chat photo-card strips (places / local picks / events): rails replace
 /// the corresponding summary chips, photo failures fall back to the category
 /// icon box, attribution shows, cards act (maps launch, add-to-trip), and the
-/// 400px refine dock lays out without overflow.
+/// refine dock at its narrowest lays out without overflow.
 
 class _StubPlanService extends PlanService {
   _StubPlanService() : super('http://unused');
@@ -308,9 +309,11 @@ void main() {
     expect(find.text('Add to trip'), findsWidgets);
   });
 
-  testWidgets('lays out without overflow in the 400px refine dock and 760px tab',
+  // The dock is draggable now, so the overflow case is its FLOOR, not the
+  // width it happens to open at.
+  testWidgets('lays out without overflow in the narrowest refine dock and 760px tab',
       (tester) async {
-    for (final width in [400.0, 760.0]) {
+    for (final width in [kRefineDockMinWidth, 760.0]) {
       tester.view.physicalSize = Size(width, 800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);

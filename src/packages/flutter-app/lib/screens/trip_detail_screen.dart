@@ -28,6 +28,7 @@ import '../providers/preferences_provider.dart';
 import '../providers/api_client_provider.dart';
 import '../providers/plan_provider.dart';
 import '../providers/plan_resume.dart';
+import '../providers/refine_dock_provider.dart';
 import '../providers/events_provider.dart';
 import '../providers/weather_provider.dart';
 import '../models/weather.dart';
@@ -78,6 +79,7 @@ import '../widgets/hover_reveal.dart';
 import '../widgets/local_rec_card.dart';
 import '../widgets/offline_banner.dart';
 import '../widgets/place_photo_card.dart';
+import '../widgets/refine_dock_handle.dart';
 import '../widgets/source_links_card.dart';
 import '../widgets/status_pill.dart';
 import '../widgets/trip_actions_sheet.dart';
@@ -3730,13 +3732,24 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                       // fresh.
                       _mapPinned = constraints.maxWidth >= kRailBreakpoint;
                       // Hoisted dock decision (also used at the bottom of this
-                      // builder): the docked panel + divider eat 401px of this
+                      // builder): the docked panel and its grab strip eat this
                       // width, so the gutter must be computed from what the
                       // scroll view actually gets.
+                      //
+                      // The dock is draggable, so its width is the traveler's
+                      // saved preference folded through the one clamp — never
+                      // read raw, or a preference from a wider window would
+                      // leave the itinerary a sliver here.
                       final panelDocked =
-                          _panelOpen && constraints.maxWidth >= 900;
+                          _panelOpen && constraints.maxWidth >= kRefineDockBreakpoint;
+                      final dockWidth = clampRefineDockWidth(
+                        ref.watch(refineDockWidthProvider),
+                        layoutWidth: constraints.maxWidth,
+                      );
                       final bodyWidth = panelDocked
-                          ? constraints.maxWidth - 401
+                          ? constraints.maxWidth -
+                              dockWidth -
+                              kRefineDockHandleWidth
                           : constraints.maxWidth;
                       // Symmetric gutter capping content at _contentMaxWidth;
                       // exactly the old 16px below the cap (+32 slack keeps
@@ -4380,12 +4393,24 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                         ),
                       );
                       if (panelDocked) {
-                        // Wide: dock the chat beside the itinerary.
+                        // Wide: dock the chat beside the itinerary, on a seam
+                        // the traveler can drag. The itinerary stays Expanded
+                        // rather than taking bodyWidth outright, so the two
+                        // halves can never disagree by a rounding error — the
+                        // dock states its width and the trip gets the rest,
+                        // which is exactly what bodyWidth predicted above.
+                        final dock = ref.read(refineDockWidthProvider.notifier);
                         return Row(
                           children: [
                             Expanded(child: refreshable),
-                            const VerticalDivider(width: 1),
-                            SizedBox(width: 400, child: panel),
+                            RefineDockHandle(
+                              dockWidth: dockWidth,
+                              layoutWidth: constraints.maxWidth,
+                              onChanged: dock.resize,
+                              onChangeEnd: (_) => dock.save(),
+                              onReset: dock.reset,
+                            ),
+                            SizedBox(width: dockWidth, child: panel),
                           ],
                         );
                       }

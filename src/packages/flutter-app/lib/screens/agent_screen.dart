@@ -96,7 +96,7 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
       // Centered chat column on wide layouts: 760 = the 720 bubble cap plus
       // the list's horizontal padding. PageContainer's Center loosens only
       // minimum constraints, so the panel keeps its bounded height; the
-      // 400px refine dock hosts the same ChatPanel and is unaffected.
+      // resizable refine dock hosts the same ChatPanel and is unaffected.
       body: PageContainer(
         maxWidth: 760,
         child: ChatPanel(

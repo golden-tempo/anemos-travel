@@ -2455,6 +2455,16 @@
   "refineResumeGone": "This conversation has expired.",
   "refineResumeGoneDetail": "It was cleared or removed with its trip. You can start a new one.",
   "refineResumeFailed": "Couldn't reopen this conversation.",
+  "refineDockResize": "Resize the chat",
+  "refineDockResizeHint": "Drag to resize · double-click to reset",
+  "refineDockResizeValue": "{width} pixels wide",
+  "@refineDockResizeValue": {
+    "placeholders": {
+      "width": {
+        "type": "int"
+      }
+    }
+  },
   "tripContinueChat": "Continue chat",
   "tripContinueChatMeta": "{count, plural, =1{1 message} other{{count} messages}} · {age}",
   "@tripContinueChatMeta": {

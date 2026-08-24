@@ -408,8 +408,10 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
 
     // LayoutBuilder (house rule: widths computed from the panel's own
     // constraints): the bubble cap must track the surface the panel actually
-    // occupies — the 400px refine dock and the 760px agent column — not the
-    // window, or dock bubbles run the full dock width on desktop.
+    // occupies — the refine dock and the 760px agent column — not the
+    // window, or dock bubbles run the full dock width on desktop. The dock is
+    // draggable, so its width is a live value, which is the other reason this
+    // reads constraints rather than any constant.
     return LayoutBuilder(builder: (context, constraints) {
       final bubbleMaxWidth = _bubbleMaxWidthFor(constraints.maxWidth);
       // The composer and its pending-attachments row as ONE unit. On the
@@ -1620,8 +1622,8 @@ class _QueuedBubble extends StatelessWidget {
 
 /// Bubbles span 78% of the hosting panel's width but cap at a readable
 /// measure on wide panels. Derived from the panel's own LayoutBuilder
-/// constraints — never the window — so the 400px refine dock and the 760px
-/// agent column both keep the ragged 78% edge.
+/// constraints — never the window — so the refine dock (360–720, dragged by
+/// the traveler) and the 760px agent column both keep the ragged 78% edge.
 const double _kBubbleMaxWidth = 720;
 
 double _bubbleMaxWidthFor(double panelWidth) =>

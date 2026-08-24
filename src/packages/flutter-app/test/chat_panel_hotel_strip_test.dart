@@ -12,6 +12,7 @@ import 'package:travel_route_planner/providers/auth_provider.dart';
 import 'package:travel_route_planner/providers/plan_provider.dart';
 import 'package:travel_route_planner/services/api_client.dart';
 import 'package:travel_route_planner/services/plan_service.dart';
+import 'package:travel_route_planner/providers/refine_dock_provider.dart';
 import 'package:travel_route_planner/widgets/chat_panel.dart';
 import 'package:travel_route_planner/widgets/place_photo_card.dart';
 import 'package:travel_route_planner/widgets/source_links_card.dart';
@@ -243,9 +244,11 @@ void main() {
     expect(size, const Size(kPlaceCardWidth, kPlaceCardHeight));
   });
 
-  testWidgets('lays out without overflow in the 400px refine dock',
+  // The dock is draggable now, so the overflow case is its FLOOR, not the
+  // width it happens to open at.
+  testWidgets('lays out without overflow in the narrowest refine dock',
       (tester) async {
-    tester.view.physicalSize = const Size(400, 800);
+    tester.view.physicalSize = const Size(kRefineDockMinWidth, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
