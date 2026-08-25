@@ -381,9 +381,12 @@ func TestSpliceLegSinglePlaceOnSingleDayLeg(t *testing.T) {
 	}
 }
 
-// A leg with two distinct ends cannot be covered by one place: without a place
-// on the move-on day the leg renders as though they left the day they arrived,
-// and the NEXT city swallows its nights (computeTripLegs' zero-night collapse).
+// A leg with two distinct ends cannot be covered by one place. Since
+// specs/leg-departure-dates the DATES no longer depend on it — a leg runs to
+// the next city's arrival regardless — so this pins the planning-shape floor
+// spliceLeg documents (arrival place + easy travel-morning place), not a
+// calendar guard. (Before the boundary rule, a one-place refill collapsed the
+// leg and handed its nights to the next city.)
 func TestSpliceLegRefusesOnePlaceOnMultiDayLeg(t *testing.T) {
 	_, err := spliceLeg(europeTrip(), "Copenhagen", "Belgrade", []map[string]any{
 		rlPlace("Kalemegdan", map[string]any{"city": "Belgrade"}),
