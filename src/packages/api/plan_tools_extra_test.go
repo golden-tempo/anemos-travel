@@ -907,7 +907,7 @@ func TestCreateItineraryResultShowsRenderedLegs(t *testing.T) {
 		"The page now renders these city legs:",
 		// Day 2 is Aug 24; the leg still runs to the trip's end date.
 		"- Amsterdam: 2026-08-23 to 2026-08-25",
-		"leaving the day home empty does not shorten it",
+		"an empty travel day never shortens a city",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("result missing %q:\n%s", want, msg)

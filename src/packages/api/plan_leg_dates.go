@@ -326,15 +326,15 @@ func legsSummary(trip store.Trip, items []store.ItineraryItem, stays []store.Acc
 // spans print under the "Other places" label. Empty when nothing is spanned.
 //
 // Each line carries the range, its NIGHT COUNT and how the span was decided —
-// not the range alone (specs/shape-before-schedule). A spine dates each city
-// from two rows, so the two ways that goes wrong both read as ordinary output
-// unless they are named: a city that lost its move-on place renders
-// "2026-06-04 to 2026-06-04" beside a neighbour running "2026-06-04 to
-// 2026-06-11", which the model can only catch by doing arithmetic on dates it
-// half-trusts; and a city whose places carry no day numbers gets an equal share
-// of the trip invented for it, which looks exactly like a real range. Nights
-// make the first arithmetic-free, provenance makes the second visible, and
-// legsRenderWarning puts the ones that matter above the list.
+// not the range alone (specs/shape-before-schedule). The ways a span goes
+// wrong all read as ordinary output unless they are named: two cities sharing
+// an arrival day render a zero-night stop the model can only catch by doing
+// arithmetic on dates it half-trusts (before the boundary rule, a city that
+// lost its travel-day place collapsed the same way), and a city whose places
+// carry no day numbers gets an equal share of the trip invented for it, which
+// looks exactly like a real range. Nights make the first arithmetic-free,
+// provenance makes the second visible, and legsRenderWarning puts the ones
+// that matter above the list.
 func legsRenderSummary(trip store.Trip, items []store.ItineraryItem, stays []store.Accommodation) string {
 	legs := computeTripLegs(trip, items, stays)
 	var b strings.Builder

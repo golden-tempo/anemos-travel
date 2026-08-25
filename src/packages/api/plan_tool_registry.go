@@ -313,7 +313,7 @@ var findParkingTool = anthropic.ToolParam{
 
 var createItineraryTool = anthropic.ToolParam{
 	Name:        "create_itinerary",
-	Description: anthropic.String("Save the trip's itinerary. Call this ONLY after the traveler has agreed to the trip's shape — which cities, how many nights in each, the dates. Their agreement is the gate, not how many places you have found. The first save is normally a SPINE: every city with one place on the day they arrive and one easy place on the day they move on, and the days in between deliberately empty. A spine is a complete, valid itinerary — its empty days are the plan, not a gap to fill in before saving. Every city must carry a place on the day the traveler moves on from it, because that day is what sets the city's departure date; the last city is the exception and carries only its arrival, since the day you leave it is the journey home. Calling this again later saves a NEW VERSION of the whole trip, so always send the COMPLETE list of places for every city, never just the part you changed."),
+	Description: anthropic.String("Save the trip's itinerary. Call this ONLY after the traveler has agreed to the trip's shape — which cities, how many nights in each, the dates. Their agreement is the gate, not how many places you have found. The first save is normally a SPINE: every city with one place on the day they arrive, usually one easy place on the morning they move on, and the days in between deliberately empty. A spine is a complete, valid itinerary — its empty days are the plan, not a gap to fill in before saving. A city's dates hang on ARRIVALS (its own first day and the next city's first day), never on a place holding its last day — so an empty travel day is fine, an early departure is exactly when to leave one, and a place must never be added just to hold a date; the last city carries only its arrival, since the day you leave it is the journey home. Calling this again later saves a NEW VERSION of the whole trip, so always send the COMPLETE list of places for every city, never just the part you changed."),
 	InputSchema: anthropic.ToolInputSchemaParam{
 		Properties: map[string]any{
 			"locations": map[string]any{
@@ -795,7 +795,7 @@ func runCreateItineraryTool(s *planSession, input json.RawMessage) (string, bool
 		legs, transport, open := tripPostStateRender(s, *s.tripID)
 		if legs != "" {
 			result += " The page now renders these city legs:\n" + legs + open +
-				"Each leg renders from the previous city's departure through its own last day, and the final city through the trip's end date — so leaving the day home empty does not shorten it. If a range is wrong, use set_leg_dates (one city) or set_trip_dates (the whole trip) with calendar dates, never recomputed day numbers."
+				"A leg runs from its own arrival (its first place's day) to the NEXT city's arrival, and the final city through the trip's end date — an empty travel day never shortens a city, so never add a place just to hold a date. If a range is wrong, use set_leg_dates (one city), shift_days_from (a city and everything after it), or set_trip_dates (the whole trip) with calendar dates, never recomputed day numbers."
 		}
 		result += transportEchoText(transport)
 	}
@@ -855,7 +855,7 @@ func runUpdateItinerarySectionTool(s *planSession, input json.RawMessage) (strin
 	legs, transport, open := tripPostStateRender(s, *s.boundTripID)
 	if legs != "" {
 		result += " The page now renders these city legs:\n" + legs + open +
-			"A city's LAST item day is its departure day; each leg renders from the previous city's departure through its own last day, and the FINAL city through the trip's end date — so leaving the day home empty does not shorten it. If these ranges don't match what the traveler asked for, do NOT resend the list with recomputed day numbers — use set_leg_dates (one city's dates) or set_trip_dates (the whole trip) with calendar dates."
+			"A city's dates hang on ARRIVALS, not on its own last day: each leg runs from its first place's day to the NEXT city's arrival, and the FINAL city through the trip's end date — an empty travel day never shortens a city, so never add a place just to hold a date. If these ranges don't match what the traveler asked for, do NOT resend the list with recomputed day numbers — use set_leg_dates (one city's dates), shift_days_from (a city and everything after it), or set_trip_dates (the whole trip) with calendar dates."
 	}
 	result += transportEchoText(transport)
 	result += tripDescriptionEcho(s, *s.boundTripID)

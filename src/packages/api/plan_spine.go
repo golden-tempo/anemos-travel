@@ -50,11 +50,15 @@ import (
 //     because an itinerary with no tags anywhere is one coherent unnamed run,
 //     which is exactly what legacy and manually-built trips look like.
 //
-// Deliberately NOT refused: a city whose places sit on a single day. That is
-// usually a missing move-on place and sometimes a genuine same-day stop, and
-// no payload can tell the two apart. It gets the two honest channels instead —
-// the warning line in the tool result (legsRenderSummary) and a Trip Health
-// finding (checkLegShape) — rather than a guess dressed up as a rule.
+// Deliberately NOT refused: a city whose places sit on a single day. Under
+// the boundary rule (specs/leg-departure-dates) that is an ordinary shape —
+// the day is the city's arrival and the leg runs to the next city's arrival
+// regardless. (Before the rule it usually meant a missing travel-day place
+// and rendered as a collapsed leg.) The shapes that still go wrong on screen
+// — two cities sharing an arrival day, a guessed range — get the two honest
+// channels instead: the warning line in the tool result (legsRenderSummary)
+// and a Trip Health finding (checkLegShape), rather than a guess dressed up
+// as a rule.
 //
 // Coercion is NOT re-implemented here: every check reads the params
 // itemParamsFromLocation already produces, so this file and storage cannot

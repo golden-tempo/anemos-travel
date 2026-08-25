@@ -134,12 +134,13 @@ func TestSystemPromptEnglishUnchanged(t *testing.T) {
 		if !strings.Contains(prompt, "call suggest_replies with the changes they are most likely to want") {
 			t.Errorf("Accept-Language %q: prompt lost the shape-turn quick replies", header)
 		}
-		// The load-bearing half of the spine. A city with nothing on the day the
-		// traveler leaves renders as though they left the day they arrived, and
-		// the next city absorbs its nights (TestComputeTripLegsArrivalOnly...
-		// pins that output). Nothing downstream can repair it.
-		if !strings.Contains(prompt, "The move-on place is NOT optional") {
-			t.Errorf("Accept-Language %q: prompt lost the move-on-place rule", header)
+		// The load-bearing half of the spine flipped with the boundary rule
+		// (specs/leg-departure-dates): dates hang on arrivals, so the rule the
+		// prompt must never lose is the anti-invention one — a place added just
+		// to hold a date is how a Starbucks at Prague Airport got into a real
+		// itinerary ("Degrade, never invent", PRODUCT.md).
+		if !strings.Contains(prompt, "NEVER add a place to an itinerary just to hold a date") {
+			t.Errorf("Accept-Language %q: prompt lost the never-invent-a-place rule", header)
 		}
 		// The gate itself: agreement authorizes the write, not the model's own
 		// sense of having found enough places.
