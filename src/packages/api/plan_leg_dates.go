@@ -13,8 +13,20 @@ package main
 // keeps its within-leg offset, and no item is ever dragged onto a departure
 // day (the old END-anchored renumber moved places the traveler deliberately
 // kept off the travel day; ticket 2 removed it). One transaction renumbers
-// the items, moves the leg's matched confirmed stays and boundary transport,
-// and extends the trip's end date when the leg now runs past it.
+// the items, moves the leg's matched confirmed stays and the transport the
+// leg OWNS, and extends the trip's end date when the leg now runs past it.
+//
+// Transport ownership follows the same rule (ticket 5): a boundary segment's
+// day belongs to the ARRIVAL it serves. A segment arriving at this city rides
+// this leg's start; one departing to another city of the trip is that city's
+// arrival transport and moves only with that city's own call — never here,
+// which is how a chained repair once moved one flight twice. A departing
+// segment with no arrival-side owner (the journey home) rides this leg's end
+// only when this call moved a REAL stored end — the confirmed stay's
+// check-out or the final leg's trip-end extension — because on any other move
+// endDelta is the length-preserving synthetic, an end the call did not
+// change, and moving a confirmed booking by it desyncs the flight from the
+// page.
 //
 // An explicit end_date is honoured only where the departure actually lives on
 // this leg's own rows: a confirmed stay's check-out, or — for the trip's
@@ -58,8 +70,8 @@ import (
 var setLegDatesTool = anthropic.ToolParam{
 	Name: "set_leg_dates",
 	Description: anthropic.String("Change when ONE city's leg of the traveler's saved trip happens — 'arrive in Rome a day later' — without moving the rest of the trip. " +
-		"start_date moves the city's ARRIVAL: its itinerary days shift together, its stay's dates move, and the transport into and out of the city follows. " +
-		"A city's departure day is the NEXT city's arrival, so to change when the traveler LEAVES a city, move the next city's start_date (or use shift_days_from to push it and everything after it together). " +
+		"start_date moves the city's ARRIVAL: its itinerary days shift together, its stay's dates move, and the transport INTO the city follows. " +
+		"A city's departure day is the NEXT city's arrival, so to change when the traveler LEAVES a city, move the next city's start_date (or use shift_days_from to push it and everything after it together) — transport onward to another city of the trip rides THAT city's arrival and moves with it, never with this call. " +
 		"end_date is honoured only where the departure lives on this city's own plan: its confirmed stay's check-out, or — for the trip's final city — the trip's end date, which extends when the leg runs past it. Anywhere else an explicit end_date is refused with the call to make instead. Omit end_date to keep the leg's saved length. " +
 		"When the WHOLE trip moves, use set_trip_dates instead. " +
 		"The result reports the dates the trip page now renders — relay any range that doesn't match what the traveler asked for. " +
@@ -591,13 +603,17 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 	if movedLegNow != nil {
 		nextSpannedNow = nextSpannedRenderedLeg(legsNow, movedLegNow)
 	}
+	// The one stay that anchors this leg's rendered end (and start) — the
+	// predicate the first-leg carve-out, the end_date gate, transport
+	// ownership and the no-op report all share.
+	runStay := matchedConfirmedStay(run, stays)
 
 	// The first leg's arrival IS the trip's start date (its span is anchored
 	// there), so a different start is really a trip-start change — steer to
 	// set_trip_dates rather than silently re-numbering items into a shape the
 	// screen can't show. Carve-out: a confirmed stay anchors the leg's start
 	// instead, and its check-in stays movable like any other leg's.
-	if matched[0] == firstDatedRunIdx(runs) && matchedConfirmedStay(run, stays) == nil && !start.Time.Equal(tripStart) {
+	if matched[0] == firstDatedRunIdx(runs) && runStay == nil && !start.Time.Equal(tripStart) {
 		return fmt.Sprintf("%s is the trip's first city, so its arrival IS the trip's start date (%s). To move when the trip begins, use set_trip_dates; a city's departure day is the NEXT city's arrival, so to change when the traveler leaves %s, move the next city's start_date instead.",
 			run.hub, tripStart.Format(dateLayout), run.hub), true
 	}
@@ -611,8 +627,14 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 	// Sep 24 to 27" when Sep 27 is already the on-screen end is a start move);
 	// anything else refuses with the call that actually moves the boundary —
 	// applying the start half anyway would be the tool fighting the traveler.
+	// endOwned: this call moves a REAL stored end — the leg's confirmed
+	// stay's check-out (the stays loop moves it by endDelta on every accepted
+	// move, rigid or endpoint-anchored), or the final leg's trip-end
+	// extension below. Only such an end may carry departing transport; on
+	// every other move endDelta is the length-preserving synthetic.
 	endBasis := oldLegEnd
-	if newEnd != nil && matchedConfirmedStay(run, stays) == nil {
+	endOwned := runStay != nil
+	if newEnd != nil && runStay == nil {
 		switch {
 		case movedLegNow != nil && movedLegNow.End != nil && newEnd.Equal(*movedLegNow.End):
 			newEnd = nil
@@ -637,6 +659,7 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 			// it — the raw last item day runs short of it by however many
 			// place-free tail nights the leg holds.
 			endBasis = trip.EndDate.Time
+			endOwned = true
 		}
 	}
 
@@ -740,10 +763,22 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 		staysMoved++
 	}
 
-	// Boundary transport (confirmed only): a segment arriving at the hub
-	// rides the leg start, one departing it rides the leg end, one inside
-	// the leg rides the start.
+	// Boundary transport (confirmed only): a segment's calendar day belongs
+	// to the ARRIVAL it serves — the boundary rule, applied to transport. One
+	// arriving at the hub rides this leg's start; one inside the leg rides
+	// the start. One DEPARTING the hub toward another dated city of the trip
+	// is THAT city's arrival transport and moves only with that city's own
+	// call — moving it here too is how a chained repair (stay-checkout end,
+	// then next city's start) used to move one flight twice, and within a
+	// call it is the same ownership the movedStayIDs guard gives stays. What
+	// remains (the journey home, a destination outside the trip) rides this
+	// leg's end only when endOwned — a real stored end this call moved. On a
+	// start-only items-leg move endDelta is the length-preserving synthetic
+	// for an end that post-boundary-rule is the next city's arrival, and
+	// moving a confirmed booking by it silently desyncs the flight from the
+	// page (specs/leg-departure-dates ticket 5).
 	arrMoved, depMoved := 0, 0
+	var depLeftForArrival []string
 	for _, seg := range segs {
 		if seg.Auto {
 			continue
@@ -755,6 +790,20 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 		case destMatch:
 			delta = ch.startDelta
 		case origMatch:
+			if owner := segDestLegHub(runs, matched[0], strPtrVal(seg.Destination)); owner != "" {
+				// Arrival-owned. Named in the result only when this call DID
+				// move a real end (the model may expect the flight to follow
+				// the check-out it just moved); a bare arrival move skipping
+				// it is not an event — the segment already sits where the
+				// page says the boundary is.
+				if endOwned && ch.endDelta != 0 {
+					depLeftForArrival = append(depLeftForArrival, owner)
+				}
+				continue
+			}
+			if !endOwned {
+				continue
+			}
 			delta, departure = ch.endDelta, true
 		default:
 			continue
@@ -824,8 +873,8 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 		itemEnd := tripStart.AddDate(0, 0, run.maxDay-1)
 		var b strings.Builder
 		fmt.Fprintf(&b, "No saved rows changed. Actual saved state for %s: itinerary items sit on %s (trip days %d-%d)", run.hub, legRangeText(itemStart, itemEnd), run.minDay, run.maxDay)
-		if a := matchedConfirmedStay(run, stays); a != nil {
-			fmt.Fprintf(&b, "; its confirmed stay %q runs %s", a.Name, legRangeText(a.CheckIn.Time, a.CheckOut.Time))
+		if runStay != nil {
+			fmt.Fprintf(&b, "; its confirmed stay %q runs %s", runStay.Name, legRangeText(runStay.CheckIn.Time, runStay.CheckOut.Time))
 		}
 		if prevSpanned := prevSpannedRenderedLeg(legsNow, movedLegNow); prevSpanned != nil {
 			fmt.Fprintf(&b, "; on the page the previous leg (%s) runs through %s", prevSpanned.Label, prevSpanned.End.Format(dateLayout))
@@ -920,6 +969,9 @@ func runSetLegDatesTool(s *planSession, input json.RawMessage) (string, bool) {
 	if prevExtended {
 		fmt.Fprintf(&b, " %s now ends %s (was %s) — its stay's check-out moved to match this leg's arrival.", prevRun.hub, ch.newStart.Format(dateLayout), prevWasEnd.Format(dateLayout))
 	}
+	if len(depLeftForArrival) > 0 {
+		fmt.Fprintf(&b, " NOTE: the confirmed transport out of %s (to %s) was deliberately left in place — a boundary segment rides its destination city's arrival, so it moves when that city's dates do.", run.hub, strings.Join(depLeftForArrival, ", "))
+	}
 
 	// Overlaps ARE representable on the page (an explicit stay running past a
 	// neighbour's arrival), so they are the one neighbour condition still
@@ -977,6 +1029,31 @@ func postMoveState(s *planSession, tripID uuid.UUID) (postMoveTripState, bool) {
 		return postMoveTripState{}, false
 	}
 	return postMoveTripState{trip: trip, items: items, stays: stays}, true
+}
+
+// segDestLegHub resolves whether a departing segment's destination is another
+// dated named city leg of this trip — the leg whose ARRIVAL the segment
+// serves, and therefore its owner: that city's own set_leg_dates destMatches
+// it and moves it by that leg's start delta. Returns the owning run's hub
+// ("" when the destination matches no other dated named run — a journey-home
+// or out-of-trip destination, which the end side may carry). Any other run
+// qualifies, not just the next one: a revisit's return segment belongs to the
+// revisit leg, and the matching is the same fuzzyMatch the loop applies to
+// this hub's own endpoints.
+func segDestLegHub(runs []legRun, selfIdx int, dest string) string {
+	destLower := strings.ToLower(strings.TrimSpace(dest))
+	if destLower == "" {
+		return ""
+	}
+	for i, r := range runs {
+		if i == selfIdx || r.minDay < 1 || r.hub == "" {
+			continue
+		}
+		if fuzzyMatch(destLower, strings.ToLower(r.hub)) {
+			return r.hub
+		}
+	}
+	return ""
 }
 
 // prevDatedRunIdx finds the nearest movable neighbor before a run — the leg
