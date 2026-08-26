@@ -271,7 +271,7 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   // Today mode (specs/today-mode): the itinerary auto-scrolls to today's day
   // header at most once per screen visit, and only from loud load paths.
   final ScrollController _scroll = ScrollController();
-  bool _autoScrolledToday = false;
+  bool _todayModeEntered = false;
   // Day set by a loud load, consumed by the first build that has the scroll
   // view on screen (the load's own setState still shows the loading spinner,
   // so the scroll can't be kicked off from there).
@@ -635,9 +635,9 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
             _loading = false;
             // Today mode treats this as the trip's first paint (the
             // cached-offline fallback's precedent); the fresh landing
-            // below then no-ops via _autoScrolledToday, so the swap can
+            // below then no-ops via _todayModeEntered, so the swap can
             // never re-scroll out from under the traveler.
-            if (!silent) _maybeAutoScrollToday(cached.trip);
+            if (!silent) _maybeEnterTodayMode(cached.trip);
           });
         }
       }
@@ -677,7 +677,7 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
           _loading = false;
           // Today mode fires only from loud loads — never from a silent
           // refresh, which shares this success path (PR #51/#53 invariants).
-          if (!silent) _maybeAutoScrollToday(trip);
+          if (!silent) _maybeEnterTodayMode(trip);
         });
         // Remember this as the most recently viewed trip (home screen tile).
         ref.read(recentTripProvider.notifier).record(
@@ -763,7 +763,7 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
             _error = null;
             // Opening a live trip while offline is Today mode's prime use
             // case — the cached copy scrolls to today just like a live load.
-            if (!silent) _maybeAutoScrollToday(cached.trip);
+            if (!silent) _maybeEnterTodayMode(cached.trip);
           });
           return; // finally still clears _loading
         }
@@ -925,28 +925,51 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     return box is RenderBox && box.hasSize ? box.size.height : 0;
   }
 
-  /// One-shot Today trigger, called inside the setState of the loud load
+  /// One-shot Today-mode entry, called inside the setState of the loud load
   /// paths (live success, cache-first paint, and cached-offline fallback) so
-  /// the map's today focus preselection lands in the same frame as the trip.
-  /// Never called from silent refreshes; a no-op once fired, while the refine
-  /// panel is open, or when the trip is undated/past/future or has no day
-  /// tags.
-  void _maybeAutoScrollToday(Trip trip) {
-    if (_autoScrolledToday || _panelOpen) return;
-    final today = tripDayOn(trip.startDate, trip.endDate, DateTime.now());
+  /// the map's today focus preselection and the past-leg fold land in the
+  /// same frame as the trip. Never called from silent refreshes; a no-op once
+  /// fired, while the refine panel is open, or when the trip is
+  /// undated/past/future or has no day tags. Three effects, one gate: the
+  /// map preselects today's leg, cities already departed land collapsed, and
+  /// the list scrolls to today's header.
+  void _maybeEnterTodayMode(Trip trip) {
+    if (_todayModeEntered || _panelOpen) return;
+    final now = DateTime.now();
+    final today = tripDayOn(trip.startDate, trip.endDate, now);
     if (today == null) return;
     if (!(trip.items ?? const <ItineraryItem>[]).any((i) => i.day != null)) {
       return;
     }
-    _autoScrolledToday = true;
+    _todayModeEntered = true;
     // Map preselect: the leg holding today's items, set before the first
     // paint so the camera doesn't hop All → today one frame later.
     // Exact-day match only — an untagged today leaves the default (All)
     // and the pending scroll's nearest-day fallback selects. Map-only:
-    // groups land expanded by default, so there is nothing to open.
+    // today's own group never collapses (exempt below), so the focus
+    // target is always open.
     final d = _derive(trip);
     final todayLeg = d.legKeyForDay(today);
     if (todayLeg != null) _setMapFocus(d, todayLeg);
+    // Cities already departed land collapsed: mid-trip, the history above
+    // today folds to its headers so the screen opens at the trip's live
+    // edge, not at day 1. Seeded ONCE into _collapsedGroups — the same
+    // inverted session set a header tap edits — so re-expanding a past city
+    // sticks for the visit and silent refreshes never re-fold it. The
+    // decision reads visibleRanges (index-aligned with legs), because that
+    // is the span the header chip promises the user; the compare is
+    // strictly-before on UTC-normalized civil dates (the daysUntilTrip
+    // rule), so the city being departed TODAY keeps its morning visible.
+    // Today's leg is exempt outright as belt-and-braces against a range
+    // that disagrees with the day tags.
+    final todayUtc = DateTime.utc(now.year, now.month, now.day);
+    for (var i = 0; i < d.legs.length && i < d.visibleRanges.length; i++) {
+      final end = d.visibleRanges[i].end;
+      if (end == null || d.legs[i].key == todayLeg) continue;
+      if (DateTime.utc(end.year, end.month, end.day).isBefore(todayUtc)) {
+        _collapsedGroups.add(d.legs[i].key);
+      }
+    }
     // The scroll itself waits for the first build that actually shows the
     // scroll view: a post-frame callback scheduled here could fire before
     // the CustomScrollView has laid out (and on paths where this setState
