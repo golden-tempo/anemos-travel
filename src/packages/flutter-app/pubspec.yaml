@@ -59,8 +59,11 @@ dependencies:
   # JSON serialization
   json_annotation: ^4.8.1
   
-  # Secure on-device storage for the session token
-  flutter_secure_storage: ^9.2.2
+  # Secure on-device storage for the session token. Keep at v10+: its web
+  # implementation is js_interop-based, while 9.x's dart:html one is the
+  # repo's sole dart2wasm blocker (specs/perf-program deferred --wasm
+  # experiment; probed 2026-08-26 — everything else compiles).
+  flutter_secure_storage: ^10.3.1
 
   # Plain on-device storage (last viewed trip)
   shared_preferences: ^2.3.0
