@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"travel-route-planner/store"
 )
 
 // End-to-end /plan coverage through buildRouter, with the Anthropic API
@@ -837,4 +839,163 @@ func TestPlanWireShapeFromDartClient(t *testing.T) {
 		raw := `{"messages":[{"role":"user","content":"where is this?","images":[{"media_type":"image/png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="}]}],"chat_id":"` + uuid.NewString() + `"}`
 		assertCleanStream(t, postRaw(t, raw, ""), answer)
 	})
+}
+
+// The dock chat is bound to the trip it is opened on, so the model must have
+// the LIVE trip in context every turn — not a frozen copy. Guards the
+// "there's no Prague in your current trip" failure: a compacted summary's
+// stale trip shape outranked reality because nothing fresher was in context,
+// and the get_trip mandate covered only writes. The same hole read the other
+// way was the model narrating "let me pull your trip" before answering
+// questions it should already know.
+func TestPlanBoundTurnCarriesCurrentTripState(t *testing.T) {
+	resetDB(t)
+	fake := newFakeAnthropic(t, textTurn("Day 1 starts at Place 1."))
+
+	user, token := createTestUser(t, "trip-context@example.com")
+	trip := createTestTrip(t, user.ID, 2)
+
+	rec := doJSON(t, "POST", "/api/v1/plan", token, PlanRequest{
+		TripID:   trip.ID.String(),
+		Messages: []PlanChatMessage{{Role: "user", Content: "what's the plan?"}},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/plan = %d, want 200", rec.Code)
+	}
+
+	bodies := fake.requestBodies()
+	if len(bodies) == 0 {
+		t.Fatal("fake anthropic saw no requests")
+	}
+	var req struct {
+		System []struct {
+			Text string `json:"text"`
+		} `json:"system"`
+	}
+	if err := json.Unmarshal(bodies[0], &req); err != nil {
+		t.Fatalf("request unmarshal: %v", err)
+	}
+	if len(req.System) != 2 {
+		t.Fatalf("system blocks = %d, want 2 (instructions + trip state)", len(req.System))
+	}
+	block := req.System[1].Text
+	if !strings.HasPrefix(block, "CURRENT TRIP STATE") {
+		t.Fatalf("second system block must lead with CURRENT TRIP STATE, got:\n%.200s", block)
+	}
+	// The block is runGetTripTool's render: the live title and places must be
+	// there, or the block cannot answer what a get_trip call would.
+	for _, want := range []string{`Trip "Test Trip"`, "Place 1", "Place 2"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("trip state block missing %q:\n%s", want, block)
+		}
+	}
+	// The instructions block may NAME the trip-state block (its guidance
+	// points at it) but must stay free of per-trip DATA, so a trip change
+	// never invalidates the cached instructions prefix.
+	for _, leak := range []string{`Trip "Test Trip"`, "Place 1"} {
+		if strings.Contains(req.System[0].Text, leak) {
+			t.Errorf("instructions block contains per-trip data %q; it must stay cacheable across trips", leak)
+		}
+	}
+}
+
+// An unbound conversation (no saved trip open) has no trip to inject — the
+// request must keep exactly one system block, byte-identical behavior to
+// before the feature.
+func TestPlanUnboundTurnHasNoTripStateBlock(t *testing.T) {
+	resetDB(t)
+	fake := newFakeAnthropic(t, textTurn("Where would you like to go?"))
+
+	_, token := createTestUser(t, "no-trip-context@example.com")
+	rec := doJSON(t, "POST", "/api/v1/plan", token, PlanRequest{
+		Messages: []PlanChatMessage{{Role: "user", Content: "plan me something"}},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/plan = %d, want 200", rec.Code)
+	}
+
+	bodies := fake.requestBodies()
+	if len(bodies) == 0 {
+		t.Fatal("fake anthropic saw no requests")
+	}
+	var req struct {
+		System []struct {
+			Text string `json:"text"`
+		} `json:"system"`
+	}
+	if err := json.Unmarshal(bodies[0], &req); err != nil {
+		t.Fatalf("request unmarshal: %v", err)
+	}
+	if len(req.System) != 1 {
+		t.Fatalf("system blocks = %d, want 1 on an unbound conversation", len(req.System))
+	}
+}
+
+// The block is read per TURN, not per conversation: an edit that lands
+// between two turns — another device, a co-planner, the trip page itself —
+// must show up in the very next turn's context. This is the property the
+// whole feature exists for; a future optimization that caches the block
+// per conversation would silently reintroduce the stale-itinerary bug.
+func TestPlanTripStateBlockIsFreshEachTurn(t *testing.T) {
+	resetDB(t)
+	fake := newFakeAnthropic(t,
+		textTurn("Looks like a lovely trip."),
+		textTurn("Still lovely."))
+
+	user, token := createTestUser(t, "fresh-context@example.com")
+	trip := createTestTrip(t, user.ID, 1)
+
+	rec := doJSON(t, "POST", "/api/v1/plan", token, PlanRequest{
+		TripID:   trip.ID.String(),
+		Messages: []PlanChatMessage{{Role: "user", Content: "thoughts?"}},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first /plan = %d, want 200", rec.Code)
+	}
+
+	// The trip changes between turns — rename it and add a place, as another
+	// session or co-planner would.
+	if _, err := dbPool.Exec(context.Background(),
+		`UPDATE trips SET title = 'Renamed Trip' WHERE id = $1`, trip.ID); err != nil {
+		t.Fatalf("rename trip: %v", err)
+	}
+	if _, err := store.New(dbPool).CreateItineraryItem(context.Background(), store.CreateItineraryItemParams{
+		TripID: trip.ID, Position: 9, Name: "Prague Castle", Latitude: 50.09, Longitude: 14.4,
+	}); err != nil {
+		t.Fatalf("add place: %v", err)
+	}
+
+	rec = doJSON(t, "POST", "/api/v1/plan", token, PlanRequest{
+		TripID: trip.ID.String(),
+		Messages: []PlanChatMessage{
+			{Role: "user", Content: "thoughts?"},
+			{Role: "assistant", Content: "Looks like a lovely trip."},
+			{Role: "user", Content: "and now?"},
+		},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("second /plan = %d, want 200", rec.Code)
+	}
+
+	bodies := fake.requestBodies()
+	if len(bodies) < 2 {
+		t.Fatalf("fake anthropic saw %d requests, want 2", len(bodies))
+	}
+	var req struct {
+		System []struct {
+			Text string `json:"text"`
+		} `json:"system"`
+	}
+	if err := json.Unmarshal(bodies[len(bodies)-1], &req); err != nil {
+		t.Fatalf("request unmarshal: %v", err)
+	}
+	if len(req.System) != 2 {
+		t.Fatalf("system blocks = %d, want 2", len(req.System))
+	}
+	block := req.System[1].Text
+	for _, want := range []string{"Renamed Trip", "Prague Castle"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("second turn's trip state block missing %q — block is stale:\n%s", want, block)
+		}
+	}
 }

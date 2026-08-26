@@ -412,9 +412,11 @@ func TestTranscriptFieldsParityAcrossTables(t *testing.T) {
 }
 
 // (k) The freshness contract: a bound session is told its own earlier messages
-// may be stale and to re-read the trip before writing. Without this a resumed
+// may be stale and to build writes from the CURRENT TRIP STATE block that is
+// injected fresh each turn (the block itself is pinned by
+// TestPlanBoundTurnCarriesCurrentTripState). Without this a resumed
 // conversation reverts edits made since — including a co-planner's.
-func TestBoundPromptSteersToGetTrip(t *testing.T) {
+func TestBoundPromptSteersToCurrentTripState(t *testing.T) {
 	resetDB(t)
 	user, token := createTestUser(t, "fresh@example.com")
 	trip := createTestTrip(t, user.ID, 2)
@@ -436,7 +438,8 @@ func TestBoundPromptSteersToGetTrip(t *testing.T) {
 	for _, want := range []string{
 		"may be resumed days later",
 		"AS IT WAS",
-		"call get_trip",
+		"CURRENT TRIP STATE block",
+		"never from an earlier message",
 		// #434's scope guard, pinned here after #442's integration restored it
 		// by hand: a cross-section reorder must be scope 'trip'. A rewrite
 		// replaces its section IN PLACE, so mixing another section's places
