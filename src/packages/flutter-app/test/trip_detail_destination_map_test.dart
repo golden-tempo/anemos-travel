@@ -104,11 +104,19 @@ void main() {
     );
     expect(tooltip.message, startsWith('Rome'));
 
-    // Focusing Paris: per-item stop pins return, inside the clusterer.
+    // Focusing Paris: per-item stop pins return, inside the clusterer —
+    // wearing category glyphs, never ordinals (visit-order numbers are the
+    // All view's alone).
     await tapChip(tester, 'Paris');
     expect(find.byType(MarkerClusterLayerWidget), findsOneWidget);
-    expect(inMap('1'), findsOneWidget);
-    expect(inMap('2'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(FlutterMap),
+        matching: find.byIcon(Icons.attractions),
+      ),
+      findsNWidgets(2),
+    );
+    expect(inMap('1'), findsNothing);
 
     // The reset restores the overview.
     await tapMapReset(tester);
