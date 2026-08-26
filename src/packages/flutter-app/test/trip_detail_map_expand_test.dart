@@ -174,20 +174,58 @@ void main() {
     expect(inlineMap.items.map((i) => i.name), ['Colosseum']);
   });
 
-  testWidgets('wide: map keeps the pinned interactive treatment',
+  testWidgets(
+      'wide: the inline map is fully interactive and scrolls away with the '
+      'page (map-row redesign — nothing above the tab row pins)',
       (WidgetTester tester) async {
     await pumpScreen(tester, surface: const Size(1200, 800));
 
     // Interactive inline: zoom controls present, plus the fullscreen control
-    // in the map's own strip (the full-screen map used to be unreachable at
-    // wide widths).
+    // in the map's own strip — the wide map is NOT the phone's
+    // pointer-absorbing tap-to-expand preview, even though it now scrolls
+    // like one.
     expect(inMap(find.byIcon(Icons.add)), findsOneWidget);
     expect(inMap(find.byIcon(Icons.fullscreen)), findsOneWidget);
 
-    // Pinned: scrolling the page leaves the map in the viewport.
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, -400));
-    await tester.pump();
-    expect(find.byType(TripMap), findsOneWidget);
+    // Unpinned: a page scroll carries the map up and off. Driven through
+    // the position, not a drag — a drag STARTING ON an interactive map pans
+    // the map, and this fixture's row leaves little drag room beside it.
+    final mapTopBefore = tester.getTopLeft(find.byType(TripMap)).dy;
+    final position = pagePosition(tester);
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    final mapAfter = find.byType(TripMap);
+    if (mapAfter.evaluate().isEmpty) {
+      // Scrolled fully out and unmounted — the strongest form of "not
+      // pinned".
+    } else {
+      expect(tester.getTopLeft(mapAfter).dy, lessThan(mapTopBefore),
+          reason: 'the map must move with the page, not hold a pinned slot');
+    }
+    // The tab row is the chrome that stays: its view tabs are still up.
+    expect(find.text('Itinerary'), findsOneWidget);
+  });
+
+  testWidgets(
+      'wide: a leg picked in the full-screen map pre-scrolls the list '
+      'behind the modal (the phone report-back, now at every width)',
+      (WidgetTester tester) async {
+    await pumpScreen(tester, surface: const Size(1200, 800));
+
+    await tester.tap(inMap(find.byIcon(Icons.fullscreen)));
+    await tester.pumpAndSettle();
+    expect(find.byType(TripMapScreen), findsOneWidget);
+
+    await tapChip(tester, 'Rome');
+    await tester.tap(find.byType(CloseButton));
+    await tester.pumpAndSettle();
+
+    // With the band scrolled away rather than pinned, the modal's chip tap
+    // needs the pre-scroll exactly as phones do: closing must land the
+    // list on Rome, not back at the top of the page.
+    expect(find.byType(TripMapScreen), findsNothing);
+    expect(pagePosition(tester).pixels, greaterThan(0),
+        reason: 'the report-back must pre-scroll the wide list too');
   });
 
   testWidgets(
@@ -208,19 +246,28 @@ void main() {
     await tester.tap(find.byType(CloseButton));
     await tester.pumpAndSettle();
 
-    // Back on the trip screen, the inline chips kept the focus AND the
-    // report-back pre-scrolled Rome's header into place behind the modal
-    // (expansion is decoupled from focus: no group collapses, the
-    // selection just lands in view on close).
+    // Back on the trip screen, the focus survived the round trip. The
+    // report-back pre-scrolled the page to Rome behind the modal (pinned
+    // by the pre-scroll test above), which carries the in-flow map row out
+    // of the viewport — the phone situation exactly — so scroll back up to
+    // read the inline chips, as the phone tests do.
     expect(find.byType(TripMapScreen), findsNothing);
+    pagePosition(tester).jumpTo(0);
+    await tester.pumpAndSettle();
     final inlineChips = tester.widget<MapLegChips>(find.byType(MapLegChips));
     expect(inlineChips.selected, 'Rome');
-    expect(find.text('Colosseum'), findsOneWidget);
+    final inlineMap = tester.widget<TripMap>(find.byType(TripMap));
+    expect(inlineMap.items.map((i) => i.name), ['Colosseum'],
+        reason: 'the inline card must come back up already leg-filtered');
   });
 
   testWidgets('wide: the full-screen map reset resets the map only',
       (WidgetTester tester) async {
-    await pumpScreen(tester, surface: const Size(1200, 800));
+    // Tall enough that the whole fixture fits: the reset itself never
+    // scrolls, and keeping every tile built lets the list-untouched assert
+    // read Rome's row directly (with the band in page flow, an 800px
+    // surface leaves Rome's tiles unbuilt below the fold).
+    await pumpScreen(tester, surface: const Size(1200, 1600));
 
     await tester.tap(inMap(find.byIcon(Icons.fullscreen)));
     await tester.pumpAndSettle();
@@ -232,6 +279,11 @@ void main() {
     await tester.tap(find.byType(CloseButton));
     await tester.pumpAndSettle();
 
+    // The chip tap's pre-scroll behind the modal may have moved the page
+    // (whatever extent this surface leaves) — return to the top before
+    // reading the inline card, the phone tests' own pattern.
+    pagePosition(tester).jumpTo(0);
+    await tester.pumpAndSettle();
     final inlineChips = tester.widget<MapLegChips>(find.byType(MapLegChips));
     expect(inlineChips.selected, isNull);
     final inlineMap = tester.widget<TripMap>(find.byType(TripMap));

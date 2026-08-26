@@ -1,9 +1,9 @@
 // The trip detail map band (specs/trip-detail-extract): the rounded map
-// card shared by the wide pinned header and the phone scroll-away preview,
-// plus the sliver slot that hosts them. Verbatim lift out of
-// trip_detail_screen.dart so wave 2 can redesign band height and the
-// band↔tab-bar seam without the god-screen. Zero visual, zero behavior
-// change: every screen interaction arrives as a constructor callback.
+// card shared by both layouts, plus the layout shells that host it — the
+// phone scroll-away sliver slot and the wide side-by-side map row
+// ([TripDetailMapRow], map-row redesign 2026-08-26). The band's heights and
+// row proportions live HERE; every screen interaction arrives as a
+// constructor callback.
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -17,89 +17,103 @@ import '../app_map.dart';
 import '../map_leg_chips.dart';
 import '../trip_map.dart';
 
-/// Height of the map card on the wide pinned layout (the phone layout's
-/// preview is [mapBandHeightNarrow] and scrolls away instead).
-///
-/// 280, down from 340 (wave 2, header/shell lane): this band does not scroll
-/// away — it and the tab row below it are PERMANENT chrome, so every pixel
-/// here is a pixel the itinerary never gets back. At 340 the pinned stack came
-/// to 420px and a 1000px window opened on the header, the map, the tab row and
-/// exactly one city heading, with the first day below the fold on the page
-/// whose job is the days. 280 keeps the card comfortably cinematic at the
-/// 900px content cap (~3.2:1) and leaves the map lane's own composition
-/// untouched — its chip strip insets 8 from the top and its control cluster 8
-/// from the bottom, so both still clear each other by a wide margin.
-const double _mapCardHeight = 280;
-
-/// The gap the pinned band keeps ABOVE the map card, and the one it keeps
-/// BELOW it — the band↔tab-bar seam.
-///
-/// Deliberately unequal, and that is the whole fix (wave 3). Pinned, this band
-/// sits inside a block bounded by two hairlines: the app bar's above and the
-/// tab row's below (#503 moved the selected tab's underline onto that lower
-/// rule so the tabs read as the head of the list). With 12 above and 12 below
-/// the map card read as *centred between* those two rules rather than as
-/// belonging to either, and the seam the tab row needs was indistinguishable
-/// from the sliver of scaffold under the app bar — most obviously in dark,
-/// where a bright satellite card is letterboxed by two identical strips of
-/// near-black.
-///
-/// Unequal says which way the card leans: the map hangs off the top chrome it
-/// pins with, and the larger gap below is the seam before the tab row and the
-/// list it heads. The pair still totals the same 24, so this costs the
-/// itinerary nothing and leaves #503's 420→304 argument exactly where it was.
-///
-/// The gap above is the PINNED figure only. On phones the band is not chrome —
-/// it is a card in the page flow under the header's own [AppSpacing.lg] — so
-/// that branch keeps [AppSpacing.md] above and takes only the seam below.
-const double _pinnedTopGap = AppSpacing.sm;
+/// The seam the phone band keeps below the map card, before the tab row.
 const double _seamGap = AppSpacing.lg;
 
-/// Wide pinned-header extent: top gap + map + seam. Derived from the three
-/// figures the padding below is built from, never restated, so the delegate's
-/// height and its child's insets cannot drift apart.
-const double mapBandHeaderHeight = _pinnedTopGap + _mapCardHeight + _seamGap;
+/// Minimum height of the wide layout's map card inside [TripDetailMapRow].
+///
+/// 300, up from the pinned band's 280 — and a minimum now, not an extent.
+/// The band stopped being permanent chrome (map-row redesign): it scrolls
+/// with the page, so extra height costs one scroll-through instead of a
+/// slice of every viewport, and wave 2's 340→280 argument no longer binds.
+/// At ~55% of the 900px content cap the card runs ≈1.55:1 — the approved
+/// wireframe's ≈1.6:1, the shape that fits the taller-than-wide Mercator
+/// footprint of a regional route without the old band's flanks of empty
+/// ocean. The right card column can stretch the row past this via
+/// [TripDetailMapRow]'s IntrinsicHeight, never below it.
+const double mapRowMinHeight = 300;
 
-/// Map card height on phones, where the map scrolls away instead of
-/// pinning (a preview — the full-screen map is one tap away).
+/// Map card height on phones, where the map is a scroll-away preview (the
+/// full-screen map is one tap away).
 const double mapBandHeightNarrow = 180;
 
-/// The band's sliver slot, shared by both layouts: pinned under the top
-/// chrome on wide, a fixed-height scroll-away preview on phones. The pinned
-/// branch's delegate stays the screen's own (it also pins the tab row), so
-/// it arrives as [pinnedDelegateBuilder]; the band's heights live HERE.
+/// The phone layout's band slot: a fixed-height scroll-away preview card in
+/// the page flow. Wide layouts render the map inside the header block's
+/// [TripDetailMapRow] instead — since the map-row redesign nothing above the
+/// tab row pins on any width.
 Widget tripDetailMapBandSliver({
-  required bool pinned,
   required double gutter,
-  required Color backgroundColor,
-  required Widget Function(bool expandable) cardBuilder,
-  required SliverPersistentHeaderDelegate Function({
-    required double height,
-    required Color backgroundColor,
-    required EdgeInsetsGeometry padding,
-    required Widget child,
-  }) pinnedDelegateBuilder,
+  required Widget child,
 }) {
-  if (pinned) {
-    return SliverPersistentHeader(
-      pinned: true,
-      delegate: pinnedDelegateBuilder(
-        height: mapBandHeaderHeight,
-        backgroundColor: backgroundColor,
-        padding: EdgeInsets.fromLTRB(gutter, _pinnedTopGap, gutter, _seamGap),
-        child: cardBuilder(false),
+  return SliverToBoxAdapter(
+    child: Padding(
+      // The header's own AppSpacing.lg already sits above this card, so the
+      // top gap stays md; the seam below introduces the same tab row the
+      // wide layout's row runs into.
+      padding: EdgeInsets.fromLTRB(gutter, AppSpacing.md, gutter, _seamGap),
+      child: SizedBox(height: mapBandHeightNarrow, child: child),
+    ),
+  );
+}
+
+/// The wide layout's side-by-side map row: map card left at flex 6:5 (~55%,
+/// the approved wireframe's 1.2:1), the given [cards] stacked in the right
+/// column and stretched so the column matches the map's height. With no
+/// cards (read-only trip, no saved conversation) the map spans the full
+/// content width at [mapRowMinHeight].
+///
+/// IntrinsicHeight is what makes the stretch safe: the row's height is the
+/// LARGER of [mapRowMinHeight] and the card column's own need, so a long
+/// Spanish title or a two-line preview grows the row instead of overflowing
+/// a fixed box. One extra intrinsics pass over one row — the map side
+/// reports a constant (its Stack children are all positioned), so the cost
+/// is the cards' text measurement only.
+class TripDetailMapRow extends StatelessWidget {
+  final Widget map;
+  final List<Widget> cards;
+
+  const TripDetailMapRow({
+    super.key,
+    required this.map,
+    required this.cards,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (cards.isEmpty) {
+      return SizedBox(height: mapRowMinHeight, child: map);
+    }
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            flex: 6,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: mapRowMinHeight),
+              child: map,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            flex: 5,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Equal flex per card (the wireframe's split): each gets the
+                // tallest card's share, so the pair reads as one block. The
+                // sm gap is the stacked layout's own next↔chat rhythm.
+                for (var i = 0; i < cards.length; i++) ...[
+                  if (i > 0) const SizedBox(height: AppSpacing.sm),
+                  Expanded(child: cards[i]),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
-  return SliverToBoxAdapter(
-    child: Padding(
-      // Phone: the header's own AppSpacing.lg already sits above this card, so
-      // the top gap stays md; the seam below is the same one the pinned layout
-      // draws, because the tab row it introduces is the same tab row.
-      padding: EdgeInsets.fromLTRB(gutter, AppSpacing.md, gutter, _seamGap),
-      child: SizedBox(height: mapBandHeightNarrow, child: cardBuilder(true)),
-    ),
-  );
 }
 
 /// The rounded map card itself. When [TripDetailMapBand.expandable], the map
@@ -336,12 +350,14 @@ class TripDetailMapBand extends StatelessWidget {
         );
       },
     );
-    // Repaint-isolate the card: on the wide layout it sits pinned over the
-    // scrolling itinerary, and without a boundary its picture (card chrome +
-    // chip strip — flutter_map keeps its own internal boundary) is
-    // re-recorded every scroll frame. The boundary also keeps tap-time card
-    // rebuilds from dirtying the page layer. Inside the method so both call
-    // sites (pinned wide band, scroll-away phone card) are covered.
+    // Repaint-isolate the card: chip taps, pin selections and camera moves
+    // rebuild and repaint this subtree (card chrome + chip strip —
+    // flutter_map keeps its own internal boundary), and without a boundary
+    // each would dirty the whole page layer. The card scrolls with the page
+    // on every width now (the map-row redesign unpinned the wide band), so
+    // the old every-scroll-frame re-record is gone — the boundary stays for
+    // the tap-time isolation. Inside the method so both call sites (wide
+    // map row, scroll-away phone card) are covered.
     return RepaintBoundary(child: card);
   }
 }

@@ -26,6 +26,14 @@ class NextStepCard extends StatelessWidget {
   /// width.
   final bool compact;
 
+  /// Column layouts (the wide map row's right column): the action buttons
+  /// wrap below the text instead of trailing it — at ~45% of the content
+  /// width the trailing pair would starve the title — and the card's outer
+  /// top margin is dropped, because the hosting column owns the spacing
+  /// between its stretched slots. Orthogonal to [compact]: the wide column
+  /// keeps the detail line and the Trip-health entry.
+  final bool stacked;
+
   /// Offline: the card stays visible but its actions are disabled — same
   /// treatment as the header Refine chip.
   final bool enabled;
@@ -60,6 +68,7 @@ class NextStepCard extends StatelessWidget {
     required this.step,
     this.progress,
     this.compact = false,
+    this.stacked = false,
     this.enabled = true,
     this.onPrimary,
     this.onViewAll,
@@ -186,9 +195,24 @@ class NextStepCard extends StatelessWidget {
     }
 
     final detail = s.detail;
+    // Named for where it goes. Beside a step counter, "View all" promised
+    // the steps and delivered the findings list; the sheet's own title says
+    // what this really opens.
+    final viewAllButton = (!compact && onViewAll != null)
+        ? TextButton(
+            key: const ValueKey('next-step-view-all'),
+            onPressed: enabled ? onViewAll : null,
+            child: Text(l10n.reviewSectionTitle),
+          )
+        : null;
+    final primaryButton = FilledButton.tonal(
+      key: const ValueKey('next-step-primary'),
+      onPressed: enabled ? onPrimary : null,
+      child: Text(_actionLabel(l10n)),
+    );
     return Container(
       key: const ValueKey('next-step-card'),
-      margin: const EdgeInsets.only(top: AppSpacing.md),
+      margin: stacked ? null : const EdgeInsets.only(top: AppSpacing.md),
       decoration: BoxDecoration(
         color: tintFill,
         borderRadius: AppRadius.mdAll,
@@ -208,6 +232,11 @@ class NextStepCard extends StatelessWidget {
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  // min, so a stretched slot (the map row's column) centers
+                  // the text block beside the icon instead of expanding it
+                  // to the slot's full height; in the unbounded stacked
+                  // header flow this was already the laid-out size.
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     eyebrowLine,
                     const SizedBox(height: 2),
@@ -231,26 +260,32 @@ class NextStepCard extends StatelessWidget {
                         ),
                       ),
                     ],
+                    if (stacked) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      // A Wrap, not a Row: the pair usually shares a line at
+                      // column width, but a long Spanish label pair drops the
+                      // primary to its own line instead of overflowing.
+                      Wrap(
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.xs,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (viewAllButton != null) viewAllButton,
+                          primaryButton,
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(width: AppSpacing.md),
-              if (!compact && onViewAll != null) ...[
-                TextButton(
-                  key: const ValueKey('next-step-view-all'),
-                  onPressed: enabled ? onViewAll : null,
-                  // Named for where it goes. Beside a step counter, "View all"
-                  // promised the steps and delivered the findings list; the
-                  // sheet's own title says what this really opens.
-                  child: Text(l10n.reviewSectionTitle),
-                ),
-                const SizedBox(width: AppSpacing.sm),
+              if (!stacked) ...[
+                const SizedBox(width: AppSpacing.md),
+                if (viewAllButton != null) ...[
+                  viewAllButton,
+                  const SizedBox(width: AppSpacing.sm),
+                ],
+                primaryButton,
               ],
-              FilledButton.tonal(
-                key: const ValueKey('next-step-primary'),
-                onPressed: enabled ? onPrimary : null,
-                child: Text(_actionLabel(l10n)),
-              ),
             ],
           ),
         ),
@@ -263,7 +298,7 @@ class NextStepCard extends StatelessWidget {
     final detail = s.detail;
     return Container(
       key: const ValueKey('next-step-all-set'),
-      margin: const EdgeInsets.only(top: AppSpacing.md),
+      margin: stacked ? null : const EdgeInsets.only(top: AppSpacing.md),
       padding: const EdgeInsets.fromLTRB(
           AppSpacing.lg, AppSpacing.md, AppSpacing.sm, AppSpacing.md),
       decoration: BoxDecoration(
@@ -278,6 +313,8 @@ class NextStepCard extends StatelessWidget {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              // min for the same stretched-slot centering as _buildStep's.
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   s.title,

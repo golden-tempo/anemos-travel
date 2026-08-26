@@ -9,7 +9,6 @@ import 'package:travel_route_planner/services/api_client.dart';
 import 'package:travel_route_planner/services/trips_api_service.dart';
 import 'package:travel_route_planner/providers/trips_provider.dart';
 import 'package:travel_route_planner/screens/trip_detail_screen.dart';
-import 'package:travel_route_planner/widgets/trip_detail/map_band.dart';
 import 'package:travel_route_planner/widgets/trip_map.dart';
 
 import 'support/city_groups.dart';
@@ -23,7 +22,8 @@ import 'support/l10n_test_app.dart';
 //   * while scrolling, exactly ONE city header obstructs at a time: each
 //     group's containing MultiSliver pushes its own header off at the
 //     group's end, so consecutive headers hand off edge-to-edge and the
-//     pinned slot ([_pinnedSlot]: the map band plus the tab row) never
+//     pinned slot ([_pinnedSlot]: the tab row — the only pinned chrome
+//     since the map-row redesign scrolled the band away) never
 //     accumulates obstruction as more groups pin and unpin;
 //   * header taps are pure list toggles — the map-side assertions live in
 //     trip_detail_leg_focus_test.dart; here they only pin down that N
@@ -130,7 +130,7 @@ double _headerTop(WidgetTester tester, String city) =>
 
 /// The scroll offset that rests [city]'s header in the pinned slot —
 /// getOffsetToReveal at alignment 0, which already subtracts the pinned
-/// map band + tab row (maxScrollObstructionExtentBefore). City headers are
+/// tab row (maxScrollObstructionExtentBefore). City headers are
 /// SliverPinnedHeader children, always built, so this works at any offset;
 /// accuracy depends on how much of the intervening item batches is built.
 double _reveal(WidgetTester tester, String city) {
@@ -152,24 +152,23 @@ double _viewportTop(WidgetTester tester) =>
     tester.getBottomLeft(find.byType(AppBar)).dy;
 
 /// The screen's own pinned tab-row extent (`_listHeaderHeight`, private to
-/// the screen). Restated, not derived — but paired with [mapBandHeaderHeight]
-/// below so the half of this sum that DOES move with a redesign is read from
-/// its source. It was a bare `420` until the wave-2 header lane retuned the
-/// band, which failed these two tests by exactly the 60px it removed.
+/// the screen). The `mapBandHeaderHeight` term this was once paired with is
+/// gone WITH the constant: since the map-row redesign the band scrolls away
+/// with the page at every width and only the tab row still pins.
 const double _tabRowHeight = 56;
 
-/// Where a pinned city header comes to rest: below the map band and the tab
-/// row, in viewport coordinates.
+/// Where a pinned city header comes to rest: below the tab row, in viewport
+/// coordinates.
 double _pinnedSlot(WidgetTester tester) =>
-    _viewportTop(tester) + mapBandHeaderHeight + _tabRowHeight;
+    _viewportTop(tester) + _tabRowHeight;
 
 void main() {
   testWidgets('exactly one city header pins; the next city pushes it off',
       (tester) async {
-    // Tall surface: the pinned map band pushes deep-group geometry
-    // below an 800px fold. Berlin's six days keep enough trailing extent
-    // (item tiles are ~58px) that a mid-group-3 offset stays reachable on
-    // the ~1724px content viewport.
+    // Tall surface: the header block and its in-flow map row push
+    // deep-group geometry below an 800px fold. Berlin's six days keep
+    // enough trailing extent (item tiles are ~58px) that a mid-group-3
+    // offset stays reachable on the tall content viewport.
     _useSurface(tester, const Size(1200, 2200));
     await _pump(tester, _trip(perDay: 6, berlinDays: 6));
 
@@ -186,7 +185,7 @@ void main() {
 
     final slotDy = _headerTop(tester, 'Rome');
     expect((slotDy - slot).abs(), lessThanOrEqualTo(2),
-        reason: 'Rome header should pin below map band + tab row');
+        reason: 'Rome header should pin below the tab row');
     // Paris — the previous group's header — has been pushed fully off the
     // slot (its own MultiSliver's end carried it up), not stacked above it.
     expect(_headerTop(tester, 'Paris'), lessThanOrEqualTo(slotDy - headerH + 2),
@@ -290,6 +289,19 @@ void main() {
     await _pump(tester, _trip(perDay: 6, berlinDays: 6));
     final position = _position(tester);
 
+    // Capture the region-pin callback WHILE the inline map is mounted: the
+    // band scrolls with the page now (map-row redesign), so at the bottom
+    // the card is unbuilt and there is no pin to tap. The scroll math this
+    // probe guards (_revealCityHeader → estimated-offset animate + one
+    // correction) is offset-independent and shared with the Today jump, so
+    // invoking the captured callback from the bottom keeps the
+    // estimation-regime coverage without inventing a surface that no
+    // longer exists there.
+    final map = _map(tester);
+    expect(map.onDestinationTap, isNotNull,
+        reason: 'the desktop inline card wires destination-pin navigation');
+    final destinationTap = map.onDestinationTap!;
+
     // Park at the very bottom. Twice: the first jump can shift
     // maxScrollExtent as SliverList estimates correct against built
     // children; the second lands on the settled value.
@@ -306,13 +318,9 @@ void main() {
         reason: 'premise: city-1 items must be unbuilt for the probe to '
             'exercise offset estimation');
 
-    // Region-pin tap for city 1 on the inline All-overview map, invoked
-    // directly (the robust pattern at the screen level). No settle: the
+    // Region-pin tap for city 1, via the captured callback. No settle: the
     // whole point is to watch the motion.
-    final map = _map(tester);
-    expect(map.onDestinationTap, isNotNull,
-        reason: 'the desktop inline card wires destination-pin navigation');
-    map.onDestinationTap!('Paris');
+    destinationTap('Paris');
 
     // Sample the scroll frame by frame across the 350ms animation plus the
     // one-jump correction pass.
@@ -339,9 +347,13 @@ void main() {
     // And it lands exactly: city 1's header rests in the pinned slot.
     final slot = _pinnedSlot(tester);
     expect((_headerTop(tester, 'Paris') - slot).abs(), lessThanOrEqualTo(2),
-        reason: 'Paris header should rest below map band + tab row');
+        reason: 'Paris header should rest below the tab row');
     // The navigation was list-only: no focus write, camera untouched, the
-    // destination pins still render.
+    // destination pins still render. Read back at the top — the landed
+    // offset can leave the in-flow map row unbuilt, and focus state lives
+    // in notifiers, so it survives the card's unmount either way.
+    position.jumpTo(0);
+    await tester.pumpAndSettle();
     expect(_map(tester).fitSignature, isNull,
         reason: 'a destination-pin tap must not write map focus');
     expect(_map(tester).destinations, isNotNull,
