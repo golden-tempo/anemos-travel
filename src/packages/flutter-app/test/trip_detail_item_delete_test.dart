@@ -269,6 +269,47 @@ void main() {
     expect(orsayTop, lessThan(louvreTop));
   });
 
+  testWidgets(
+      'saving the reorder-section sheet updates in place — no full-screen reload',
+      (WidgetTester tester) async {
+    _useTallViewport(tester);
+    // Three items in one section: the "Reorder section" menu entry only
+    // renders for sections longer than two.
+    final fake = await _pump(
+      tester,
+      _tripWith([
+        _item(0, 'Louvre', 'attraction', day: 1, city: 'Paris'),
+        _item(1, 'Orsay', 'attraction', day: 1, city: 'Paris'),
+        _item(2, 'Pompidou', 'attraction', day: 1, city: 'Paris'),
+      ]),
+    );
+
+    await _tapMenuAction(tester, 'Louvre', 'Reorder section');
+    await tester.pumpAndSettle();
+    expect(find.text('Reorder places'), findsOneWidget);
+
+    fake.getTripGate = Completer<void>();
+    await tester.tap(find.text('Save order'));
+    await _pumpUntilReloadInFlight(tester, fake);
+    // Let the sheet's exit animation finish — the reload is still gated, so
+    // this is the frame a loud _load() would have spent on the spinner.
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+
+    // Mid-reload: the sheet is gone and the list stays on screen.
+    expect(find.text('Orsay'), findsOneWidget);
+
+    fake.getTripGate!.complete();
+    await tester.pumpAndSettle();
+    // Save submits the sheet's order through the same PUT /items/order path
+    // as Move up/down (unchanged here — the reload contract is the subject).
+    expect(fake.reorderCalls, [
+      ['i-Louvre', 'i-Orsay', 'i-Pompidou']
+    ]);
+    expect(find.text('Louvre'), findsOneWidget);
+    expect(find.text('Pompidou'), findsOneWidget);
+  });
+
   testWidgets('editing an item updates in place — no full-screen reload',
       (WidgetTester tester) async {
     _useTallViewport(tester);
