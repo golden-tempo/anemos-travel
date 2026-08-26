@@ -1954,10 +1954,13 @@ extension on _TripDetailScreenState {
       await ref
           .read(tripsApiServiceProvider)
           .reorderItineraryItems(trip.id, ids);
-      await _load();
+      // Silent, like the other item mutations: a within-section reorder must
+      // not swap the whole body for the full-screen spinner. The failure
+      // reload restores the server's order, also in place.
+      await _refresh();
     } catch (e) {
       _showSnack(l10n.tripReorderFailed(friendlyError(l10n, e)));
-      await _load();
+      await _refresh();
     }
   }
 
