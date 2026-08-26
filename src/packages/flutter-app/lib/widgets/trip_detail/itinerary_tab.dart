@@ -286,6 +286,14 @@ extension on _TripDetailScreenState {
           final md = _fmt(tripStart.add(Duration(days: day - 1))).substring(5);
           weatherChip = Consumer(
             builder: (context, ref, _) {
+              // _fanOutWatch's condition, restated because this watch needs
+              // .select (a resolving report repaints only this chip): defer
+              // the fetch-creating first watch past the first content
+              // frame, but read an already-alive report immediately.
+              if (!_postFirstFrame &&
+                  !ref.exists(weatherByCityProvider(weatherQuery))) {
+                return const SizedBox.shrink();
+              }
               final report = ref.watch(weatherByCityProvider(weatherQuery)
                   .select((a) => a.valueOrNull));
               final wd = report?.dayFor(md);
@@ -766,7 +774,10 @@ extension on _TripDetailScreenState {
     );
     return SliverToBoxAdapter(
       child: Consumer(builder: (context, ref, _) {
-        final async = ref.watch(eventsByCityProvider(query));
+        // Deferred first frame renders the loading branch below — visually
+        // identical to the cold watch it becomes one frame later.
+        final async = _fanOutWatch(ref, eventsByCityProvider(query)) ??
+            const AsyncLoading();
         return async.when(
           loading: () => Padding(
             padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),

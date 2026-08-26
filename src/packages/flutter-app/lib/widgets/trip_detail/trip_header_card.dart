@@ -27,6 +27,17 @@ class TripHeaderCard extends ConsumerStatefulWidget {
   final bool isOffline;
   final bool readOnly;
   final bool panelOpen;
+
+  /// Whether the Next Step card's trip-review watch may run this frame.
+  /// False only during the screen's deferred first content frame, and only
+  /// when no previous watch already created the provider — the screen
+  /// resolves both terms (see `_TripDetailScreenState._fanOutWatch`) so the
+  /// review fetch fires one frame after first paint on a cold visit and the
+  /// cached card still renders in the first frame on a warm one. While
+  /// false this area renders the same nothing it renders before the review
+  /// resolves.
+  final bool reviewLive;
+
   final String displayTitle;
 
   /// Attached to the title Text so the screen can measure where it sits and
@@ -51,6 +62,7 @@ class TripHeaderCard extends ConsumerStatefulWidget {
     required this.isOffline,
     required this.readOnly,
     required this.panelOpen,
+    required this.reviewLive,
     required this.displayTitle,
     this.titleKey,
     required this.overview,
@@ -269,6 +281,9 @@ class _TripHeaderCardState extends ConsumerState<TripHeaderCard> {
   Widget _nextStepArea() {
     final trip = widget.trip;
     if (widget.readOnly) return const SizedBox.shrink();
+    // Deferred first frame (see [TripHeaderCard.reviewLive]): don't create
+    // the review fetch yet — identical render to the unresolved watch.
+    if (!widget.reviewLive) return const SizedBox.shrink();
     return Consumer(
       builder: (context, ref, _) {
         final review =
