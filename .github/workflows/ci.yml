@@ -170,10 +170,14 @@ jobs:
       # this is the only web compile, so it runs with the PRODUCTION flags:
       # the old flagless build never exercised --base-href/APP_BASE_PATH,
       # which is the exact parity gap behind the #320 service-worker bug.
+      # --wasm mirrors the image build and keeps a dart2wasm-incompatible
+      # dependency from landing unnoticed; the dual compile makes this step
+      # a few minutes slower on PRs.
       - name: flutter build web (prod-parity compile check)
         if: github.event_name == 'pull_request'
         run: >
           flutter build web
+          --wasm
           --base-href /app/
           --dart-define=API_BASE_URL=/api/v1
           --dart-define=APP_BASE_PATH=/app/
