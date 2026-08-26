@@ -104,14 +104,22 @@ void main() {
     );
     expect(tooltip.message, 'Rome');
 
-    // Focusing a city: per-item pins return.
+    // Focusing a city: per-item pins return — category glyphs, not numbers
+    // (visit-order ordinals belong to the All view alone).
     await tester.tap(find.descendant(
       of: find.byType(MapLegChips),
       matching: find.text('Paris'),
     ));
     await tester.pumpAndSettle();
     expect(find.byType(MarkerClusterLayerWidget), findsOneWidget);
-    expect(inMap('1'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(FlutterMap),
+        matching: find.byIcon(Icons.attractions),
+      ),
+      findsOneWidget,
+    );
+    expect(inMap('1'), findsNothing);
   });
 
   testWidgets(

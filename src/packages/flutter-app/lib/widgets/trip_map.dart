@@ -9,6 +9,7 @@ import '../l10n/l10n.dart';
 import '../models/accommodation.dart';
 import '../models/itinerary_item.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_shadows.dart';
 import '../theme/spacing.dart';
 import '../utils/trip_format.dart';
@@ -105,9 +106,13 @@ class TripMapDestination {
   });
 }
 
-/// Plots a trip's itinerary on a satellite basemap: a numbered, category-tinted
-/// pin per place, a route line connecting them in itinerary order, auto-fit to
-/// the trip's extent. Tapping a pin calls [onPinTap] with that item's position.
+/// Plots a trip's itinerary on a satellite basemap: a category-tinted pin per
+/// place wearing the same category glyph as the itinerary rows (or a plain
+/// dot when the category has none), and a route line connecting each day's
+/// stops in itinerary order — a day boundary breaks the line, so a multi-day
+/// city renders one disconnected walk per day rather than cross-town
+/// spaghetti. Auto-fits to the trip's extent.
+/// Tapping a pin calls [onPinTap] with that item's position.
 /// When [selectedPosition] changes the camera recenters on that place.
 /// [accommodations] render as distinct stay markers (see [_StayPin]) that join
 /// the auto-fit bounds but stay out of the route line and numbering.
@@ -132,6 +137,9 @@ class TripMap extends StatefulWidget {
 
   /// Label text (e.g. "12 min") for the within-city leg leaving the item at the
   /// given position. Drawn at the midpoint of that segment. Empty => no labels.
+  /// A pair the route line doesn't connect (a day boundary) never shows its
+  /// label: the upstream keying is same-city, not same-day, so a cross-day
+  /// entry can exist here and must drop with its segment.
   final Map<int, String> segmentLabels;
 
   /// When this value changes (by `==`), the camera re-fits to the current
@@ -274,6 +282,14 @@ class _TripMapState extends State<TripMap> {
 
   static bool _hasCoords(ItineraryItem i) =>
       i.latitude != 0 || i.longitude != 0;
+
+  /// Whether the route may connect two adjacent mapped stops: same
+  /// [ItineraryItem.day], failing OPEN when either day is unset so undated
+  /// items keep the pre-day-aware behavior (one continuous walk). The ONE
+  /// predicate behind the polyline runs, the direction arrows, and the
+  /// travel-time labels, so a day boundary breaks all three at once.
+  static bool _dayConnects(ItineraryItem a, ItineraryItem b) =>
+      a.day == null || b.day == null || a.day == b.day;
 
   /// Destination (trip-overview) mode: at least two pinnable destinations
   /// supplied. 0/1 entries — a single-city trip, or every destination
@@ -479,9 +495,14 @@ class _TripMapState extends State<TripMap> {
   /// `widget.onPinTap` lazily, so a cached marker never captures stale
   /// state — the cache key is only (items identity, tappable-or-not).
   ///
-  /// Labels count 1..N over what this map view shows (the whole trip on All,
-  /// one day on Day N) — not the item's trip-wide position, which reads as
-  /// arbitrary once the view filters or skips ungeocoded items.
+  /// Pin faces are the itinerary rows' category glyphs (see [_Pin]), never
+  /// ordinals. The 1..N labels this used to draw dated from the map's day
+  /// views; once leg chips replaced day chips (the map city-focus work) a
+  /// focused leg shows a whole city across all days — a stop order the
+  /// product surfaces nowhere else — and clustering swallowed arbitrary
+  /// labels anyway, leaving gappy sequences beside count bubbles wearing the
+  /// same white-ringed circle. Cluster counts are now the only numbers in
+  /// this mode, so a count unambiguously reads "N places here".
   List<Marker> _clusterMarkers(
       List<({ItineraryItem item, LatLng point})> mapped) {
     final tappable = widget.onPinTap != null;
@@ -491,7 +512,7 @@ class _TripMapState extends State<TripMap> {
       return _markerCache!;
     }
     final markers = <Marker>[
-      for (final (k, m) in mapped.indexed)
+      for (final m in mapped)
         Marker(
           point: m.point,
           // Transparent 44px halo around the 24/28px dot, tap handling on
@@ -510,7 +531,6 @@ class _TripMapState extends State<TripMap> {
                   return SizedBox.square(
                     dimension: selected ? 28 : 24,
                     child: _Pin(
-                      label: '${k + 1}',
                       category: m.item.category,
                       selected: selected,
                     ),
@@ -585,6 +605,26 @@ class _TripMapState extends State<TripMap> {
     final routePoints = destMode
         ? [for (final d in widget.destinations!) d.point]
         : mapped.map((m) => m.point).toList();
+    // The polyline as runs: in item mode consecutive stops connect only when
+    // [_dayConnects] allows, so a day boundary starts a new disconnected
+    // walk (day 2 starts back across town — one line through all days is
+    // the crisscross spaghetti this replaces). Single-point runs draw
+    // nothing. Destination mode stays one run: city→city legs are the
+    // trip's shape, not a day's walk.
+    final routeRuns = <List<LatLng>>[];
+    if (destMode) {
+      routeRuns.add(routePoints);
+    } else {
+      var run = <LatLng>[];
+      for (var k = 0; k < mapped.length; k++) {
+        if (k > 0 && !_dayConnects(mapped[k - 1].item, mapped[k].item)) {
+          if (run.length >= 2) routeRuns.add(run);
+          run = <LatLng>[];
+        }
+        run.add(mapped[k].point);
+      }
+      if (run.length >= 2) routeRuns.add(run);
+    }
     final homes = _effectiveHomes(widget.home);
     // Camera framing covers stays and the journey endpoints too; the route
     // polyline sticks to [routePoints].
@@ -597,8 +637,9 @@ class _TripMapState extends State<TripMap> {
 
     // Journey-endpoint legs (outbound airport → first city, return last city →
     // airport). Kept out of [mapped]/[routePoints]: appending there would
-    // silently reindex the numbered pins and break segment-label adjacency,
-    // so the legs get their own dashed polylines and arrow markers below.
+    // splice the airports into the itinerary walk and break the index
+    // alignment the arrow/label loops rely on, so the legs get their own
+    // dashed polylines and arrow markers below.
     final homeSegments = <({LatLng a, LatLng b})>[
       for (final h in homes) ...[
         if (h.outboundTo != null) (a: h.point, b: h.outboundTo!),
@@ -617,16 +658,20 @@ class _TripMapState extends State<TripMap> {
         final a = mapped[k];
         final b = mapped[k + 1];
         if (b.item.position != a.item.position + 1) continue;
+        // segmentLabels are same-city keyed upstream, not same-day, so a
+        // cross-day entry can exist — it drops with its segment.
+        if (!_dayConnects(a.item, b.item)) continue;
         final label = widget.segmentLabels[a.item.position];
         if (label == null) continue;
         labelSegments.add((a: a.point, b: b.point, text: label));
       }
     }
 
-    // Direction arrows on every drawn segment (each consecutive pair of route
-    // points, matching the polyline). Placed at the midpoint, or further along
-    // when a travel-time label already occupies the midpoint. Placement stays
-    // static even though labels hide dynamically on short legs: on such a leg
+    // Direction arrows on every drawn segment (each consecutive pair the
+    // polyline connects — a day boundary drops the pair with its line).
+    // Placed at the midpoint, or further along when a travel-time label
+    // already occupies the midpoint. Placement stays static even though
+    // labels hide dynamically on short legs: on such a leg
     // (< _SegmentLabelLayer.minLegPx on screen) t=0.7 vs 0.5 differs by a few
     // px and the arrow tucks behind the pins anyway. In destination mode
     // [routePoints] and [mapped] no longer align, so the label lookup (an
@@ -636,6 +681,9 @@ class _TripMapState extends State<TripMap> {
       final a = routePoints[k];
       final b = routePoints[k + 1];
       if (a == b) continue;
+      if (!destMode && !_dayConnects(mapped[k].item, mapped[k + 1].item)) {
+        continue;
+      }
       final hasLabel = !destMode &&
           mapped[k + 1].item.position == mapped[k].item.position + 1 &&
           widget.segmentLabels[mapped[k].item.position] != null;
@@ -732,21 +780,24 @@ class _TripMapState extends State<TripMap> {
               options: options,
               children: [
                 ...appMapTileLayers(context),
-                if (routePoints.length >= 2)
+                if (routeRuns.isNotEmpty)
                   PolylineLayer(
                     polylines: [
                       // Two passes make a thin line with a soft glow that stays
-                      // legible over satellite imagery.
-                      Polyline(
-                        points: routePoints,
-                        strokeWidth: 6,
-                        color: Colors.white.withValues(alpha: 0.25),
-                      ),
-                      Polyline(
-                        points: routePoints,
-                        strokeWidth: 2,
-                        color: Colors.white.withValues(alpha: 0.95),
-                      ),
+                      // legible over satellite imagery — glows first so a run
+                      // crossing another never lays its halo over a line.
+                      for (final run in routeRuns)
+                        Polyline(
+                          points: run,
+                          strokeWidth: 6,
+                          color: Colors.white.withValues(alpha: 0.25),
+                        ),
+                      for (final run in routeRuns)
+                        Polyline(
+                          points: run,
+                          strokeWidth: 2,
+                          color: Colors.white.withValues(alpha: 0.95),
+                        ),
                     ],
                   ),
                 if (homeSegments.isNotEmpty)
@@ -779,7 +830,7 @@ class _TripMapState extends State<TripMap> {
                 if (labelSegments.isNotEmpty)
                   _SegmentLabelLayer(segments: labelSegments),
                 // The journey endpoints, like stays, sit outside the
-                // clusterer and beneath the numbered pins: they are fixed
+                // clusterer and beneath the itinerary pins: they are fixed
                 // endpoints, not itinerary stops. Two pins when the trip comes
                 // home into a different airport than it left from.
                 if (homes.isNotEmpty)
@@ -809,7 +860,7 @@ class _TripMapState extends State<TripMap> {
                 // Stays live in their own layer, outside the clusterer: a trip has
                 // few of them and "where am I sleeping" should never collapse into
                 // an anonymous count bubble with sightseeing pins. Drawn beneath
-                // the numbered pins so the primary interaction stays on top.
+                // the itinerary pins so the primary interaction stays on top.
                 if (stays.isNotEmpty)
                   MarkerLayer(
                     markers: [
@@ -967,7 +1018,7 @@ class _SegmentArrow extends StatelessWidget {
 
 /// Renders travel-time pills only for legs long enough on screen to have room
 /// for one — zoomed out, same-city stops converge and the midpoint pill would
-/// just sit behind the numbered pins. Rebuilds on every camera move/zoom
+/// just sit behind the pins. Rebuilds on every camera move/zoom
 /// because MapCamera.of registers an InheritedModel dependency.
 class _SegmentLabelLayer extends StatelessWidget {
   /// Minimum on-screen leg length (px) before its pill is drawn: pin radius
@@ -1062,8 +1113,15 @@ class _ClusterBubble extends StatelessWidget {
 
 /// The painted itinerary dot. Purely visual: tap handling lives on the
 /// marker-level GestureDetector so the whole [_pinHitBox] halo is tappable.
+///
+/// Two faces on one ring: a per-item pin (null [label]) wears its category
+/// glyph — the same [AppIcons.forCategory] vocabulary as the itinerary rows'
+/// spine markers, so pin and row read as the same place — or nothing (a
+/// plain tinted dot) when the category has no glyph. [_DestinationPin]
+/// passes a [label] for its 1..N visit-order face.
 class _Pin extends StatelessWidget {
-  final String label;
+  /// Ordinal text face; null renders the category-glyph face.
+  final String? label;
   final String? category;
   final bool selected;
 
@@ -1071,7 +1129,7 @@ class _Pin extends StatelessWidget {
   final Color? color;
 
   const _Pin({
-    required this.label,
+    this.label,
     required this.category,
     required this.selected,
     this.color,
@@ -1084,6 +1142,7 @@ class _Pin extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final color = _color(scheme);
+    final glyph = label == null ? AppIcons.forCategory(category) : null;
     return Container(
       // A permanent white ring keeps the small dots crisp over satellite
       // imagery; selection thickens the ring (and the dot itself grows).
@@ -1094,21 +1153,31 @@ class _Pin extends StatelessWidget {
         boxShadow: selected ? AppShadows.pinSelected : AppShadows.pin,
       ),
       alignment: Alignment.center,
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
+      child: label != null
+          ? Text(
+              label!,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            )
+          : glyph != null
+              // 14px like the stay/home glyphs — the size at which the
+              // sibling square markers already read over satellite imagery
+              // (and the largest whose box still inscribes the 24px dot's
+              // 20px interior).
+              ? Icon(glyph, size: 14, color: Colors.white)
+              : null,
     );
   }
 }
 
 /// A destination (city-leg) pin for the trip-overview mode: the same round
-/// numbered dot as itinerary pins, in one consistent color (category tinting
-/// is meaningless for a whole city). Destinations sit outside the
+/// white-ringed dot as itinerary pins but wearing its 1..N visit-order
+/// number — that ordering is real (it matches the leg chips) where a
+/// per-item stop ordinal was not — in one consistent color (category
+/// tinting is meaningless for a whole city). Destinations sit outside the
 /// position-based selection sync: with [onTap] wired the tap drives
 /// [TripMap.onDestinationTap] (the tooltip stays on hover/long-press);
 /// without it a tap shows a self-contained tooltip (city + dates) like

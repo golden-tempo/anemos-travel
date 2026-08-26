@@ -86,11 +86,7 @@ extension on _TripDetailScreenState {
   Widget _itemLeading(String? category, int position, ThemeData theme,
       {required bool selected}) {
     final scheme = theme.colorScheme;
-    final glyph = switch (category) {
-      'restaurant' => Icons.restaurant,
-      'attraction' => Icons.attractions,
-      _ => null,
-    };
+    final glyph = AppIcons.forCategory(category);
     final ink = selected ? scheme.onPrimary : scheme.onSurfaceVariant;
     return SizedBox(
       width: _spineMarker,
@@ -1965,10 +1961,13 @@ extension on _TripDetailScreenState {
       await ref
           .read(tripsApiServiceProvider)
           .reorderItineraryItems(trip.id, ids);
-      await _load();
+      // Silent, like the other item mutations: a within-section reorder must
+      // not swap the whole body for the full-screen spinner. The failure
+      // reload restores the server's order, also in place.
+      await _refresh();
     } catch (e) {
       _showSnack(l10n.tripReorderFailed(friendlyError(l10n, e)));
-      await _load();
+      await _refresh();
     }
   }
 
@@ -1990,10 +1989,13 @@ extension on _TripDetailScreenState {
       await ref
           .read(tripsApiServiceProvider)
           .reorderItineraryItems(trip.id, ids);
-      await _load();
+      // Silent, like the delete flow: a one-swap move must not swap the
+      // whole body for the full-screen spinner. The failure reload restores
+      // the server's order, also in place.
+      await _refresh();
     } catch (e) {
       _showSnack(l10n.tripReorderFailed(friendlyError(l10n, e)));
-      await _load();
+      await _refresh();
     }
   }
 
@@ -2011,7 +2013,12 @@ extension on _TripDetailScreenState {
       _showSnack(l10n.tripRemoveItemFailed(item.name, friendlyError(l10n, e)));
       return;
     }
-    await _load();
+    // _refresh(), not a bare _load(): the silent path keeps the screen
+    // mounted (a loud load would swap in the full-screen spinner for a
+    // one-item change), and it serializes with any reload the refine panel
+    // has in flight so a pre-delete snapshot can't land after us and
+    // momentarily resurrect the just-deleted item.
+    await _refresh();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -2045,7 +2052,11 @@ extension on _TripDetailScreenState {
     };
     try {
       await ref.read(tripsApiServiceProvider).addItineraryItem(tripId, body);
-      await _load();
+      // Armed like the add path: the restored item slots in at the end of
+      // its day and must be visible even if that section is folded.
+      // _refresh() keeps this an in-place update — no full-screen spinner.
+      _armRevealOfNewItems();
+      await _refresh();
     } catch (e) {
       _showSnack(l10n.tripRestoreItemFailed(item.name, friendlyError(l10n, e)));
     }
@@ -2067,7 +2078,9 @@ extension on _TripDetailScreenState {
       await ref
           .read(tripsApiServiceProvider)
           .updateItineraryItem(trip.id, item.id, changes);
-      await _load();
+      // Silent, like the delete flow: the edited row updates in place — no
+      // full-screen spinner.
+      await _refresh();
     } catch (e) {
       _showSnack(l10n.tripUpdateItemFailed(item.name, friendlyError(l10n, e)));
     }
