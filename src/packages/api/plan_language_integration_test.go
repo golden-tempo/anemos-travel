@@ -13,8 +13,11 @@ import (
 // the suite: English requests must produce a byte-for-byte unchanged system
 // prompt, and Spanish must add the instruction and nothing else.
 
-// systemPromptFrom pulls the single system block out of a captured
-// /v1/messages request body.
+// systemPromptFrom joins the system blocks of a captured /v1/messages request
+// body: block one is the instructions; a conversation bound to a saved trip
+// adds the per-turn CURRENT TRIP STATE block after it (the block count and
+// order are pinned by TestPlanBoundTurnCarriesCurrentTripState and
+// TestPlanUnboundTurnHasNoTripStateBlock).
 func systemPromptFrom(t *testing.T, body []byte) string {
 	t.Helper()
 	var req struct {
@@ -25,10 +28,14 @@ func systemPromptFrom(t *testing.T, body []byte) string {
 	if err := json.Unmarshal(body, &req); err != nil {
 		t.Fatalf("decode request body: %v", err)
 	}
-	if len(req.System) != 1 {
-		t.Fatalf("system blocks = %d, want 1", len(req.System))
+	if len(req.System) == 0 {
+		t.Fatal("request has no system blocks")
 	}
-	return req.System[0].Text
+	var parts []string
+	for _, b := range req.System {
+		parts = append(parts, b.Text)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // planWithLocale drives /plan with an explicit Accept-Language and returns the
