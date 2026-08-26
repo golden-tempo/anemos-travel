@@ -34,7 +34,13 @@ String _iso(DateTime d) => '${d.year.toString().padLeft(4, '0')}-'
     '${d.month.toString().padLeft(2, '0')}-'
     '${d.day.toString().padLeft(2, '0')}';
 
-String _rel(int days) => _iso(DateTime.now().add(Duration(days: days)));
+// Calendar-day arithmetic, never Duration: adding 24h days lands a
+// calendar day short in the midnight hour when the span crosses a DST
+// fall-back (the trips_list_header "34 days" flake of 2026-08-23).
+String _rel(int days) {
+  final now = DateTime.now();
+  return _iso(DateTime(now.year, now.month, now.day + days));
+}
 
 Trip _trip(String id, String title,
         {String? start, String? end, List<String>? cities, String? access}) =>
