@@ -11,14 +11,16 @@ import 'package:travel_route_planner/widgets/trip_map.dart';
 
 import 'support/l10n_test_app.dart';
 
-ItineraryItem _item(int pos, String name, double lat, double lng) =>
+ItineraryItem _item(int pos, String name, double lat, double lng,
+        {String? category = 'attraction', int? day}) =>
     ItineraryItem(
       id: 'i$pos',
       position: pos,
       name: name,
       latitude: lat,
       longitude: lng,
-      category: 'attraction',
+      category: category,
+      day: day,
     );
 
 /// Hosts the map at a fixed size (FlutterMap needs bounded constraints).
@@ -379,28 +381,132 @@ void main() {
     expect(dy, greaterThanOrEqualTo(48));
   });
 
-  testWidgets('pins number 1..N over the shown items, not trip-wide position', (
+  testWidgets('pins wear category glyphs, never ordinals', (
     WidgetTester tester,
   ) async {
-    // A day-filtered (or partially geocoded) view hands the map items whose
-    // positions start mid-trip; the labels must still read 1, 2 in route
-    // order rather than exposing positions 5, 6 as "6", "7".
+    // A leg focus hands the map a city's items whose positions start
+    // mid-trip and span days: no pin may surface a number (neither a 1..N
+    // view ordinal nor the trip-wide position — both reference orderings
+    // the product surfaces nowhere else). Faces are the itinerary rows'
+    // category glyphs; a category without one leaves a plain tinted dot.
     await tester.pumpWidget(
       _host(
         TripMap(
           items: [
             _item(5, 'Louvre', 48.8606, 2.3376),
-            _item(6, 'Café de Flore', 48.8540, 2.3326),
+            _item(6, 'Chez Janou', 48.8540, 2.3326, category: 'restaurant'),
+            _item(7, 'Pont Neuf', 48.8567, 2.3416, category: null),
           ],
+        ),
+      ),
+    );
+    // Let the cluster layer's split animation settle: mid-flight it renders
+    // transient count bubbles even for markers that end up unclustered.
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.attractions), findsOneWidget);
+    expect(find.byIcon(Icons.restaurant), findsOneWidget);
+
+    // The glyph rides the category tint (the row/pin pairing the itinerary
+    // list already speaks).
+    final restaurantDot = tester.widget<Container>(
+      find
+          .ancestor(
+            of: find.byIcon(Icons.restaurant),
+            matching: find.byType(Container),
+          )
+          .first,
+    );
+    expect(
+      (restaurantDot.decoration as BoxDecoration).color,
+      Colors.deepOrange,
+    );
+
+    // The category-less pin is a bare dot: a circle-decorated Container with
+    // no face at all.
+    final scheme = Theme.of(tester.element(find.byType(FlutterMap)))
+        .colorScheme;
+    expect(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Container &&
+            w.decoration is BoxDecoration &&
+            (w.decoration as BoxDecoration).shape == BoxShape.circle &&
+            (w.decoration as BoxDecoration).color == scheme.secondary &&
+            w.child == null,
+      ),
+      findsOneWidget,
+    );
+
+    // No ordinal text anywhere: the three pins sit beyond cluster range, so
+    // the only numbers this mode may show (cluster counts) are absent too.
+    expect(find.textContaining(RegExp(r'^\d+$')), findsNothing);
+  });
+
+  testWidgets('a day boundary splits the route into disconnected walks', (
+    WidgetTester tester,
+  ) async {
+    // Two days in one city, two stops each, roughly collinear so every
+    // within-day leg stays long on screen. One line through all four points
+    // (with an arrow on the cross-town day-2 hop back) is the crisscross
+    // this replaced.
+    final twoDay = [
+      _item(0, 'Louvre', 48.8606, 2.3376, day: 1),
+      _item(1, 'Café de Flore', 48.8540, 2.3326, day: 1),
+      _item(2, 'Panthéon', 48.8474, 2.3276, day: 2),
+      _item(3, 'Catacombes', 48.8408, 2.3226, day: 2),
+    ];
+    await tester.pumpWidget(_host(TripMap(items: twoDay)));
+    await tester.pump();
+
+    // One arrow per connected pair — none across the boundary.
+    expect(find.byIcon(Icons.navigation), findsNWidgets(2));
+
+    // The polyline layer draws two runs (each as glow + line), and no run
+    // bridges the last day-1 stop to the first day-2 stop.
+    final layer = tester.widget<PolylineLayer>(
+      find.byWidgetPredicate((w) => w is PolylineLayer),
+    );
+    final runs = layer.polylines.map((p) => p.points).toList();
+    expect(runs, hasLength(4)); // 2 runs × (glow + line)
+    for (final run in runs) {
+      expect(run, hasLength(2));
+    }
+    final day1End = LatLng(twoDay[1].latitude, twoDay[1].longitude);
+    final day2Start = LatLng(twoDay[2].latitude, twoDay[2].longitude);
+    for (final run in runs) {
+      expect(
+        run.contains(day1End) && run.contains(day2Start),
+        isFalse,
+        reason: 'no run may bridge the day boundary',
+      );
+    }
+  });
+
+  testWidgets('a travel-time label drops with its cross-day segment', (
+    WidgetTester tester,
+  ) async {
+    // segmentLabels are keyed same-city upstream, not same-day, so the
+    // derivation CAN hand the map a label for the pair a day boundary
+    // disconnects — it must drop with the segment while the within-day
+    // label survives.
+    final twoDay = [
+      _item(0, 'Louvre', 48.8606, 2.3376, day: 1),
+      _item(1, 'Café de Flore', 48.8540, 2.3326, day: 1),
+      _item(2, 'Panthéon', 48.8474, 2.3276, day: 2),
+    ];
+    await tester.pumpWidget(
+      _host(
+        TripMap(
+          items: twoDay,
+          segmentLabels: const {0: '12 min', 1: '9 min'},
         ),
       ),
     );
     await tester.pump();
 
-    expect(find.text('1'), findsOneWidget);
-    expect(find.text('2'), findsOneWidget);
-    expect(find.text('6'), findsNothing);
-    expect(find.text('7'), findsNothing);
+    expect(find.text('12 min'), findsOneWidget);
+    expect(find.text('9 min'), findsNothing);
   });
 
   group('home-airport overlay', () {
@@ -425,9 +531,8 @@ void main() {
       expect(find.byIcon(Icons.navigation), findsOneWidget);
     });
 
-    testWidgets('overlay adds the pin and two leg arrows, numbering intact', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('overlay adds the pin and two leg arrows, cluster count intact',
+        (WidgetTester tester) async {
       await tester.pumpWidget(_host(TripMap(items: items, home: [home])));
       await tester.pump();
       await tester.pump();
@@ -437,7 +542,7 @@ void main() {
       expect(find.byIcon(Icons.navigation), findsNWidgets(3));
       // At the whole-journey zoom the two Paris pins collapse into a cluster
       // bubble; its count proves the home point never joined [mapped] (a "3"
-      // here would mean the overlay leaked into the numbered pins).
+      // here would mean the overlay leaked into the clustered item pins).
       expect(find.text('2'), findsOneWidget);
       expect(find.text('3'), findsNothing);
 
@@ -735,7 +840,7 @@ void main() {
     final projected = _camera(
       tester,
     ).latLngToScreenOffset(const LatLng(48.8606, 2.3376));
-    final pinCenter = tester.getCenter(find.text('1'));
+    final pinCenter = tester.getCenter(find.byIcon(Icons.attractions));
     expect((pinCenter - (mapTopLeft + projected)).distance, lessThan(1.0));
   });
 
@@ -749,7 +854,9 @@ void main() {
     await tester.pump();
 
     // 18px below the dot center: outside the 24px dot, inside the 44px box.
-    await tester.tapAt(tester.getCenter(find.text('1')) + const Offset(0, 18));
+    await tester.tapAt(
+      tester.getCenter(find.byIcon(Icons.attractions)) + const Offset(0, 18),
+    );
     expect(tappedPos, 0);
   });
 
@@ -869,9 +976,17 @@ void main() {
       );
       await tester.pump();
 
+      // Per-item mode: the clusterer mounts and both fixture items render
+      // their glyph pins (no visit-order numbers — those are the ≥2 mode's).
       expect(find.byType(MarkerClusterLayerWidget), findsOneWidget);
-      expect(inMap('1'), findsOneWidget);
-      expect(inMap('2'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(FlutterMap),
+          matching: find.byIcon(Icons.attractions),
+        ),
+        findsNWidgets(2),
+      );
+      expect(inMap('1'), findsNothing);
     });
 
     testWidgets('destination mode renders with no mappable items (lens-proof)',

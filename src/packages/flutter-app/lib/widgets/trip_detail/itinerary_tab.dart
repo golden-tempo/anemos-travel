@@ -86,11 +86,7 @@ extension on _TripDetailScreenState {
   Widget _itemLeading(String? category, int position, ThemeData theme,
       {required bool selected}) {
     final scheme = theme.colorScheme;
-    final glyph = switch (category) {
-      'restaurant' => Icons.restaurant,
-      'attraction' => Icons.attractions,
-      _ => null,
-    };
+    final glyph = AppIcons.forCategory(category);
     final ink = selected ? scheme.onPrimary : scheme.onSurfaceVariant;
     return SizedBox(
       width: _spineMarker,
