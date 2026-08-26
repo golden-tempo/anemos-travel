@@ -14,9 +14,12 @@ package main
 // assert the headline dogfood scenario (Panama City -> LA -> EWR, "change LA
 // to Sep 24-27"), the placeholder start-carrier shape, honest zero-change
 // results (no commit, no trip_updated), the end_date gate's three verdicts,
-// the shrink clamp, the auto-draft skip, overlap narration from rendered
-// spans, validation atomicity, collaborator authz, and lineage resolution on
-// a later turn.
+// transport ownership (ticket 5: a boundary segment rides its destination
+// city's arrival; departing transport moves only with a REAL end — stay
+// check-out or final-leg extension — and a chained repair moves a shared
+// segment exactly once), the shrink clamp, the auto-draft skip, overlap
+// narration from rendered spans, validation atomicity, collaborator authz,
+// and lineage resolution on a later turn.
 
 import (
 	"context"
@@ -1262,6 +1265,266 @@ func TestPlanSetLegDatesLastLegShrinkSteersToTripDates(t *testing.T) {
 	}
 	if _, end := tripDates(t, trip.ID); end != "2026-09-27" {
 		t.Fatalf("trip end = %s, want untouched 2026-09-27", end)
+	}
+}
+
+// seedTransportOwnershipTrip: an items-dated Copenhagen → Berlin → Gothenburg
+// trip (Sep 7–17, no stays) with three confirmed segments — one arriving at
+// the interior leg (Copenhagen→Berlin Sep 10, Berlin's arrival day), one
+// boundary (Berlin→Gothenburg Sep 14, the day Gothenburg begins), one journey
+// home (Gothenburg→Newark Sep 17, the trip's end). Without stays every leg's
+// rendered end is a neighbour's arrival or the trip's end — the shapes
+// transport ownership (ticket 5) is decided by.
+func seedTransportOwnershipTrip(t *testing.T, trip store.Trip, owner uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	q := store.New(dbPool)
+	if _, err := q.UpdateTrip(ctx, store.UpdateTripParams{
+		ID: trip.ID, UserID: owner,
+		StartDate: validDate("2026-09-07"), EndDate: validDate("2026-09-17"),
+	}); err != nil {
+		t.Fatalf("seed trip dates: %v", err)
+	}
+	for i, seed := range []struct {
+		name, city string
+		day        int
+	}{
+		{"Nyhavn", "Copenhagen", 1},
+		{"Tivoli Gardens", "Copenhagen", 2},
+		{"Museum Island", "Berlin", 4},
+		{"East Side Gallery", "Berlin", 6},
+		{"Haga District", "Gothenburg", 8},
+		{"Liseberg", "Gothenburg", 10},
+	} {
+		d := int32(seed.day)
+		city := seed.city
+		if _, err := q.CreateItineraryItem(ctx, store.CreateItineraryItemParams{
+			TripID: trip.ID, Position: int32(i), Name: seed.name,
+			City: &city, Day: &d, Latitude: 52.51, Longitude: 13.39,
+		}); err != nil {
+			t.Fatalf("seed item %s: %v", seed.name, err)
+		}
+	}
+	for _, seg := range []struct {
+		origin, dest, depart string
+	}{
+		{"Copenhagen", "Berlin", "2026-09-10"},
+		{"Berlin", "Gothenburg", "2026-09-14"},
+		{"Gothenburg", "Newark", "2026-09-17"},
+	} {
+		o, d := seg.origin, seg.dest
+		if _, err := q.CreateSegment(ctx, store.CreateSegmentParams{
+			TripID: trip.ID, Mode: "flight", Origin: &o, Destination: &d,
+			DepartDate: validDate(seg.depart),
+		}); err != nil {
+			t.Fatalf("seed segment %s->%s: %v", seg.origin, seg.dest, err)
+		}
+	}
+}
+
+// Symptom A of specs/leg-departure-dates ticket 5, pinned: a start-only move
+// of an items-leg moves NO departing confirmed segment. Berlin's rendered
+// departure is Gothenburg's arrival — a date this call does not touch — so
+// the Berlin→Gothenburg flight holding that day must not ride the synthetic
+// length-preserving endDelta (it used to move +2 here, silently desyncing a
+// confirmed booking from the page the traveler is looking at). The arriving
+// flight still rides the start — the arrival is the date this call moved.
+func TestPlanSetLegDatesStartOnlyLeavesDepartingTransport(t *testing.T) {
+	resetDB(t)
+	user, _ := createTestUser(t, "transown@example.com")
+	trip := createTestTrip(t, user.ID, 0)
+	seedTransportOwnershipTrip(t, trip, user.ID)
+
+	s, rec := testPlanSession(true, user.ID)
+	s.boundTripID = &trip.ID
+	msg, isErr := runSetLegDatesTool(s, []byte(`{"city":"Berlin","start_date":"2026-09-12"}`))
+	if isErr {
+		t.Fatalf("start-only move errored: %s", msg)
+	}
+	for _, want := range []string{
+		"Berlin is now 2026-09-12 to 2026-09-14 on the trip page",
+		"1 arriving and 0 departing transport leg(s)",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("result missing %q: %s", want, msg)
+		}
+	}
+	// A bare arrival move skipping the boundary flight is not an event: the
+	// segment already sits where the page says the boundary is.
+	if strings.Contains(msg, "left in place") {
+		t.Fatalf("bare arrival move narrated a transport skip: %s", msg)
+	}
+	if !strings.Contains(rec.Body.String(), "trip_updated") {
+		t.Fatal("start move did not emit trip_updated")
+	}
+	assertDatesFromRenderedLegs(t, msg, trip.ID, user.ID)
+	if got := legDays(t, trip.ID, "Berlin"); !daysEqual(got, 6, 8) {
+		t.Fatalf("Berlin days = %v, want [6 8]", got)
+	}
+	if dep, _ := scanDates(t, `SELECT depart_date, arrive_date FROM trip_segments WHERE trip_id = $1 AND origin = $2`, trip.ID, "Copenhagen"); dep != "2026-09-12" {
+		t.Fatalf("arriving flight departs %s, want 2026-09-12 (rides the leg start)", dep)
+	}
+	if dep, _ := scanDates(t, `SELECT depart_date, arrive_date FROM trip_segments WHERE trip_id = $1 AND origin = $2`, trip.ID, "Berlin"); dep != "2026-09-14" {
+		t.Fatalf("boundary flight departs %s, want 2026-09-14 UNMOVED — it rides Gothenburg's arrival", dep)
+	}
+	if dep, _ := scanDates(t, `SELECT depart_date, arrive_date FROM trip_segments WHERE trip_id = $1 AND origin = $2`, trip.ID, "Gothenburg"); dep != "2026-09-17" {
+		t.Fatalf("journey-home flight departs %s, want 2026-09-17 untouched", dep)
+	}
+}
+
+// The final leg is the open question the ticket left: its journey-home
+// segment matches origMatch legitimately, and its end delta is REAL there —
+// measured off the trip's end date (the endBasis path), which the same call
+// extends. The narrowing must not starve it. This is a does-not-regress
+// guard, not a bug pin: it passes before and after ticket 5, and goes red if
+// the ownership gate over-narrows (origMatch gated off entirely). The
+// boundary flight INTO the final city holds still on an end-only ask — its
+// day is the final city's arrival, which this call does not move.
+func TestPlanSetLegDatesFinalLegExtensionMovesJourneyHome(t *testing.T) {
+	resetDB(t)
+	user, _ := createTestUser(t, "journeyhome@example.com")
+	trip := createTestTrip(t, user.ID, 0)
+	seedTransportOwnershipTrip(t, trip, user.ID)
+
+	s, rec := testPlanSession(true, user.ID)
+	s.boundTripID = &trip.ID
+	msg, isErr := runSetLegDatesTool(s, []byte(`{"city":"Gothenburg","start_date":"2026-09-14","end_date":"2026-09-19"}`))
+	if isErr {
+		t.Fatalf("final-leg extension errored: %s", msg)
+	}
+	for _, want := range []string{
+		"Gothenburg is now 2026-09-14 to 2026-09-19 on the trip page",
+		"Trip end extended to 2026-09-19",
+		"0 arriving and 1 departing transport leg(s)",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("result missing %q: %s", want, msg)
+		}
+	}
+	if !strings.Contains(rec.Body.String(), "trip_updated") {
+		t.Fatal("extension did not emit trip_updated")
+	}
+	assertDatesFromRenderedLegs(t, msg, trip.ID, user.ID)
+	if dep, _ := scanDates(t, `SELECT depart_date, arrive_date FROM trip_segments WHERE trip_id = $1 AND origin = $2`, trip.ID, "Gothenburg"); dep != "2026-09-19" {
+		t.Fatalf("journey-home flight departs %s, want 2026-09-19 (rides the real trip-end extension)", dep)
+	}
+	if dep, _ := scanDates(t, `SELECT depart_date, arrive_date FROM trip_segments WHERE trip_id = $1 AND origin = $2`, trip.ID, "Berlin"); dep != "2026-09-14" {
+		t.Fatalf("boundary flight departs %s, want 2026-09-14 untouched (the final city's arrival did not move)", dep)
+	}
+	if _, end := tripDates(t, trip.ID); end != "2026-09-19" {
+		t.Fatalf("trip end = %s, want extended to 2026-09-19", end)
+	}
+}
+
+// Symptom B, the cross-call double-move, pinned as ownership: a Florence→Rome
+// flight is ROME's arrival transport, so a chained repair — extend Florence's
+// stay check-out (a real end change), then move Rome's start to meet it —
+// moves the flight EXACTLY once, with Rome's call. Before ticket 5 the first
+// call moved it too (origMatch × a real endDelta), landing the flight a day
+// past the boundary the chain agreed on; the movedStayIDs guard could never
+// see across calls — only ownership can.
+func TestPlanSetLegDatesChainMovesBoundarySegmentOnce(t *testing.T) {
+	resetDB(t)
+	user, _ := createTestUser(t, "chainonce@example.com")
+	trip := createTestTrip(t, user.ID, 0)
+	ctx := context.Background()
+	q := store.New(dbPool)
+	if _, err := q.UpdateTrip(ctx, store.UpdateTripParams{
+		ID: trip.ID, UserID: user.ID,
+		StartDate: validDate("2026-09-05"), EndDate: validDate("2026-09-16"),
+	}); err != nil {
+		t.Fatalf("seed trip dates: %v", err)
+	}
+	for i, seed := range []struct {
+		name, city string
+		day        int
+	}{
+		{"Duomo", "Florence", 1},
+		{"Uffizi", "Florence", 3},
+		{"Colosseum", "Rome", 6},
+		{"Trastevere", "Rome", 9},
+	} {
+		d := int32(seed.day)
+		city := seed.city
+		if _, err := q.CreateItineraryItem(ctx, store.CreateItineraryItemParams{
+			TripID: trip.ID, Position: int32(i), Name: seed.name,
+			City: &city, Day: &d, Latitude: 43.77, Longitude: 11.25,
+		}); err != nil {
+			t.Fatalf("seed item %s: %v", seed.name, err)
+		}
+	}
+	addr := "Piazza del Duomo, Florence, Italy"
+	if _, err := q.CreateAccommodation(ctx, store.CreateAccommodationParams{
+		TripID: trip.ID, Name: "Hotel Duomo", Address: &addr,
+		CheckIn: validDate("2026-09-05"), CheckOut: validDate("2026-09-10"),
+	}); err != nil {
+		t.Fatalf("seed Florence stay: %v", err)
+	}
+	fl, rm := "Florence", "Rome"
+	if _, err := q.CreateSegment(ctx, store.CreateSegmentParams{
+		TripID: trip.ID, Mode: "train", Origin: &fl, Destination: &rm,
+		DepartDate: validDate("2026-09-10"),
+	}); err != nil {
+		t.Fatalf("seed boundary segment: %v", err)
+	}
+
+	// Call 1: extend Florence's stay — a REAL end change (check-out moves to
+	// Sep 12), but the Florence→Rome train belongs to Rome's arrival and is
+	// deliberately left, and the result says so alongside the overlap it
+	// creates on the page.
+	s1, _ := testPlanSession(true, user.ID)
+	s1.boundTripID = &trip.ID
+	msg, isErr := runSetLegDatesTool(s1, []byte(`{"city":"Florence","start_date":"2026-09-05","end_date":"2026-09-12"}`))
+	if isErr {
+		t.Fatalf("stay-end extension errored: %s", msg)
+	}
+	for _, want := range []string{
+		"Florence is now 2026-09-05 to 2026-09-12 on the trip page",
+		"NOTE: the confirmed transport out of Florence (to Rome) was deliberately left in place",
+		"moves when that city's dates do",
+		"past Rome's arrival (2026-09-10)",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("call 1 result missing %q: %s", want, msg)
+		}
+	}
+	assertDatesFromRenderedLegs(t, msg, trip.ID, user.ID)
+	if dep, _ := scanDates(t, `SELECT depart_date, arrive_date FROM trip_segments WHERE trip_id = $1 AND origin = $2`, trip.ID, "Florence"); dep != "2026-09-10" {
+		t.Fatalf("after call 1 the boundary train departs %s, want 2026-09-10 (Rome's arrival owns it)", dep)
+	}
+	if _, out := scanDates(t, `SELECT check_in, check_out FROM accommodations WHERE trip_id = $1 AND name = $2`, trip.ID, "Hotel Duomo"); out != "2026-09-12" {
+		t.Fatalf("Florence check-out = %s, want 2026-09-12 (the real end change)", out)
+	}
+
+	// Call 2: move Rome to meet the check-out. The train moves NOW, by Rome's
+	// start delta — Sep 10 → Sep 12, exactly once. Under the old rule this
+	// landed on Sep 14: +2 with Florence's end, +2 again with Rome's start.
+	s2, _ := testPlanSession(true, user.ID)
+	s2.boundTripID = &trip.ID
+	msg, isErr = runSetLegDatesTool(s2, []byte(`{"city":"Rome","start_date":"2026-09-12"}`))
+	if isErr {
+		t.Fatalf("Rome start move errored: %s", msg)
+	}
+	for _, want := range []string{
+		"Rome is now 2026-09-12 to 2026-09-16 on the trip page",
+		"1 arriving and 0 departing transport leg(s)",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("call 2 result missing %q: %s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "overlapping") {
+		t.Fatalf("the chain closed the overlap; none may be narrated: %s", msg)
+	}
+	assertDatesFromRenderedLegs(t, msg, trip.ID, user.ID)
+	if dep, _ := scanDates(t, `SELECT depart_date, arrive_date FROM trip_segments WHERE trip_id = $1 AND origin = $2`, trip.ID, "Florence"); dep != "2026-09-12" {
+		t.Fatalf("boundary train departs %s, want 2026-09-12 — moved exactly once, with Rome", dep)
+	}
+	if got := legDays(t, trip.ID, "Rome"); !daysEqual(got, 8, 11) {
+		t.Fatalf("Rome days = %v, want [8 11]", got)
+	}
+	if _, out := scanDates(t, `SELECT check_in, check_out FROM accommodations WHERE trip_id = $1 AND name = $2`, trip.ID, "Hotel Duomo"); out != "2026-09-12" {
+		t.Fatalf("Florence check-out = %s, want 2026-09-12 still", out)
 	}
 }
 
