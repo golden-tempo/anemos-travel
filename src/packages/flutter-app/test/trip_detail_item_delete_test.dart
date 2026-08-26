@@ -270,6 +270,43 @@ void main() {
   });
 
   testWidgets(
+      'adding a place via the dialog updates in place — no full-screen reload',
+      (WidgetTester tester) async {
+    _useTallViewport(tester);
+    final fake = await _pump(
+      tester,
+      _tripWith([
+        _item(0, 'Louvre', 'attraction', day: 1, city: 'Paris'),
+        _item(1, 'Orsay', 'attraction', day: 1, city: 'Paris'),
+      ]),
+    );
+
+    await tester.tap(find.text('Add place').first);
+    await tester.pumpAndSettle();
+    // The dialog's manual-entry path: no search round-trip needed.
+    await tester.tap(find.text("Can't find it? Add manually"));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Place name'), 'Pompidou');
+
+    fake.getTripGate = Completer<void>();
+    await tester.tap(find.text('Add'));
+    await _pumpUntilReloadInFlight(tester, fake);
+    // Let the dialog's pop animation finish — the reload is still gated, so
+    // this is the frame a loud _load() would have spent on the spinner.
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+
+    // Mid-reload: the dialog is gone and the list stays on screen.
+    expect(find.text('Orsay'), findsOneWidget);
+
+    fake.getTripGate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Pompidou'), findsOneWidget);
+    expect(find.text('Orsay'), findsOneWidget);
+  });
+
+  testWidgets(
       'saving the reorder-section sheet updates in place — no full-screen reload',
       (WidgetTester tester) async {
     _useTallViewport(tester);

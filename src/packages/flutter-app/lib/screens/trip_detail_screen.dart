@@ -1729,8 +1729,11 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
       builder: (_) => AddItineraryItemDialog(trip: trip, initialDay: day),
     );
     if (added == true) {
-      await _load();
-      if (!mounted) return; // _load awaited: the screen may be gone
+      // Silent, like every other item mutation: adding one place must not
+      // swap the body for the full-screen spinner (the last loud reload on
+      // this screen — the menu flows moved in #565/#566).
+      await _refresh();
+      if (!mounted) return; // awaited: the screen may be gone
       // Open whatever it landed in, then point the map at it. The map write
       // is THIS path's alone: adding one place is a request to look at it.
       final legKey = _revealNewItems(beforeIds);
