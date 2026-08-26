@@ -9,26 +9,28 @@ import 'package:travel_route_planner/services/trips_api_service.dart';
 import 'package:travel_route_planner/providers/trips_provider.dart';
 import 'package:travel_route_planner/screens/trip_detail_screen.dart';
 import 'package:travel_route_planner/widgets/map_leg_chips.dart';
-import 'package:travel_route_planner/widgets/trip_detail/map_band.dart';
 import 'package:travel_route_planner/widgets/trip_map.dart';
 
 import 'support/chip_finders.dart';
 import 'support/city_groups.dart';
 import 'support/l10n_test_app.dart';
 
-// The map/list decoupling contract (specs/map-city-focus, decoupled rev):
+// The map/list decoupling contract (specs/map-city-focus, decoupled rev;
+// scroll semantics per the map-row redesign, which unpinned the wide band):
 //   * city groups default EXPANDED; expansion is list-only state
 //     (_collapsedGroups) — a header tap is a pure toggle of that ONE group:
 //     it never writes map focus, never moves the camera, never touches
 //     other groups;
 //   * map focus (_focusedLegKey) is MAP-only state: a chip tap focuses the
-//     leg, un-collapses its group, and on the wide layout rests the city
-//     header just below the pinned chrome; phones never scroll. The All
-//     chip resets the MAP only — the list is untouched;
+//     leg and un-collapses its group, and NEVER scrolls the list — at any
+//     width, the chips ride a map card that scrolls with the page, so a
+//     scroll would carry the just-focused map away (the accepted tradeoff
+//     in the map-row ticket). The All chip resets the MAP only;
 //   * a map pin tap reveals its run in the list WITHOUT moving the camera
 //     (reveal-only), and a focus change clears the map pin selection;
 //   * a destination (region) pin tap on the All overview scrolls the list
-//     to the region's group — no focus write, the camera never moves;
+//     to the region's group — an explicit "take me there" — with no focus
+//     write; the camera never moves;
 //   * bookings lenses (no city headers) get map-only chips, lens kept;
 //   * revisited cities focus per RUN key; single-leg trips have no focus.
 
@@ -115,8 +117,7 @@ Future<void> _tapChip(WidgetTester tester, String label) async {
     of: find.byType(MapLegChips),
     matching: find.text(label),
   ));
-  // Settles the post-frame camera re-fit and (desktop) the 350ms page
-  // scroll to the focused city header.
+  // Settles the post-frame camera re-fit (chip taps never scroll the page).
   await tester.pumpAndSettle();
 }
 
@@ -130,18 +131,16 @@ void _useSurface(WidgetTester tester, Size size) {
 }
 
 /// The screen's own pinned tab-row extent (`_listHeaderHeight`, private to
-/// the screen); [mapBandHeaderHeight] is read from its source so a band
-/// retune can't silently invalidate this math again. These three assertions
-/// carried a bare `420` until the wave-2 header lane shortened the band.
+/// the screen) — since the map-row redesign the ONLY chrome above a resting
+/// header: the map band scrolls with the page at every width now, so the
+/// old `mapBandHeaderHeight` term (and the constant itself) is gone.
 const double _tabRowHeight = 56;
 
-/// Where a city header comes to rest: below the pinned map band and tab row,
-/// measured from the viewport top (the app bar's bottom — the scroll math
-/// lives in viewport coordinates).
+/// Where a city header comes to rest: below the pinned tab row, measured
+/// from the viewport top (the app bar's bottom — the scroll math lives in
+/// viewport coordinates).
 double _pinnedSlot(WidgetTester tester) =>
-    tester.getBottomLeft(find.byType(AppBar)).dy +
-    mapBandHeaderHeight +
-    _tabRowHeight;
+    tester.getBottomLeft(find.byType(AppBar)).dy + _tabRowHeight;
 
 void main() {
   testWidgets(
@@ -180,94 +179,58 @@ void main() {
   });
 
   testWidgets(
-      'desktop chip tap rests the city header just below the pinned chrome',
-      (tester) async {
+      'wide chip tap focuses the map without scrolling the list '
+      '(the band scrolls with the page — the map-row tradeoff)', (tester) async {
     _useSurface(tester, const Size(1200, 800));
     await _pump(tester, _threeCityTrip());
 
-    await _tapChip(tester, 'Rome');
-
-    expect(_map(tester).fitSignature, 'Rome');
-    // The group's items are reachable (expanded — the landing default; the
-    // chip tap re-opens a manually collapsed group)…
-    expect(find.text('Roman Forum 0'), findsOneWidget);
-    // …and its header rests right below the pinned chrome (see [_pinnedSlot]).
-    // The one correction pass tolerates ±2.
-    final slot = _pinnedSlot(tester);
-    final headerTop = tester
-        .getTopLeft(find
-            .ancestor(
-                of: cityHeaderLabel('Rome'), matching: find.byType(Material))
-            .first)
-        .dy;
-    expect((headerTop - slot).abs(), lessThanOrEqualTo(2),
-        reason: 'Rome header should rest below map band + tab row');
-  });
-
-  testWidgets(
-      'chip tap scrolls straight to the target: no up-then-down reversal',
-      (tester) async {
-    _useSurface(tester, const Size(1200, 800));
-    await _pump(tester, _threeCityTrip());
-
-    // Focus Rome, then park at the very bottom (every group lands expanded,
-    // so the 8 Rome items give plenty of scroll extent). The regression
-    // only shows on a net-upward scroll: from the top the buggy motion
-    // (animate clamped at ~0, one down-snap) was still monotone and the
-    // resting assert above passed all along.
-    await _tapChip(tester, 'Rome');
     final scrollable = find
         .descendant(
             of: find.byType(CustomScrollView),
             matching: find.byType(Scrollable))
         .first;
     final position = tester.state<ScrollableState>(scrollable).position;
-    position.jumpTo(position.maxScrollExtent);
-    await tester.pumpAndSettle();
-    final start = position.pixels;
+    expect(position.maxScrollExtent, greaterThan(0),
+        reason: 'premise: the page must have somewhere to scroll — '
+            'otherwise "did not scroll" is vacuous');
+    expect(position.pixels, 0);
 
-    // Tap Paris WITHOUT settling, then sample the scroll frame by frame:
-    // double-subtracting the pinned chrome animated a full chrome height
-    // past the target
-    // and let the correction pass snap back down — a direction reversal
-    // mid-gesture.
-    await tester.tap(find.descendant(
-        of: find.byType(MapLegChips), matching: find.text('Paris')));
-    final samples = <double>[];
-    for (var i = 0; i < 12; i++) {
-      await tester.pump(const Duration(milliseconds: 50));
-      samples.add(position.pixels);
-    }
-    await tester.pumpAndSettle();
-    samples.add(position.pixels);
+    await _tapChip(tester, 'Rome');
 
-    expect(samples.last, lessThan(start),
-        reason: 'premise: the Paris rest offset must sit above the parked '
-            'bottom position — otherwise this scenario went vacuous');
-    var maxRise = 0.0;
-    for (var i = 1; i < samples.length; i++) {
-      final rise = samples[i] - samples[i - 1];
-      if (rise > maxRise) maxRise = rise;
-    }
-    expect(maxRise, lessThanOrEqualTo(2),
-        reason: 'a net-upward scroll must never move back down '
-            '(up-then-down jank); from $start: $samples');
+    expect(_map(tester).fitSignature, 'Rome');
+    // The page did not move: wide adopted the phone's unpinned semantics
+    // when the band stopped pinning — a scroll here would carry the
+    // just-focused map (and the chip under the pointer) off screen. The
+    // full-screen map's report-back is where selection still pre-scrolls
+    // (trip_detail_map_expand_test).
+    expect(position.pixels, 0);
+  });
 
-    // And it still lands exactly: Paris rests below the pinned chrome.
-    final slot = _pinnedSlot(tester);
-    final headerTop = tester
-        .getTopLeft(find
-            .ancestor(
-                of: cityHeaderLabel('Paris'), matching: find.byType(Material))
-            .first)
-        .dy;
-    expect((headerTop - slot).abs(), lessThanOrEqualTo(2),
-        reason: 'Paris header should rest below map band + tab row');
+  testWidgets('a chip tap still re-opens its collapsed group (no scroll)',
+      (tester) async {
+    // Tall surface so every header is tappable without scrolling — the
+    // scroll-suppression half lives in the 800px test above, where the page
+    // actually has extent.
+    _useSurface(tester, const Size(1200, 2200));
+    await _pump(tester, _threeCityTrip());
+
+    await collapseCity(tester, 'Rome');
+    expect(find.text('Roman Forum 0'), findsNothing);
+
+    await _tapChip(tester, 'Rome');
+
+    expect(_map(tester).fitSignature, 'Rome');
+    expect(find.text('Roman Forum 0'), findsOneWidget,
+        reason: 'a chip tap must still re-open its collapsed group');
   });
 
   testWidgets('the map reset resets the map only: the list is untouched',
       (tester) async {
-    _useSurface(tester, const Size(1200, 800));
+    // Tall surface: with the map row in the page flow (nothing pins above
+    // the tab row anymore) and chip taps no longer scrolling, Rome's tiles
+    // must fit on screen at rest for the list-untouched assertions to see
+    // them build.
+    _useSurface(tester, const Size(1200, 2200));
     await _pump(tester, _threeCityTrip());
 
     expect(mapResetButton, findsNothing,
@@ -351,10 +314,13 @@ void main() {
       'a destination pin tap scrolls to the region without touching the map',
       (tester) async {
     // Tall enough that Rome's header sits above the fold for the collapse
-    // tap, short enough that the fixture still has the ~425px of scroll
-    // extent the rest-below-chrome assertion needs (a 2200 surface
-    // swallows the whole trip: maxScrollExtent 0, nothing can scroll).
-    _useSurface(tester, const Size(1200, 1100));
+    // tap, short enough that the fixture still has the scroll extent the
+    // rest-below-chrome assertion needs (a 2200 surface swallows the whole
+    // trip: maxScrollExtent 0, nothing can scroll). 900 rather than the
+    // old 1100: the in-flow map row moved Rome's reveal offset ~300 lower,
+    // and at 1100 the scroll clamped at maxScrollExtent ~134px short of
+    // the slot.
+    _useSurface(tester, const Size(1200, 900));
     await _pump(tester, _threeCityTrip());
 
     await collapseCity(tester, 'Rome');
@@ -371,8 +337,8 @@ void main() {
 
     expect(find.text('Roman Forum 0'), findsOneWidget,
         reason: 'the region tap re-opens its collapsed group');
-    // Same rest math as a chip tap: map band + tab row, ±2 for the
-    // one correction pass.
+    // The rest slot is the pinned tab row alone (the band scrolled away
+    // with the page), ±2 for the one correction pass.
     final slot = _pinnedSlot(tester);
     final headerTop = tester
         .getTopLeft(find
@@ -381,7 +347,7 @@ void main() {
             .first)
         .dy;
     expect((headerTop - slot).abs(), lessThanOrEqualTo(2),
-        reason: 'Rome header should rest below map band + tab row');
+        reason: 'Rome header should rest below the pinned tab row');
     final position = tester
         .state<ScrollableState>(find
             .descendant(
@@ -390,6 +356,11 @@ void main() {
             .first)
         .position;
     expect(position.pixels, greaterThan(0));
+    // The landed page has scrolled the in-flow map row out of the build —
+    // return to the top to read the map's state (focus lives in notifiers,
+    // so it survives the card unmounting).
+    position.jumpTo(0);
+    await tester.pumpAndSettle();
     expect(_map(tester).fitSignature, isNull,
         reason: 'a region tap never moves the camera');
   });

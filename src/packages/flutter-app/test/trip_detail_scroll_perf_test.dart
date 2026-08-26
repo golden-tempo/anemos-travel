@@ -19,13 +19,16 @@ import 'support/l10n_test_app.dart';
 /// continuous scrolling got slower the longer it ran because (a) every row
 /// crossing under a parked cursor started a 120ms AnimatedOpacity fade — a
 /// rolling set of saveLayers per frame on CanvasKit — and (b) the pinned
-/// chrome (map band, tab row, city/day headers) had no RepaintBoundary, so
-/// its picture was re-recorded every scroll frame. These tests pin the two
-/// structural fixes:
+/// chrome (then map band + tab row, plus city/day headers) had no
+/// RepaintBoundary, so its picture was re-recorded every scroll frame.
+/// These tests pin the two structural fixes:
 ///   * no AnimatedOpacity anywhere on the screen — hover reveal is instant;
-///   * the map card, pinned-header chrome, and city/day headers sit behind
-///     RepaintBoundaries (the card's boundary lives INSIDE _mapCard, so both
-///     the pinned wide band and the scroll-away phone card get it).
+///   * the map card, pinned chrome, and city/day headers sit behind
+///     RepaintBoundaries. The card's boundary lives inside the band widget,
+///     so the wide map row and the scroll-away phone card both get it —
+///     since the map-row redesign the card scrolls with the page at every
+///     width, so its boundary now earns its keep on tap-time rebuilds
+///     (chip taps, camera moves) rather than on scroll frames.
 void main() {
   ItineraryItem item(int pos, String name, String city, double lat, double lng,
           int day) =>
@@ -91,7 +94,7 @@ void main() {
   }
 
   testWidgets(
-      'wide layout: map card + pinned chrome + city/day headers are '
+      'wide layout: map card + city/day headers are '
       'repaint-isolated and nothing on the screen fades', (tester) async {
     useSurface(tester, const Size(1200, 2200));
     await pump(tester, threeCityTrip());
@@ -108,7 +111,7 @@ void main() {
         ),
       ),
       findsWidgets,
-      reason: 'the pinned map card must repaint in its own layer',
+      reason: 'the map card must repaint in its own layer',
     );
 
     // City headers (expanded at boot) are individually boundaried.
@@ -163,7 +166,8 @@ void main() {
     await pump(tester, threeCityTrip());
 
     // Same assertion as the wide layout: proves the boundary lives inside
-    // _mapCard rather than only in the pinned-header delegate.
+    // the band widget itself, so both hosts (wide map row, phone preview
+    // sliver) get it without either restating it.
     expect(
       find.descendant(
         of: find.byType(CustomScrollView),

@@ -257,15 +257,16 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   // removes the leg — readers clamp via _clampedLegKey (read-side, so
   // build never mutates state).
   final ValueNotifier<String?> _focusedLegKey = ValueNotifier<String?>(null);
-  // Whether the map renders as the wide layout's pinned header (true) or the
-  // phone layout's scroll-away tap-to-expand card (false). Assigned each
-  // build from the body width; also feeds the Today-scroll chrome math.
-  bool _mapPinned = true;
   // Body-width narrow flag (< kRailBreakpoint), assigned by the root
   // LayoutBuilder in build so the APP BAR and the body agree — MediaQuery
   // would report the window, which is ~81px wider than the body when the
   // nav rail shows (window 800-880 = wide window, narrow body). Strictly
-  // < 800: the 800px test surface must stay on the desktop path.
+  // < 800: the 800px test surface must stay on the desktop path. Also the
+  // map-layout switch since the map-row redesign retired _mapPinned: wide
+  // renders the map inside the header's side-by-side row, narrow keeps the
+  // scroll-away tap-to-expand preview — the retired flag was assigned from
+  // the body LayoutBuilder, but that width and this one always agree
+  // (Scaffold adds no horizontal chrome), so one flag now carries both.
   bool _narrow = false;
   // Today mode (specs/today-mode): the itinerary auto-scrolls to today's day
   // header at most once per screen visit, and only from loud load paths.
@@ -907,18 +908,14 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   static const double _headerTabRowHeight =
       _listHeaderHeight - _headerTabBaseline;
 
-  /// Combined height of the chrome pinned above the itinerary slivers: the
-  /// map header (when it renders AND is pinned — on phones the map scrolls
-  /// away, so it never rests above a target header) plus the itinerary
-  /// title header. This is the resting-slot measurement for the scroll
-  /// helpers' correction passes ONLY — never subtract it from a
-  /// getOffsetToReveal result, which already accounts for these extents
+  /// Height of the chrome pinned above the itinerary slivers: the tab row
+  /// alone, at every width, since the map-row redesign scrolled the wide
+  /// map band away with the page (only the tab row still pins). This is
+  /// the resting-slot measurement for the scroll helpers' correction
+  /// passes ONLY — never subtract it from a getOffsetToReveal result,
+  /// which already accounts for these extents
   /// (`maxScrollObstructionExtentBefore`).
-  double _pinnedChrome(Trip trip) {
-    final mapShown = _derive(trip).mapShown;
-    return ((_mapPinned && mapShown) ? mapBandHeaderHeight : 0) +
-        _listHeaderHeight;
-  }
+  static const double _pinnedChrome = _listHeaderHeight;
 
   /// Measured height of the pinned city header above [dayKey]'s section
   /// (0 when it isn't laid out yet).
@@ -1080,7 +1077,7 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     // Header dy in viewport coordinates vs. its resting slot below the
     // pinned chrome.
     final actual = box.localToGlobal(Offset.zero, ancestor: vp).dy;
-    final delta = actual - (_pinnedChrome(trip) + _cityHeaderHeight(dayKey));
+    final delta = actual - (_pinnedChrome + _cityHeaderHeight(dayKey));
     if (delta.abs() > 2) {
       _scroll.jumpTo((_scroll.offset + delta)
           .clamp(0.0, _scroll.position.maxScrollExtent));
@@ -1157,10 +1154,19 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   }
 
   /// The combined chip action (inline strip and the full-screen map's
-  /// report-back): focus the map on the leg via [_setMapFocus], un-collapse
-  /// its group, and rest the header under the pinned map (wide layout). The
-  /// All chip (null) resets the MAP only — the list is untouched, since
-  /// expansion is decoupled from focus.
+  /// report-back): focus the map on the leg via [_setMapFocus] and
+  /// un-collapse its group. The All chip (null) resets the MAP only — the
+  /// list is untouched, since expansion is decoupled from focus.
+  ///
+  /// Deliberately NO list scroll, at any width. The inline chips ride a map
+  /// card that scrolls WITH the page everywhere since the map-row redesign,
+  /// so scrolling the list would hide the very map being focused — the
+  /// phone rationale, which wide inherited when its band stopped pinning
+  /// (the accepted tradeoff in the map-row ticket: city-header↔focus sync
+  /// loses its payoff once the map can scroll off). A selection made inside
+  /// the FULL-SCREEN map still pre-scrolls, via its own report-back — there
+  /// the list is hidden behind the modal and landing on the region is the
+  /// point.
   ///
   /// Under a bookings lens no city headers exist at all: the chip drives
   /// the map only and the lens is NOT exited (unlike _scrollToDay, whose
@@ -1170,14 +1176,8 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     _setMapFocus(d, key);
     if (key == null) return; // All: map overview only, list untouched
     final groupKey = d.groupKeyForLeg(key);
-    if (groupKey == null) return; // stale key: nothing to rest
+    if (groupKey == null) return; // stale key: nothing to reveal
     if (_collapsedGroups.remove(groupKey)) setState(() {});
-    // Post-frame so a freshly expanded section has laid out first (the
-    // _scrollToDay pattern); on phones the chips ride the scroll-away
-    // preview card, so scrolling the list would hide the very map being
-    // focused — desktop only.
-    if (!_mapPinned) return;
-    _revealCityHeader(groupKey);
   }
 
   /// Scrolls [groupKey]'s header under the chrome on the frame after next —
@@ -1233,7 +1233,7 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     final vp = RenderAbstractViewport.maybeOf(box);
     if (vp == null) return;
     final actual = box.localToGlobal(Offset.zero, ancestor: vp).dy;
-    final delta = actual - _pinnedChrome(trip);
+    final delta = actual - _pinnedChrome;
     if (delta.abs() > 2) {
       _scroll.jumpTo((_scroll.offset + delta)
           .clamp(0.0, _scroll.position.maxScrollExtent));
@@ -1286,7 +1286,7 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     if (!_foldControlShown(d)) return; // stale entry: no-op, never a crash
     final collapsed = _allGroupsCollapsed(d);
     // Measured BEFORE the mutation — it reads the CURRENT layout.
-    final anchor = _anchorGroupKey(trip, d);
+    final anchor = _anchorGroupKey(d);
     setState(() {
       if (collapsed) {
         _collapsedGroups.clear();
@@ -1306,10 +1306,10 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
           ..addAll(d.groups.map((g) => g.key));
       }
     });
-    // Keep the traveler where they were. No _mapPinned guard (unlike
-    // _setFocusedLeg, which skips this on phones so the list can't scroll
-    // the just-tapped map chip out of view): no map focus is in play here,
-    // and keeping your place matters more on a phone, not less.
+    // Keep the traveler where they were, at every width (unlike
+    // _setFocusedLeg, which never scrolls so the list can't carry the
+    // just-tapped map chip out of view): no map focus is in play here, and
+    // keeping your place matters more on a phone, not less.
     if (anchor != null) _revealCityHeader(anchor, animate: false);
   }
 
@@ -1331,9 +1331,9 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   /// are SliverToBoxAdapters, open ones SliverPinnedHeaders, and neither is
   /// lazy (only the item lists INSIDE a group are) — so this needs no
   /// scroll-range heuristics and the guards below are belt-and-braces.
-  String? _anchorGroupKey(Trip trip, TripDerivation d) {
+  String? _anchorGroupKey(TripDerivation d) {
     if (!_scroll.hasClients || _scroll.offset <= 0) return null;
-    final rest = _pinnedChrome(trip) + 1; // slot + float epsilon
+    const rest = _pinnedChrome + 1; // slot + float epsilon
     String? anchor;
     var best = double.negativeInfinity;
     for (final group in d.groups) {
@@ -3582,18 +3582,20 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
           initialLegKey: _clampedLegKey(derivation),
           // A full-screen chip or region-pin tap reports here: the embedded
           // card's ListenableBuilder keeps its own chips in sync live, and
-          // _setFocusedLeg pre-selects (un-collapses the target; on desktop
-          // pre-scrolls) behind the modal, so focus survives close. On
-          // phones _setFocusedLeg skips its scroll (the inline chips ride
-          // the scroll-away preview), but a selection made INSIDE the full
-          // map should land the list on that region when the modal closes —
-          // there is no visible list to disturb — so pre-scroll here too.
+          // _setFocusedLeg pre-selects (focus + un-collapse; it never
+          // scrolls — the inline chips ride a card that scrolls with the
+          // page at every width now). A selection made INSIDE the full map
+          // should land the list on that region when the modal closes —
+          // there is no visible list to disturb behind it, and with the
+          // band scrolled away the region may be anywhere — so the
+          // pre-scroll lives here, on every width (it was phone-only while
+          // the wide band pinned and _setFocusedLeg scrolled for wide).
           onLegSelected: (k) {
             final t = _trip;
             if (t == null) return;
             final d = _derive(t);
             _setFocusedLeg(d, k);
-            if (k == null || _mapPinned) return;
+            if (k == null) return;
             final groupKey = d.groupKeyForLeg(k);
             if (groupKey == null) return;
             _revealCityHeader(groupKey);
@@ -3684,8 +3686,9 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
 
     return LayoutBuilder(builder: (context, constraints) {
       // Same width the body LayoutBuilder sees (Scaffold adds no horizontal
-      // chrome), so this always agrees with _mapPinned. Plain assignment:
-      // we're in build, like _mapPinned's own write.
+      // chrome), so the app bar, the body and the map-layout switch all
+      // agree. Plain assignment: we're in build, and the post-frame Today
+      // scroll reads it fresh.
       _narrow = constraints.maxWidth < kRailBreakpoint;
       // Where back goes once the panel is out of the way. Null is both "opened
       // from the trips list" and every other entry point, and means the
@@ -3846,13 +3849,6 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                           }
                         });
                       }
-                      // Phones get the scroll-away tap-to-expand map; wide
-                      // layouts keep the pinned header. Keyed to the width
-                      // the body actually gets (like the refine-dock check
-                      // below), not the window. Plain assignment: we're in
-                      // build, and the post-frame Today scroll reads it
-                      // fresh.
-                      _mapPinned = constraints.maxWidth >= kRailBreakpoint;
                       // Hoisted dock decision (also used at the bottom of this
                       // builder): the docked panel and its grab strip eat this
                       // width, so the gutter must be computed from what the
@@ -3976,6 +3972,35 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                           if (mounted) _scrollToDay(pendingToday);
                         });
                       }
+                      // The one map-card recipe, shared by the wide header
+                      // row (interactive, expandable:false) and the phone
+                      // scroll-away preview (expandable:true) so the two
+                      // can never wire the map differently.
+                      Widget buildMapCard(bool expandable) =>
+                          TripDetailMapBand(
+                            trip: trip,
+                            derivation: derivation,
+                            expandable: expandable,
+                            live: _postFirstFrame,
+                            focusedLegKey: _focusedLegKey,
+                            selectedPosition: _selectedPosition,
+                            homeAirport: _homeAirport,
+                            isOffline: _isOffline,
+                            readOnly: _readOnly,
+                            segmentLabels: _mapSegmentLabels(derivation),
+                            onAddPlace: (day) => _addPlace(day: day),
+                            onRevealGroup: (groupKey) {
+                              if (_collapsedGroups.remove(groupKey)) {
+                                setState(() {});
+                              }
+                            },
+                            onRevealCityHeader: _revealCityHeader,
+                            onSetFocusedLeg: (k) =>
+                                _setFocusedLeg(derivation, k),
+                            onOpenFullMap: () => _openFullMap(trip),
+                            onShowSnack: _showSnack,
+                            clampLegKey: _clampedLegKey,
+                          );
                       final scrollView = CustomScrollView(
                         controller: _scroll,
                         // Always scrollable: with the trailing sections
@@ -3996,6 +4021,16 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                                     isOffline: _isOffline,
                                     readOnly: _readOnly,
                                     panelOpen: _panelOpen,
+                                    // Wide: the header hosts the map beside
+                                    // the Next Step / Continue-chat cards
+                                    // (TripDetailMapRow) and the whole row
+                                    // scrolls with the page — nothing above
+                                    // the tab row pins anymore. Phones keep
+                                    // the separate preview sliver below.
+                                    mapCard:
+                                        (!_narrow && derivation.mapShown)
+                                            ? buildMapCard(false)
+                                            : null,
                                     // _fanOutWatch's condition, resolved
                                     // here because the card lives in its
                                     // own file: the review watch may run
@@ -4025,61 +4060,22 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                               ),
                             ),
                           ),
-                          // Wide: the map scrolls with the page until it
-                          // reaches the top, then stays pinned while the
-                          // itinerary scrolls beneath it. Phones have no room
-                          // to pin — a shorter static preview scrolls away
+                          // Phones: a shorter static preview scrolls away
                           // with the page, and tapping it opens the
-                          // full-screen map (TripMapScreen).
-                          if (derivation.mapShown)
+                          // full-screen map (TripMapScreen). Wide layouts
+                          // carry the map in the header row above instead.
+                          if (derivation.mapShown && _narrow)
                             tripDetailMapBandSliver(
-                              pinned: _mapPinned,
                               gutter: gutter,
-                              backgroundColor:
-                                  theme.scaffoldBackgroundColor,
-                              cardBuilder: (expandable) =>
-                                  TripDetailMapBand(
-                                trip: trip,
-                                derivation: derivation,
-                                expandable: expandable,
-                                live: _postFirstFrame,
-                                focusedLegKey: _focusedLegKey,
-                                selectedPosition: _selectedPosition,
-                                homeAirport: _homeAirport,
-                                isOffline: _isOffline,
-                                readOnly: _readOnly,
-                                segmentLabels:
-                                    _mapSegmentLabels(derivation),
-                                onAddPlace: (day) => _addPlace(day: day),
-                                onRevealGroup: (groupKey) {
-                                  if (_collapsedGroups.remove(groupKey)) {
-                                    setState(() {});
-                                  }
-                                },
-                                onRevealCityHeader: _revealCityHeader,
-                                onSetFocusedLeg: (k) =>
-                                    _setFocusedLeg(derivation, k),
-                                onOpenFullMap: () => _openFullMap(trip),
-                                onShowSnack: _showSnack,
-                                clampLegKey: _clampedLegKey,
-                              ),
-                              pinnedDelegateBuilder: (
-                                      {required height,
-                                      required backgroundColor,
-                                      required padding,
-                                      required child}) =>
-                                  _PinnedHeaderDelegate(
-                                height: height,
-                                backgroundColor: backgroundColor,
-                                padding: padding,
-                                child: child,
-                              ),
+                              child: buildMapCard(true),
                             ),
-                          // Itinerary/Bookings tab row; pins beneath the map
-                          // so the view tabs, Today jump, and the view's add
-                          // button stay reachable while scrolling. One
-                          // fixed-height row keeps the pinned chrome (and
-                          // the Today scroll math) constant.
+                          // Itinerary/Bookings tab row; the ONLY pinned
+                          // chrome at any width since the map-row redesign —
+                          // it rests under the app bar so the view tabs,
+                          // Today jump, and the view's add button stay
+                          // reachable while scrolling. One fixed-height row
+                          // keeps the pinned chrome (and the Today scroll
+                          // math) constant.
                           //
                           // It closes on a content-width hairline, and that
                           // rule is the whole point: it is the bottom edge of

@@ -1,8 +1,11 @@
 // The trip detail header stack (specs/trip-detail-extract): the title/meta
-// block, the Next Step card, and the Continue-chat card, lifted verbatim out
-// of trip_detail_screen.dart so wave 2 can redesign the header shell without
-// the god-screen. Screen state arrives as constructor params; actions are
-// callbacks into the screen. Pure move — zero visual, zero behavior change.
+// block, the Next Step card, and the Continue-chat card, lifted out of
+// trip_detail_screen.dart so wave 2 could redesign the header shell without
+// the god-screen. Since the map-row redesign it also hosts the wide layout's
+// side-by-side map row: this widget owns the two cards' presence logic and
+// session state, so it is the one place that can decide between the row, a
+// card-less full-width map, and the stacked phone flow. Screen state arrives
+// as constructor params; actions are callbacks into the screen.
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -16,17 +19,27 @@ import '../../utils/trip_format.dart';
 import '../next_step_card.dart';
 import '../offline_banner.dart';
 import '../plan_progress_sheet.dart';
+import 'map_band.dart';
 
-/// The header stack above the map band: title + meta chips + context line +
-/// clamped overview, then the Next Step and Continue-chat cards. Renders as
-/// one stretched column, exactly the children the screen's header sliver
-/// used to compose inline.
+/// The header stack: title + meta chips + context line + clamped overview,
+/// then the Next Step and Continue-chat cards — beside the map in the wide
+/// layout's [TripDetailMapRow] when [mapCard] is set, stacked full-width
+/// below the header block otherwise. Renders as one stretched column.
 class TripHeaderCard extends ConsumerStatefulWidget {
   final Trip trip;
   final bool narrow;
   final bool isOffline;
   final bool readOnly;
   final bool panelOpen;
+
+  /// The wide layout's inline map card, pre-built by the screen (it owns
+  /// every callback and notifier the map needs). Non-null only when the
+  /// layout is wide AND the trip has mappable content; the phone preview
+  /// stays a separate scroll-away sliver below the header, so this widget
+  /// never sees it. When set, the Next Step and Continue-chat cards move
+  /// into the map row's right column; when both are absent the map spans
+  /// the full content width ([TripDetailMapRow]'s own degenerate case).
+  final Widget? mapCard;
 
   /// Whether the Next Step card's trip-review watch may run this frame.
   /// False only during the screen's deferred first content frame, and only
@@ -62,6 +75,7 @@ class TripHeaderCard extends ConsumerStatefulWidget {
     required this.isOffline,
     required this.readOnly,
     required this.panelOpen,
+    this.mapCard,
     required this.reviewLive,
     required this.displayTitle,
     this.titleKey,
@@ -90,14 +104,53 @@ class _TripHeaderCardState extends ConsumerState<TripHeaderCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = context.l10n;
+    final mapCard = widget.mapCard;
+    if (mapCard == null) {
+      // Phone flow, and wide trips with nothing to map: the pre-map-row
+      // stacked layout, byte-identical.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _headerCard(theme),
+          _nextStepArea(),
+          _continueChatRow(theme, l10n),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _headerCard(theme),
-        _nextStepArea(),
-        _continueChatRow(theme, l10n),
+        const SizedBox(height: AppSpacing.lg),
+        // The Consumer scopes the review watch to the row, exactly as
+        // _nextStepArea scopes it in the stacked flow: a review update
+        // rebuilds the row, and the pre-built [TripHeaderCard.mapCard]
+        // instance is identical across those rebuilds, so the map subtree
+        // is skipped. The row must own the watch because the Next Step
+        // card's PRESENCE is layout here — with neither card the map takes
+        // the full content width.
+        Consumer(builder: (context, ref, _) {
+          final next = _resolveNextStep(ref);
+          return TripDetailMapRow(
+            map: mapCard,
+            cards: [
+              if (next != null) _nextStepCard(next, stacked: true),
+              if (_chatRowShown) _continueChatRow(theme, l10n, inRow: true),
+            ],
+          );
+        }),
       ],
     );
+  }
+
+  /// Whether the Continue-chat row renders — [_continueChatRow]'s own gate,
+  /// named so the wide map row can make it a layout decision.
+  bool get _chatRowShown {
+    final trip = widget.trip;
+    return trip.refineChat != null &&
+        !widget.panelOpen &&
+        trip.canEdit &&
+        !widget.isOffline;
   }
 
   Widget _headerCard(ThemeData theme) {
@@ -278,49 +331,69 @@ class _TripHeaderCardState extends ConsumerState<TripHeaderCard> {
     );
   }
 
-  Widget _nextStepArea() {
-    final trip = widget.trip;
-    if (widget.readOnly) return const SizedBox.shrink();
+  /// What the Next Step area shows, or null when it shows nothing — the ONE
+  /// presence rule, shared by the stacked flow and the wide map row (where
+  /// null is also a layout fact: no right-column slot). Must be called with
+  /// an enclosing [Consumer]'s ref so review updates rebuild that subtree
+  /// only. Owns the "session saw a real step" post-frame write.
+  ({NextStep step, PlanProgress? progress})? _resolveNextStep(WidgetRef ref) {
+    if (widget.readOnly) return null;
     // Deferred first frame (see [TripHeaderCard.reviewLive]): don't create
     // the review fetch yet — identical render to the unresolved watch.
-    if (!widget.reviewLive) return const SizedBox.shrink();
+    if (!widget.reviewLive) return null;
+    final review = ref
+        .watch(tripReviewProvider(TripReviewKey(widget.trip.id)))
+        .valueOrNull;
+    final step = review?.nextStep;
+    if (step == null) return null;
+    final allSet = step.kind == 'all_set';
+    if (!allSet && !_hadNextStep) {
+      // Record "this session saw a real step" post-frame (no setState in
+      // build); the guard makes it one-shot.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_hadNextStep) setState(() => _hadNextStep = true);
+      });
+    }
+    if (allSet && (!_hadNextStep || _allSetDismissed)) return null;
+    return (step: step, progress: review?.planProgress);
+  }
+
+  /// The Next Step card for a resolved step — construction shared by both
+  /// layouts so they can never disagree about wiring; only [stacked]
+  /// (buttons below the text, no outer margin) differs in the map row.
+  Widget _nextStepCard(({NextStep step, PlanProgress? progress}) next,
+      {bool stacked = false}) {
+    final step = next.step;
+    final progress = next.progress;
+    final allSet = step.kind == 'all_set';
+    return NextStepCard(
+      step: step,
+      progress: progress,
+      compact: widget.narrow,
+      stacked: stacked,
+      enabled: !widget.isOffline,
+      // Same lookup the tap performs, so the label can never promise a
+      // handoff the action won't make (specs/next-step-cta).
+      transportHandsOff: widget.transportHandsOff(step),
+      onPrimary: allSet ? null : () => widget.onNextStepAction(step),
+      onViewAll: () => widget.onOpenHealthSheet(),
+      // No ladder on the wire (older server, cached response) => no
+      // affordance, rather than an entry point onto an empty sheet.
+      onViewProgress: progress != null && progress.phases.isNotEmpty
+          ? () => showPlanProgressSheet(context,
+              progress: progress, currentStep: step)
+          : null,
+      onDismiss:
+          allSet ? () => setState(() => _allSetDismissed = true) : null,
+    );
+  }
+
+  Widget _nextStepArea() {
     return Consumer(
       builder: (context, ref, _) {
-        final review =
-            ref.watch(tripReviewProvider(TripReviewKey(trip.id))).valueOrNull;
-        final step = review?.nextStep;
-        if (step == null) return const SizedBox.shrink();
-        final allSet = step.kind == 'all_set';
-        if (!allSet && !_hadNextStep) {
-          // Record "this session saw a real step" post-frame (no setState in
-          // build); the guard makes it one-shot.
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && !_hadNextStep) setState(() => _hadNextStep = true);
-          });
-        }
-        if (allSet && (!_hadNextStep || _allSetDismissed)) {
-          return const SizedBox.shrink();
-        }
-        final progress = review?.planProgress;
-        return NextStepCard(
-          step: step,
-          progress: progress,
-          compact: widget.narrow,
-          enabled: !widget.isOffline,
-          // Same lookup the tap performs, so the label can never promise a
-          // handoff the action won't make (specs/next-step-cta).
-          transportHandsOff: widget.transportHandsOff(step),
-          onPrimary: allSet ? null : () => widget.onNextStepAction(step),
-          onViewAll: () => widget.onOpenHealthSheet(),
-          // No ladder on the wire (older server, cached response) => no
-          // affordance, rather than an entry point onto an empty sheet.
-          onViewProgress: progress != null && progress.phases.isNotEmpty
-              ? () => showPlanProgressSheet(context,
-                  progress: progress, currentStep: step)
-              : null,
-          onDismiss:
-              allSet ? () => setState(() => _allSetDismissed = true) : null,
-        );
+        final next = _resolveNextStep(ref);
+        if (next == null) return const SizedBox.shrink();
+        return _nextStepCard(next);
       },
     );
   }
@@ -346,13 +419,15 @@ class _TripHeaderCardState extends ConsumerState<TripHeaderCard> {
   /// rationale: these are two jobs — "what to do next" and "where you left
   /// off" — and one tinted field would give the quieter one the emphasis of
   /// the louder. Sequence, not fusion.
-  Widget _continueChatRow(ThemeData theme, AppLocalizations l10n) {
+  ///
+  /// [inRow] — the wide map row's column slot: the top margin is dropped
+  /// (the column owns spacing between its stretched slots), nothing else.
+  Widget _continueChatRow(ThemeData theme, AppLocalizations l10n,
+      {bool inRow = false}) {
     final trip = widget.trip;
     final chat = trip.refineChat;
-    if (chat == null || widget.panelOpen || !trip.canEdit || widget.isOffline) {
-      return const SizedBox.shrink();
-    }
-    final updated = DateTime.tryParse(chat.updatedAt);
+    if (!_chatRowShown) return const SizedBox.shrink();
+    final updated = DateTime.tryParse(chat!.updatedAt);
     // relativeTime already exists (offline_banner.dart) — reuse it rather than
     // growing a second "how long ago" rule.
     final meta = updated == null
@@ -366,7 +441,7 @@ class _TripHeaderCardState extends ConsumerState<TripHeaderCard> {
       // several PopupMenuButton<String>s, and scoping to this row's structure
       // is what broke when the row stopped being a ListTile.
       key: const ValueKey('continue-chat-row'),
-      margin: const EdgeInsets.only(top: AppSpacing.sm),
+      margin: inRow ? null : const EdgeInsets.only(top: AppSpacing.sm),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHigh,
         borderRadius: AppRadius.mdAll,
@@ -387,6 +462,10 @@ class _TripHeaderCardState extends ConsumerState<TripHeaderCard> {
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  // min, so the map row's stretched column slot centers the
+                  // text block instead of expanding it; identical layout in
+                  // the unbounded stacked flow.
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     // Title and meta share a line via a Wrap: on a phone (or in
                     // Spanish, where both strings are longer) the counter drops
