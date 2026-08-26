@@ -108,6 +108,16 @@ class TripDetailMapBand extends StatelessWidget {
   final Trip trip;
   final TripDerivation derivation;
   final bool expandable;
+
+  /// Whether the live tile map mounts. False during the screen's first
+  /// content frame (time-to-interactive, lever 3): [TripMap] and its two
+  /// stacked retina tile layers cost dozens of fetches and decodes, so the
+  /// deferred frame paints [appMapBackground] instead — the exact canvas an
+  /// unloaded map paints ([AppMapVisibilityGate]'s stand-in), so the live
+  /// mount one frame later changes nothing visually. Chips and the expand
+  /// control render either way: they are part of what the first frame
+  /// shows, and their layout must not shift when the map arrives.
+  final bool live;
   final ValueNotifier<String?> focusedLegKey;
   final ValueNotifier<int?> selectedPosition;
   final String? homeAirport;
@@ -127,6 +137,7 @@ class TripDetailMapBand extends StatelessWidget {
     required this.trip,
     required this.derivation,
     required this.expandable,
+    required this.live,
     required this.focusedLegKey,
     required this.selectedPosition,
     required this.homeAirport,
@@ -175,6 +186,13 @@ class TripDetailMapBand extends StatelessWidget {
         // map subtree — resolution landing must not rebuild the screen.
         Widget map = Consumer(
           builder: (context, ref, _) {
+            if (!live) {
+              // Deferred first frame (see [live]): paint the canvas the
+              // unloaded map would — no provider watches, no [TripMap], no
+              // tile traffic — and let the frame after it mount the rest.
+              return const SizedBox.expand(
+                  child: ColoredBox(color: appMapBackground));
+            }
             final candidates = homeOverlayFor(
               ref,
               homeAirport: homeAirport,

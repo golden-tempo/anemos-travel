@@ -335,6 +335,36 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   // any failure — travel times are an enhancement and never block the itinerary.
   Map<int, LocationTiming> _travelByPos = {};
 
+  // ── Deferred first-frame fan-out (time-to-interactive, lever 3) ───────
+  // The first CONTENT frame pays only for what it shows. The live tile map
+  // (two stacked retina layers — dozens of tile fetches and decodes) and
+  // the enhancement fetches (trip review, checklist, per-leg weather, city
+  // events) all used to mount in that exact frame, competing with the
+  // traveler's first scroll. They now mount one frame later, off a
+  // post-frame callback the first content build arms. Until it flips, the
+  // map band paints appMapBackground — the same canvas an unloaded map
+  // paints, so the swap is invisible — and the provider-backed sections
+  // render the no-data state they'd show on a cold first frame anyway.
+  bool _postFirstFrame = false;
+  bool _postFirstFrameArmed = false;
+
+  /// THE gate for enhancement provider watches (lever 3). Watches [provider]
+  /// only once the fan-out is allowed: after the first content frame, or
+  /// immediately when the provider is already alive — every family this
+  /// gates is non-autoDispose, so "alive" means a previous watch created it
+  /// and its cached value can render in the first frame for free (a warm
+  /// revisit keeps its badge and chips; only fetch CREATION is deferred).
+  /// Returns null while deferred — callers treat that as their loading
+  /// state, which renders identically. Two sites can't call this verbatim
+  /// and restate its condition with a pointer here: the day weather chip
+  /// (needs a .select watch) and TripHeaderCard.reviewLive (a separate
+  /// widget file).
+  AsyncValue<T>? _fanOutWatch<T>(
+      WidgetRef ref, ProviderBase<AsyncValue<T>> provider) {
+    if (!_postFirstFrame && !ref.exists(provider)) return null;
+    return ref.watch(provider);
+  }
+
   // ── Derivation memo (specs/perf-program, Wave 4 PR1) ──────────────────
   // The whole per-build pipeline (filtered items, city groups, leg ranges,
   // date chips, booking slots, map inputs) lives in TripDerivation
@@ -402,7 +432,10 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   void _openHealthOnArrival() {
     if (!mounted || !widget.openHealthSheet || _healthSheetShown) return;
     final trip = _trip;
-    if (trip == null) return;
+    // _error too, not just a null trip: a cache-first paint followed by a
+    // stable failure (403/404) leaves _trip holding the cached copy while
+    // the error page renders — the sheet must not float over it.
+    if (trip == null || _error != null) return;
     _healthSheetShown = true;
     _openHealthSheet(trip);
   }
@@ -569,11 +602,47 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     // conversation streaming inside it) stays mounted. First load always
     // takes the loud path.
     final quiet = silent && _trip != null;
+    // Captured before the reset below: a Retry from the error screen must
+    // not cache-first-paint a copy of the trip the last load already proved
+    // stale-failed (a 404'd trip flashing up, then the error page again).
+    final retryingFromError = _error != null;
     if (!quiet) {
       setState(() {
         _loading = true;
         _error = null;
       });
+      // Cache-first paint (trip-detail time-to-interactive, lever 2): with
+      // nothing on screen yet, render the saved copy NOW and let the network
+      // fetch land in place behind it — the same silent in-place update the
+      // SSE-bump _refresh path already proves out. Deliberately NOT offline
+      // mode: the fetch is running, so mutations stay armed; if it fails
+      // transiently, the catch below re-enters this same cached copy WITH
+      // the offline affordance, and a stable failure (403/404/500) still
+      // takes the error page — a revoked or deleted trip must not survive
+      // as an interactive cached copy. Gated on `_trip == null` so a loud
+      // reload of an on-screen trip (mutation flows, offline Retry) can
+      // never regress the screen to an older cached copy.
+      if (_trip == null && !retryingFromError) {
+        final cached =
+            await ref.read(tripCacheProvider).readTrip(widget.tripId);
+        if (cached != null && mounted && _trip == null) {
+          setState(() {
+            _trip = cached.trip;
+            _bookingTodos = cached.trip.bookingTodos ?? [];
+            _stays = cached.trip.accommodations ?? [];
+            _segments = cached.trip.segments ?? [];
+            _loading = false;
+            // Today mode treats this as the trip's first paint (the
+            // cached-offline fallback's precedent); the fresh landing
+            // below then no-ops via _autoScrolledToday, so the swap can
+            // never re-scroll out from under the traveler.
+            if (!silent) _maybeAutoScrollToday(cached.trip);
+          });
+        }
+      }
+      // The cache read above added an await before the fetch below; a
+      // screen popped during it must not touch ref again.
+      if (!mounted) return;
     }
     try {
       final trip =
@@ -597,6 +666,14 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
           _stays = trip.accommodations ?? [];
           _segments = trip.segments ?? [];
           _offlineSince = null; // live data — leave offline mode if we were in it
+          // First paint gates on the trip GET alone (time-to-interactive,
+          // lever 1): everything the first frame renders is already in this
+          // payload, and the enhancement pass below — travel times,
+          // preferences, the booking-todo sync — used to hold the spinner
+          // through two-to-three more round trips, each exposed to send()'s
+          // retry backoff. They now land in place after this frame, exactly
+          // like the SSE-bump refresh path.
+          _loading = false;
           // Today mode fires only from loud loads — never from a silent
           // refresh, which shares this success path (PR #51/#53 invariants).
           if (!silent) _maybeAutoScrollToday(trip);
@@ -630,11 +707,24 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
         }
       }
 
-      await Future.wait([
-        if (mounted && (trip.items ?? const []).isNotEmpty)
-          _computeTravelTimes(trip),
-        syncTodosAfterPrefs(),
-      ]);
+      // Enhancement pass: the screen above is already rendered, so nothing
+      // in here may blank it, re-spinner it, or flip it into offline mode.
+      // Both chains swallow their own errors; this boundary keeps any
+      // residual one (a throwing prefs load, a future refactor) out of the
+      // catch clause below, which would misread it as a failed trip load.
+      // Deliberately still awaited: _load's completion continues to mean
+      // "this load and its follow-ups are done", so _refresh's coalescing
+      // loop can never overlap two booking-todo syncs.
+      try {
+        await Future.wait([
+          if (mounted && (trip.items ?? const []).isNotEmpty)
+            _computeTravelTimes(trip),
+          syncTodosAfterPrefs(),
+        ]);
+      } catch (_) {
+        // Explicitly silenced: enhancements degrade to the payload already
+        // on screen, the same way they do on the silent-refresh path.
+      }
       // Trip Health is a SEPARATE fetch (GET /trips/{id}/review) behind a
       // non-autoDispose provider, so nothing expires it on its own — leaving
       // the screen and coming back re-reads the same cached answer. Every
@@ -653,7 +743,12 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
       // surviving send()'s own retries) — a rate-limited boot with a good
       // cached copy must not dead-end on an error screen. Stable HTTP errors
       // (403/404/500) never match either predicate, so a revoked or deleted
-      // trip can't resurrect from a stale copy.
+      // trip can't resurrect from a stale copy — including one the
+      // cache-first paint above already put on screen: for those, the
+      // fall-through below sets _error and the error page replaces it.
+      // After a cache-first paint the transient branch re-reads the same
+      // entry and re-sets identical data, so the only visible change is the
+      // offline banner arriving — no content swap, no scroll reset.
       if (mounted && !quiet &&
           (TripCache.isNetworkError(e) || isTransientError(e))) {
         final cached = await ref.read(tripCacheProvider).readTrip(widget.tripId);
@@ -700,7 +795,10 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
       }
       if (mounted && !quiet) setState(() => _error = e);
     } finally {
-      if (mounted && !quiet) setState(() => _loading = false);
+      // Guarded: the success path and the cache-first paint clear _loading
+      // themselves, so this only mops up the paths that still show the
+      // spinner (no cached copy + failure), without an extra rebuild.
+      if (mounted && !quiet && _loading) setState(() => _loading = false);
       if (mounted) _syncStatusPolling();
     }
   }
@@ -831,10 +929,11 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   }
 
   /// One-shot Today trigger, called inside the setState of the loud load
-  /// paths (live success and cached-offline fallback) so the map's today
-  /// focus preselection lands in the same frame as the trip. Never called
-  /// from silent refreshes; a no-op once fired, while the refine panel is
-  /// open, or when the trip is undated/past/future or has no day tags.
+  /// paths (live success, cache-first paint, and cached-offline fallback) so
+  /// the map's today focus preselection lands in the same frame as the trip.
+  /// Never called from silent refreshes; a no-op once fired, while the refine
+  /// panel is open, or when the trip is undated/past/future or has no day
+  /// tags.
   void _maybeAutoScrollToday(Trip trip) {
     if (_autoScrolledToday || _panelOpen) return;
     final today = tripDayOn(trip.startDate, trip.endDate, DateTime.now());
@@ -852,9 +951,10 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     final todayLeg = d.legKeyForDay(today);
     if (todayLeg != null) _setMapFocus(d, todayLeg);
     // The scroll itself waits for the first build that actually shows the
-    // scroll view: this setState still renders the loading spinner (the
-    // loud path clears _loading later, in its finally), so a post-frame
-    // callback scheduled here could fire before the CustomScrollView exists.
+    // scroll view: a post-frame callback scheduled here could fire before
+    // the CustomScrollView has laid out (and on paths where this setState
+    // precedes _loading clearing, before it even exists), so the pending
+    // day is consumed by the content build instead.
     _pendingTodayScroll = today;
   }
 
@@ -3053,13 +3153,14 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     for (final r in derivation.visibleRanges) {
       final start = r.start, end = r.end;
       if (r.label == _kOtherPlaces || start == null || end == null) continue;
-      final report = ref
-          .watch(weatherByCityProvider(WeatherQuery(
-            city: r.label,
-            startDate: _fmt(start),
-            endDate: _fmt(end),
-          )))
-          .valueOrNull;
+      final report = _fanOutWatch(
+              ref,
+              weatherByCityProvider(WeatherQuery(
+                city: r.label,
+                startDate: _fmt(start),
+                endDate: _fmt(end),
+              )))
+          ?.valueOrNull;
       if (report == null) continue;
       final rec = clothingRec(report);
       if (rec == null) continue;
@@ -3108,10 +3209,13 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   Widget _healthAppBarAction(Trip trip, ThemeData theme) {
     return Consumer(
       builder: (context, ref, _) {
-        final findings = ref
-            .watch(tripReviewProvider(TripReviewKey(trip.id)))
-            .valueOrNull
-            ?.findings;
+        // _fanOutWatch: deferred (null) renders exactly the no-value gate
+        // below — the badge appears when the review lands, one frame's
+        // deferral later than before on a cold visit, immediately on warm.
+        final findings =
+            _fanOutWatch(ref, tripReviewProvider(TripReviewKey(trip.id)))
+                ?.valueOrNull
+                ?.findings;
         if (findings == null) return const SizedBox.shrink();
         const icon = Icon(Icons.fact_check_outlined);
         final l10n = context.l10n;
@@ -3189,7 +3293,8 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   /// point is to subscribe one app-bar widget rather than the screen.
   ({bool available, List<WearRegionRec> regions}) _wearState(
       WidgetRef ref, Trip trip) {
-    final items = ref.watch(checklistProvider(trip.id)).valueOrNull;
+    final items =
+        _fanOutWatch(ref, checklistProvider(trip.id))?.valueOrNull;
     final showChecklist = items != null && !(items.isEmpty && _readOnly);
     final recs = _legClothingRecs(trip, ref);
     return (available: recs.isNotEmpty || showChecklist, regions: recs);
@@ -3725,6 +3830,19 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
               : trip == null
                   ? const SizedBox.shrink()
                   : LayoutBuilder(builder: (context, constraints) {
+                      // Deferred fan-out arming (lever 3): the FIRST content
+                      // frame schedules everything deferred behind
+                      // _postFirstFrame — the live map, the enhancement
+                      // fetches — for the frame after it, so this frame's
+                      // paint costs only what it shows.
+                      if (!_postFirstFrame && !_postFirstFrameArmed) {
+                        _postFirstFrameArmed = true;
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) {
+                            setState(() => _postFirstFrame = true);
+                          }
+                        });
+                      }
                       // Phones get the scroll-away tap-to-expand map; wide
                       // layouts keep the pinned header. Keyed to the width
                       // the body actually gets (like the refine-dock check
@@ -3875,6 +3993,15 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                                     isOffline: _isOffline,
                                     readOnly: _readOnly,
                                     panelOpen: _panelOpen,
+                                    // _fanOutWatch's condition, resolved
+                                    // here because the card lives in its
+                                    // own file: the review watch may run
+                                    // once the fan-out frame has arrived
+                                    // or when a previous watch already
+                                    // created the provider (warm revisit).
+                                    reviewLive: _postFirstFrame ||
+                                        ref.exists(tripReviewProvider(
+                                            TripReviewKey(trip.id))),
                                     displayTitle: _displayTitle(trip),
                                     titleKey: _headerTitleKey,
                                     overview: _overviewText(trip),
@@ -3912,6 +4039,7 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                                 trip: trip,
                                 derivation: derivation,
                                 expandable: expandable,
+                                live: _postFirstFrame,
                                 focusedLegKey: _focusedLegKey,
                                 selectedPosition: _selectedPosition,
                                 homeAirport: _homeAirport,
