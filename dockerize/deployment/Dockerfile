@@ -48,7 +48,14 @@ RUN mkdir -p web/icons
 RUN dart run build_runner build --delete-conflicting-outputs
 
 # --web-renderer was removed in Flutter 3.32+ (canvaskit is the default).
-RUN flutter build web --release \
+# --wasm emits BOTH builds — dart2wasm+skwasm plus the dart2js+canvaskit
+# fallback — and flutter_bootstrap.js picks per browser at runtime: WasmGC
+# Blink browsers load skwasm (multithreaded, because /app/ already serves
+# COOP/COEP), everyone else keeps the exact JS path they get today. The
+# dual compile roughly doubles this step. Requires flutter_secure_storage
+# >= 10 (pubspec.yaml records why); the four guarded service-worker seds
+# below were verified against a --wasm build's output.
+RUN flutter build web --release --wasm \
     --base-href /app/ \
     --dart-define=API_BASE_URL=/api/v1 \
     --dart-define=APP_BASE_PATH=/app/
@@ -160,6 +167,17 @@ RUN sed -i 's/return response || fetch(event\.request)/return response || fetch(
 # entrypoint are both retained in -slim. Minor-version pinned: 1.31.x is
 # what production already runs; bumps are explicit, reviewable edits.
 FROM nginx:1.31-alpine-slim
+
+# nginx's stock mime.types maps `js` but not `mjs` (still true in 1.31), so
+# main.dart.mjs would ship as application/octet-stream. The wasm entrypoint
+# loads it via dynamic import(), which REQUIRES a JavaScript MIME type — and
+# X-Content-Type-Options: nosniff (security-headers.conf) makes the mismatch
+# a hard block, not a warning: every wasm-eligible browser white-screens, and
+# the bootstrap has no runtime fallback to the JS build. Guarded like the
+# service-worker patches above: fail the image build loudly if a base-image
+# bump ever reshapes the line this edits.
+RUN sed -E -i 's|(application/javascript[[:space:]]+js);|\1 mjs;|' /etc/nginx/mime.types \
+    && grep -qE 'application/javascript[[:space:]]+js mjs;' /etc/nginx/mime.types
 
 # default.conf is the local :80 server shell; the production stack
 # volume-mounts dockerize/production/nginx/prod.conf over it. The shared
