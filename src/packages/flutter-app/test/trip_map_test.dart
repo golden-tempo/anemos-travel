@@ -368,6 +368,103 @@ void main() {
     expect(find.text('12 min'), findsOneWidget);
   });
 
+  group('box resize', () {
+    // Longitude-spread pair (Paris + Vienna at similar latitude) so the fit
+    // is width-limited: a camera kept from a wider box clips both extremes
+    // on the narrower one, which is exactly what the pre-fix code does.
+    final spread = [
+      _item(0, 'Louvre', 48.8606, 2.3376),
+      _item(1, 'Stephansplatz', 48.2085, 16.3731),
+    ];
+    const west = LatLng(48.8606, 2.3376);
+    const east = LatLng(48.2085, 16.3731);
+
+    testWidgets('a meaningful width change re-frames the current fit', (
+      WidgetTester tester,
+    ) async {
+      // One widget instance across pumps: the resize reaches the map only
+      // through its LayoutBuilder, the same shape as a window resize or the
+      // map row's flex share settling (post-#575 off-center report).
+      final map = TripMap(items: spread);
+      await tester.pumpWidget(_hostSized(map, const Size(800, 300)));
+      await tester.pump();
+      expect(_camera(tester).visibleBounds.contains(west), isTrue);
+      expect(_camera(tester).visibleBounds.contains(east), isTrue);
+
+      await tester.pumpWidget(_hostSized(map, const Size(400, 300)));
+      await tester.pump(); // resize laid out; post-frame re-fit scheduled
+      await tester.pump(); // re-fit ran
+
+      final bounds = _camera(tester).visibleBounds;
+      expect(bounds.contains(west), isTrue,
+          reason: 'the fit set must be re-framed for the new box');
+      expect(bounds.contains(east), isTrue,
+          reason: 'the fit set must be re-framed for the new box');
+    });
+
+    testWidgets('a sub-threshold jitter keeps a manual zoom', (
+      WidgetTester tester,
+    ) async {
+      final map = TripMap(items: spread);
+      await tester.pumpWidget(_hostSized(map, const Size(400, 300)));
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.add)); // traveler zooms in
+      await tester.pump();
+      final zoomed = _camera(tester).zoom;
+
+      // Scrollbar-scale width change (17px): the camera must survive — a
+      // re-fit here would stomp the zoom back to the fit level.
+      await tester.pumpWidget(_hostSized(map, const Size(383, 300)));
+      await tester.pump();
+      await tester.pump();
+
+      expect(_camera(tester).zoom, zoomed);
+    });
+
+    testWidgets('a resize while a pin is selected never yanks the camera', (
+      WidgetTester tester,
+    ) async {
+      // Guard rail (passes pre-fix too): the selected camera is
+      // point-centered, and a resize keeps the point centered by itself —
+      // the resize re-fit must leave it alone.
+      final map = TripMap(items: spread, selectedPosition: 0);
+      await tester.pumpWidget(_hostSized(map, const Size(800, 300)));
+      await tester.pump();
+      expect(_camera(tester).zoom, 15);
+
+      await tester.pumpWidget(_hostSized(map, const Size(400, 300)));
+      await tester.pump();
+      await tester.pump();
+
+      final camera = _camera(tester);
+      expect(camera.zoom, 15);
+      expect(camera.center.latitude, closeTo(west.latitude, 1e-4));
+      expect(camera.center.longitude, closeTo(west.longitude, 1e-4));
+    });
+
+    testWidgets('rightOverlayInset keeps the east extreme off the right edge',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _host(TripMap(items: spread, rightOverlayInset: 44)),
+      );
+      await tester.pump();
+
+      // Width-limited fit: the east extreme sits at the padded edge — base
+      // 32 + the 44 inset from the 400px box's right side — while the west
+      // extreme keeps the symmetric-era 32 (the inset is right-only).
+      final camera = _camera(tester);
+      expect(
+        camera.latLngToScreenOffset(east).dx,
+        lessThanOrEqualTo(400 - 76 + 0.5),
+      );
+      expect(
+        camera.latLngToScreenOffset(west).dx,
+        greaterThanOrEqualTo(32 - 0.5),
+      );
+    });
+  });
+
   testWidgets('topOverlayInset keeps fitted markers below the overlay band', (
     WidgetTester tester,
   ) async {

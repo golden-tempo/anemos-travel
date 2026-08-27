@@ -37,6 +37,16 @@ const double mapRowMinHeight = 300;
 /// full-screen map is one tap away).
 const double mapBandHeightNarrow = 180;
 
+/// Extra right camera-fit padding for the interactive card, where TripMap's
+/// zoom/reset capsule overlays the bottom-right edge: 8px margin + the 44px
+/// column + 24px marker clearance, minus the 32px base fit padding. At the
+/// map row's ~55% share the column eats enough of the box that a fitted
+/// cluster landed underneath it (the post-#575 off-center report); paying
+/// fit room for it is this card's call, not TripMap's — the full-screen map
+/// keeps the full frame. The non-interactive phone preview draws no
+/// controls, so it passes 0.
+const double mapBandControlColumnInset = 44;
+
 /// The phone layout's band slot: a fixed-height scroll-away preview card in
 /// the page flow. Wide layouts render the map inside the header block's
 /// [TripDetailMapRow] instead — since the map-row redesign nothing above the
@@ -247,8 +257,11 @@ class TripDetailMapBand extends StatelessWidget {
                       .read(homeOverlayChoiceProvider.notifier)
                       .setShown(!showHome),
               fitSignature: focusKey,
-              // Keep fitted markers clear of the chip row overlaid below.
+              // Keep fitted markers clear of the chip row overlaid below and
+              // of the control column on the right (interactive card only —
+              // the preview draws no controls).
               topOverlayInset: hasChips ? MapLegChips.mapTopInset : 0,
+              rightOverlayInset: expandable ? 0 : mapBandControlColumnInset,
               interactive: !expandable,
               emptyLabel: focusKey == null
                   ? l10n.tripNoMappedPlaces
