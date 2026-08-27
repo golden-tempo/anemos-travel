@@ -20,17 +20,13 @@ class LiveTripCard extends StatelessWidget {
   final Trip trip;
   final VoidCallback onTap;
 
-  /// Passed through to [TripHeroCard.showMap]. Home passes false: its copy of
-  /// this card and the trips list's are alive at the same time inside
-  /// AppShell's IndexedStack, and two route bands for one trip starve each
-  /// other's tiles until both render blank.
-  final bool showMap;
+  // Both hosts (Home and the trips list, alive together in AppShell's
+  // IndexedStack) render the route band now. Home used to suppress it —
+  // two live flutter_maps for one trip starved each other's tiles until
+  // both went blank — but AppMapVisibilityGate ended that: a hidden tab's
+  // band mounts no map at all, so only the visible host ever holds one.
 
-  const LiveTripCard(
-      {super.key,
-      required this.trip,
-      required this.onTap,
-      this.showMap = true});
+  const LiveTripCard({super.key, required this.trip, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +48,6 @@ class LiveTripCard extends StatelessWidget {
       // "Day 2 of 5" already names the span, so the card's own duration label
       // would be a second total saying the same thing.
       showDuration: false,
-      showMap: showMap,
       leadingMeta: [
         TripHeroCard.heroPill(context, l10n.liveTripStatusLive),
         if (progress != null) TripHeroCard.heroFact(context, progress),
