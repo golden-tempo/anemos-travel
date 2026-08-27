@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -51,6 +52,11 @@ type LocationTiming struct {
 	DepartureTime    string   `json:"departure_time,omitempty"`
 	TravelToNextMin  int      `json:"travel_to_next_minutes"`
 	TravelToNextKm   float64  `json:"travel_to_next_km"`
+	// TravelToNextMode is "walk" or "transit" and is present exactly when the
+	// leg to the next stop was computed. Absent means no computed leg: the last
+	// stop of a one-way route, or a leg touching an unresolved location. The
+	// client's icon follows this field, never a distance threshold.
+	TravelToNextMode string `json:"travel_to_next_mode,omitempty"`
 }
 
 // RouteResponse represents the optimized route result
@@ -66,6 +72,12 @@ type RouteResponse struct {
 	ImprovementPct     float64          `json:"improvement_percentage,omitempty"`
 	LocationCount      int              `json:"location_count"`
 	Status             string           `json:"status"`
+	// Unresolved names the locations skipped because coordinate resolution
+	// failed (name when present, id otherwise). Their legs carry no travel
+	// data; with PreserveOrder they keep their positional entries, without it
+	// they are excluded from OptimizedRoute/LocationTimings entirely. Omitted
+	// when every location resolved.
+	Unresolved []string `json:"unresolved,omitempty"`
 }
 
 // VisitTimeEstimator handles estimation of visit durations based on location categories
@@ -332,6 +344,42 @@ func (ro *RouteOptimizer) getDistance(i, j int) float64 {
 	return dist
 }
 
+// Travel heuristic (specs artifact day-travel-times, settled 2026-08-23).
+// Straight-line under-measures real street distance by roughly a third in a
+// gridded or canal-cut city, so every reported distance is detour-corrected;
+// the walk/transit split reads on that corrected distance.
+const (
+	travelDetourFactor = 1.3
+	travelWalkMaxKm    = 1.5 // corrected distance at/below which the hop is walked
+	travelWalkKmh      = 5.0
+	travelTransitKmh   = 15.0 // city average door-to-door, waiting included
+
+	travelModeWalk    = "walk"
+	travelModeTransit = "transit"
+)
+
+// legTravel computes the reported distance, duration and mode for the leg
+// between locations i and j (indices into ro.locations). The corrected
+// (×1.3) kilometres are the ONE distance meaning every reported km field
+// carries; minutes derive from that same distance, so the two can never
+// disagree. ok is false when either endpoint lacks coordinates — such a leg
+// is reported absent (zero fields, no mode), never guessed at.
+func (ro *RouteOptimizer) legTravel(i, j int) (km float64, minutes int, mode string, ok bool) {
+	a, b := ro.locations[i], ro.locations[j]
+	if a.Latitude == nil || a.Longitude == nil || b.Latitude == nil || b.Longitude == nil {
+		return 0, 0, "", false
+	}
+	km = ro.getDistance(i, j) * travelDetourFactor
+	mode = travelModeTransit
+	speed := travelTransitKmh
+	if km <= travelWalkMaxKm {
+		mode = travelModeWalk
+		speed = travelWalkKmh
+	}
+	minutes = int(math.Ceil(km / speed * 60))
+	return km, minutes, mode, true
+}
+
 // calculateRouteDistance calculates total distance for a given route
 func (ro *RouteOptimizer) calculateRouteDistance(route []int, returnToStart bool) float64 {
 	if len(route) < 2 {
@@ -351,26 +399,29 @@ func (ro *RouteOptimizer) calculateRouteDistance(route []int, returnToStart bool
 	return totalDistance
 }
 
-// nearestNeighborRoute creates initial route using nearest neighbor algorithm
-func (ro *RouteOptimizer) nearestNeighborRoute(startIndex int, returnToStart bool) []int {
-	n := len(ro.locations)
-	if n == 0 {
+// nearestNeighborRoute creates an initial route over the candidate indices
+// using the nearest neighbor algorithm. Only candidates participate: a
+// coordinate-less location cannot be placed by distance math (getDistance
+// reads it as 0 km from everywhere, which would distort even the resolved
+// locations' ordering). startIndex must be one of the candidates.
+func (ro *RouteOptimizer) nearestNeighborRoute(startIndex int, candidates []int) []int {
+	if len(candidates) == 0 {
 		return []int{}
 	}
 
-	route := make([]int, 0, n)
-	visited := make([]bool, n)
+	route := make([]int, 0, len(candidates))
+	visited := make(map[int]bool, len(candidates))
 
 	current := startIndex
 	route = append(route, current)
 	visited[current] = true
 
-	// Build route by always going to nearest unvisited location
-	for len(route) < n {
+	// Build route by always going to nearest unvisited candidate
+	for len(route) < len(candidates) {
 		nearest := -1
 		minDist := math.Inf(1)
 
-		for i := 0; i < n; i++ {
+		for _, i := range candidates {
 			if !visited[i] {
 				dist := ro.getDistance(current, i)
 				if dist < minDist {
@@ -452,17 +503,6 @@ func (ro *RouteOptimizer) optimizeWith2Opt(initialRoute []int, returnToStart boo
 	return currentRoute
 }
 
-// findLocationIndex finds the index of a location by ID in the locations array
-func (ro *RouteOptimizer) findLocationIndex(locationID string) int {
-	for i, location := range ro.locations {
-		if location.ID == locationID {
-			return i
-		}
-	}
-	return -1
-}
-
-// OptimizeRoute is the main function to optimize a route
 // resolveLocation resolves a location's coordinates and details from Google Places API
 func (ro *RouteOptimizer) resolveLocation(ctx context.Context, location *Location, placesService *GooglePlacesService) error {
 	// If we already have coordinates, no need to resolve
@@ -522,21 +562,68 @@ func (ro *RouteOptimizer) resolveLocation(ctx context.Context, location *Locatio
 	return nil
 }
 
-func (ro *RouteOptimizer) OptimizeRoute(ctx context.Context, request RouteRequest) RouteResponse {
+// errNoLocations is OptimizeRoute's guard against an empty request; the
+// handler pre-validates this, so it maps to the same 400.
+var errNoLocations = errors.New("at least one location is required")
+
+// allUnresolvedError is the residual whole-request failure: not one location
+// could be resolved to coordinates, so there is no route to compute. The
+// handler maps it to an honest non-200 — 422 when at least one failure blames
+// the request (a place Google can't find, a location with nothing to look
+// up), 503 when every failure was provider-side (outage, quota, missing key).
+type allUnresolvedError struct {
+	Names        []string
+	ProviderDown bool
+}
+
+func (e *allUnresolvedError) Error() string {
+	return "could not resolve any location: " + strings.Join(e.Names, ", ")
+}
+
+// resolutionIsRequestSide reports whether a resolveLocation failure blames the
+// request rather than the provider. "no places found" is resolveLocation's own
+// empty-search string; ZERO_RESULTS classification matches the trip-import
+// pipeline's isPlacesZeroResults.
+func resolutionIsRequestSide(loc Location, err error) bool {
+	if loc.PlaceID == "" && loc.Name == "" {
+		return true // nothing to look up — never the provider's fault
+	}
+	return isPlacesZeroResults(err) || strings.Contains(err.Error(), "no places found")
+}
+
+func (ro *RouteOptimizer) OptimizeRoute(ctx context.Context, request RouteRequest) (RouteResponse, error) {
 	if len(request.Locations) == 0 {
-		return RouteResponse{
-			Status: "error: no locations provided",
-		}
+		return RouteResponse{}, errNoLocations
 	}
 
 	// Resolve locations that don't have coordinates (via the shared
-	// placesService singleton so lookups hit its TTL caches)
+	// placesService singleton so lookups hit its TTL caches). A failed
+	// resolution SKIPS that location — it is reported in Unresolved and its
+	// legs stay uncomputed — so one bad place on day 9 can no longer erase
+	// day 2's timings. Only the residual nothing-resolved case is an error.
+	var unresolved []string
+	requestSideFailure := false
 	for i := range request.Locations {
-		if err := ro.resolveLocation(ctx, &request.Locations[i], placesService); err != nil {
-			return RouteResponse{
-				Status: fmt.Sprintf("error resolving location '%s': %v", request.Locations[i].Name, err),
-			}
+		err := ro.resolveLocation(ctx, &request.Locations[i], placesService)
+		if err == nil {
+			continue
 		}
+		loc := request.Locations[i]
+		name := loc.Name
+		if name == "" {
+			name = loc.ID
+		}
+		// Provider/internal error detail stays in the server log; the response
+		// carries only the caller's own location names.
+		ctxLog(ctx).Warn("optimize-route: skipping unresolvable location",
+			"location", name, "error", err)
+		unresolved = append(unresolved, name)
+		if resolutionIsRequestSide(loc, err) {
+			requestSideFailure = true
+		}
+	}
+	if len(unresolved) == len(request.Locations) {
+		return RouteResponse{}, &allUnresolvedError{Names: unresolved, ProviderDown: !requestSideFailure}
 	}
 
 	if len(request.Locations) == 1 {
@@ -577,14 +664,17 @@ func (ro *RouteOptimizer) OptimizeRoute(ctx context.Context, request RouteReques
 			LocationCount:      1,
 			Algorithm:          "single-location",
 			Status:             "success",
-		}
+		}, nil
 	}
 
-	// Set up locations and determine start index
+	// Set up locations and split off the indices that actually resolved —
+	// only those can participate in distance math.
 	ro.locations = request.Locations
-	startIndex := 0
-	if request.StartIndex != nil && *request.StartIndex >= 0 && *request.StartIndex < len(request.Locations) {
-		startIndex = *request.StartIndex
+	resolvedIdx := make([]int, 0, len(request.Locations))
+	for i, loc := range request.Locations {
+		if loc.Latitude != nil && loc.Longitude != nil {
+			resolvedIdx = append(resolvedIdx, i)
+		}
 	}
 
 	var optimizedRoute []int
@@ -592,7 +682,10 @@ func (ro *RouteOptimizer) OptimizeRoute(ctx context.Context, request RouteReques
 	algorithm := "nearest-neighbor + 2-opt"
 
 	if request.PreserveOrder {
-		// Keep the caller-supplied order; only compute per-leg timings below.
+		// Keep the caller-supplied order — including unresolved locations at
+		// their positions, because the timings array is positionally keyed to
+		// the request and dropping an entry would shift every later timing
+		// onto the wrong location. Their legs contribute nothing below.
 		optimizedRoute = make([]int, len(request.Locations))
 		for i := range optimizedRoute {
 			optimizedRoute[i] = i
@@ -601,8 +694,17 @@ func (ro *RouteOptimizer) OptimizeRoute(ctx context.Context, request RouteReques
 		originalDistance = optimizedDistance
 		algorithm = "preserve-order"
 	} else {
-		// Create initial route using nearest neighbor
-		initialRoute := ro.nearestNeighborRoute(startIndex, request.ReturnToStart)
+		// Route only over the resolved locations; an unresolvable place has
+		// no honest position in a computed order, so it is excluded from the
+		// route entirely (and named in Unresolved). Start from the requested
+		// index when it resolved, else from the first resolved location.
+		startIndex := resolvedIdx[0]
+		if request.StartIndex != nil && *request.StartIndex >= 0 && *request.StartIndex < len(request.Locations) {
+			if s := *request.StartIndex; request.Locations[s].Latitude != nil && request.Locations[s].Longitude != nil {
+				startIndex = s
+			}
+		}
+		initialRoute := ro.nearestNeighborRoute(startIndex, resolvedIdx)
 		originalDistance = ro.calculateRouteDistance(initialRoute, request.ReturnToStart)
 
 		// Optimize using 2-opt (limit iterations for performance)
@@ -650,12 +752,15 @@ func (ro *RouteOptimizer) OptimizeRoute(ctx context.Context, request RouteReques
 		}
 	}
 
-	// Calculate travel time (assuming average speed of 40 km/h in city)
-	travelTimeMin := int(math.Ceil(optimizedDistance / 40.0 * 60))
-
-	// Calculate visit times and create detailed timing information with operating hours
+	// Calculate visit times and create detailed timing information with
+	// operating hours. Totals are the SUM of the per-leg values below — the
+	// route is not traveled at one blended speed, so there is no meaningful
+	// whole-route formula anymore; what the client can sum from the entries
+	// is what the totals say.
 	locationTimings := make([]LocationTiming, len(result))
 	totalVisitTime := 0
+	totalTravelTime := 0
+	totalTravelKm := 0.0
 	currentTime := startDateTime
 
 	for i, location := range result {
@@ -673,24 +778,25 @@ func (ro *RouteOptimizer) OptimizeRoute(ctx context.Context, request RouteReques
 
 		totalVisitTime += visitDuration
 
-		// Calculate travel time to next location
+		// The leg out of this stop: to the next one, or back to the start on
+		// a round trip. optimizedRoute holds indices into ro.locations, so no
+		// by-ID lookup is needed (and duplicate IDs can't cross wires).
+		next := -1
+		if i < len(optimizedRoute)-1 {
+			next = optimizedRoute[i+1]
+		} else if request.ReturnToStart && len(optimizedRoute) > 1 {
+			next = optimizedRoute[0]
+		}
 		travelToNext := 0
 		travelToNextKm := 0.0
-		if i < len(result)-1 {
-			// Find indices in original locations array
-			currentIdx := ro.findLocationIndex(location.ID)
-			nextIdx := ro.findLocationIndex(result[i+1].ID)
-			if currentIdx != -1 && nextIdx != -1 {
-				travelToNextKm = ro.getDistance(currentIdx, nextIdx)
-				travelToNext = int(math.Ceil(travelToNextKm / 40.0 * 60)) // 40 km/h average
-			}
-		} else if request.ReturnToStart && len(result) > 1 {
-			// Travel time back to start
-			currentIdx := ro.findLocationIndex(location.ID)
-			startIdx := ro.findLocationIndex(result[0].ID)
-			if currentIdx != -1 && startIdx != -1 {
-				travelToNextKm = ro.getDistance(currentIdx, startIdx)
-				travelToNext = int(math.Ceil(travelToNextKm / 40.0 * 60))
+		travelMode := ""
+		if next != -1 {
+			if km, minutes, mode, ok := ro.legTravel(optimizedRoute[i], next); ok {
+				travelToNextKm = km
+				travelToNext = minutes
+				travelMode = mode
+				totalTravelTime += minutes
+				totalTravelKm += km
 			}
 		}
 
@@ -701,25 +807,27 @@ func (ro *RouteOptimizer) OptimizeRoute(ctx context.Context, request RouteReques
 			DepartureTime:    departureTime,
 			TravelToNextMin:  travelToNext,
 			TravelToNextKm:   math.Round(travelToNextKm*100) / 100,
+			TravelToNextMode: travelMode,
 		}
 
 		// Update current time for next location (departure time + travel time)
 		currentTime = currentTime.Add(time.Duration(visitDuration+travelToNext) * time.Minute)
 	}
 
-	totalTripTime := travelTimeMin + totalVisitTime
+	totalTripTime := totalTravelTime + totalVisitTime
 
 	return RouteResponse{
 		OptimizedRoute:     result,
-		TotalDistanceKm:    math.Round(optimizedDistance*100) / 100,
-		TotalTravelTimeMin: travelTimeMin,
+		TotalDistanceKm:    math.Round(totalTravelKm*100) / 100,
+		TotalTravelTimeMin: totalTravelTime,
 		TotalVisitTimeMin:  totalVisitTime,
 		TotalTripTimeMin:   totalTripTime,
 		LocationTimings:    locationTimings,
 		LocationCount:      len(request.Locations),
 		Algorithm:          algorithm,
-		OriginalDistance:   math.Round(originalDistance*100) / 100,
+		OriginalDistance:   math.Round(originalDistance*travelDetourFactor*100) / 100,
 		ImprovementPct:     math.Round(improvementPct*100) / 100,
 		Status:             "success",
-	}
+		Unresolved:         unresolved,
+	}, nil
 }

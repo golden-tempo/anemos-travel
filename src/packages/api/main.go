@@ -198,7 +198,32 @@ func optimizeRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Create optimizer and process request
 	optimizer := NewRouteOptimizer(request.Locations)
-	result := optimizer.OptimizeRoute(r.Context(), request)
+	result, err := optimizer.OptimizeRoute(r.Context(), request)
+	if err != nil {
+		// An error is the whole-request failure lane and is never a 200: a
+		// 200 always carries non-null optimized_route and location_timings
+		// (partial resolution stays a 200, reporting skips in `unresolved`).
+		var allUnresolved *allUnresolvedError
+		status := http.StatusBadRequest
+		message := err.Error()
+		if errors.As(err, &allUnresolved) {
+			// Every location failed resolution. Blame the request (422) only
+			// when at least one failure was request-side; a pure provider
+			// outage (Places down, quota, missing key) is a 503.
+			status = http.StatusUnprocessableEntity
+			if allUnresolved.ProviderDown {
+				status = http.StatusServiceUnavailable
+			}
+			message = "Could not resolve any location: " + strings.Join(allUnresolved.Names, ", ")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		json.NewEncoder(w).Encode(Response{
+			Message: message,
+			Status:  "error",
+		})
+		return
+	}
 
 	// Return result
 	w.Header().Set("Content-Type", "application/json")

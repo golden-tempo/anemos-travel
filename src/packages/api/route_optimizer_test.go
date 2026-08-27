@@ -26,8 +26,11 @@ func TestOptimizeRoutePreserveOrder(t *testing.T) {
 		},
 	}
 
-	resp := ro.OptimizeRoute(context.Background(), req)
+	resp, err := ro.OptimizeRoute(context.Background(), req)
 
+	if err != nil {
+		t.Fatalf("OptimizeRoute returned error: %v", err)
+	}
 	if resp.Status != "success" {
 		t.Fatalf("expected success, got %q", resp.Status)
 	}
