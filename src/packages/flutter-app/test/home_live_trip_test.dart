@@ -115,14 +115,15 @@ void main() {
     expect(find.text('Day 2 of 3'), findsOneWidget);
   });
 
-  testWidgets('Home\'s live card carries no route band, cache hit or not',
+  testWidgets('Home\'s live card renders the route band on a cache hit',
       (WidgetTester tester) async {
-    // The live card is the ONE card that renders on Home and the trips list
-    // at once (AppShell's IndexedStack keeps both alive), and two flutter_map
-    // instances racing for the same tiles leave BOTH blank — verified in a
-    // browser. The trips list owns this trip's band; suppressing it here is
-    // what makes that one work, so it is pinned rather than left to a
-    // "why is this false?" cleanup.
+    // Inverted pin. Home used to suppress this band: the live card renders
+    // on Home and the trips list at once (AppShell's IndexedStack keeps both
+    // alive), and two flutter_maps racing for one trip's tiles left BOTH
+    // blank — browser-verified at the time. AppMapVisibilityGate killed the
+    // premise: a hidden tab's band mounts no map, so only the visible host
+    // ever holds one, and Home's map came back (it had vanished the day a
+    // trip went live — reported as a lost feature, 2026-08-27).
     SharedPreferences.setMockInitialValues({
       'trip_cache.user-1.trip.t1': jsonEncode({
         'saved_at': '2026-08-01T10:00:00.000',
@@ -160,7 +161,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(LiveTripCard), findsOneWidget);
-    expect(find.byType(TripMapBand), findsNothing);
+    expect(find.byType(TripMapBand), findsOneWidget);
   });
 
   testWidgets('recent-trip tile hides when it is the live trip',

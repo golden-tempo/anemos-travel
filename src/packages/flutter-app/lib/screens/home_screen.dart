@@ -211,9 +211,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 stretch: true,
                 child: LiveTripCard(
                   trip: liveTrip,
-                  // The trips list owns this trip's route band; a second
-                  // one here would starve it (see TripHeroCard.showMap).
-                  showMap: false,
                   // On the Trips tab (not pushed over Home): the Trips nav
                   // item highlights, and `from` sends back here rather than
                   // to a trips list this traveler never opened.
