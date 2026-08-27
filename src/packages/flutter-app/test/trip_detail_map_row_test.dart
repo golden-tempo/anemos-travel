@@ -12,6 +12,7 @@ import 'package:travel_route_planner/screens/trip_detail_screen.dart';
 import 'package:travel_route_planner/services/api_client.dart';
 import 'package:travel_route_planner/services/trip_review_api_service.dart';
 import 'package:travel_route_planner/services/trips_api_service.dart';
+import 'package:travel_route_planner/widgets/trip_detail/map_band.dart';
 import 'package:travel_route_planner/widgets/trip_map.dart';
 
 import 'support/l10n_test_app.dart';
@@ -219,6 +220,47 @@ void main() {
       expect(tester.getRect(mapGone).bottom, lessThanOrEqualTo(0),
           reason: 'the full-width map must scroll away too');
     }
+  });
+
+  testWidgets(
+      'wide: the interactive map card pays fit room for the control column',
+      (tester) async {
+    // The zoom/reset capsule overlays the card's bottom-right edge, and at
+    // the row's ~55% share a symmetric fit parked the easternmost cluster
+    // underneath it (the post-#575 off-center report) — the interactive
+    // card passes the asymmetric inset; TripMap itself stays neutral.
+    await _pump(
+      tester,
+      trip: _trip(
+          chat: const TripRefineChat(
+        messageCount: 17,
+        preview: 'Great choice! Go ahead and add it.',
+        updatedAt: '2026-08-25T10:00:00Z',
+      )),
+      review: _lodgingReview,
+      surface: const Size(1200, 800),
+    );
+
+    final map = tester.widget<TripMap>(find.byType(TripMap));
+    expect(map.interactive, isTrue,
+        reason: 'premise: the wide row hosts the interactive card');
+    expect(map.rightOverlayInset, mapBandControlColumnInset);
+  });
+
+  testWidgets('narrow: the control-less preview pays no right inset',
+      (tester) async {
+    await _pump(
+      tester,
+      trip: _trip(),
+      review: _lodgingReview,
+      surface: const Size(375, 800),
+    );
+
+    final map = tester.widget<TripMap>(find.byType(TripMap));
+    expect(map.interactive, isFalse,
+        reason: 'premise: the phone preview absorbs pointers');
+    expect(map.rightOverlayInset, 0,
+        reason: 'no controls render, so no fit room is paid for them');
   });
 
   testWidgets(

@@ -30,6 +30,16 @@ const double _pinHitBox = 44;
 /// less than [TripMap.topOverlayInset]'s usual value.
 const double _emptyStateTopInset = 44;
 
+/// Box-width change (px) below which a resize keeps the camera instead of
+/// re-running the fit. Web scrollbars appearing/disappearing move the box
+/// ~15–17px and must never stomp a manual pan/zoom; any real layout change
+/// (a window resize, the map row's flex share settling — the post-#575
+/// off-center bug) moves it well past this. Measured against the width the
+/// current fit was established at, not the previous frame's, so a
+/// continuous window drag accumulates across frames instead of slipping
+/// under the threshold one step at a time.
+const double _refitWidthDelta = 32;
+
 /// One journey endpoint on the trip map: the airport's point plus which travel
 /// legs to draw from it. A null endpoint hides that leg (e.g. a mid-trip
 /// day-chip selection); an entry with both endpoints null should not be passed
@@ -167,6 +177,16 @@ class TripMap extends StatefulWidget {
   /// The default keeps existing call sites unchanged.
   final double topOverlayInset;
 
+  /// Extra right camera-fit padding (px) for the control column overlaying
+  /// the map's bottom-right edge, so fitted markers never land underneath
+  /// it — [topOverlayInset]'s twin for the other overlaid edge. Decided at
+  /// the call site because only the host knows whether the column's share of
+  /// the box is worth paying fit room for: at the ~55% map-row width the
+  /// column eats ~11% of the box (the post-#575 off-center report shows a
+  /// fitted cluster underneath it), while on the full-screen map it is
+  /// negligible. The default keeps existing call sites unchanged.
+  final double rightOverlayInset;
+
   /// False renders a static preview: no gestures and no zoom/reset buttons.
   /// Callers overlay their own tap handler (e.g. tap-to-expand on phones).
   final bool interactive;
@@ -218,6 +238,7 @@ class TripMap extends StatefulWidget {
     this.emptyMessage,
     this.emptyAction,
     this.topOverlayInset = 0,
+    this.rightOverlayInset = 0,
     this.interactive = true,
     this.home = const [],
     this.destinations,
@@ -245,6 +266,12 @@ class _TripMapState extends State<TripMap> {
   /// Width from the previous layout, to catch resizes in [build]'s
   /// LayoutBuilder (they never reach [didUpdateWidget]).
   double? _lastMapWidth;
+
+  /// Width the camera's current fit was established at: the initial layout's
+  /// width, then whatever [_fitToTrip] last saw. A later layout differing
+  /// from it by [_refitWidthDelta] or more means the fit frames a box that
+  /// no longer exists, so the resize branch re-runs it (see [build]).
+  double? _lastFittedWidth;
 
   /// [TripMap.selectedPosition], mirrored into a notifier (synced in
   /// [initState]/[didUpdateWidget]) so pins can render their selected state
@@ -275,10 +302,11 @@ class _TripMapState extends State<TripMap> {
     super.dispose();
   }
 
-  /// Fit padding shared by the initial fit and every re-fit; asymmetric so a
-  /// top overlay (day chips) never covers the topmost fitted marker.
-  EdgeInsets get _fitPadding =>
-      EdgeInsets.fromLTRB(32, 32 + widget.topOverlayInset, 32, 32);
+  /// Fit padding shared by the initial fit and every re-fit; asymmetric so
+  /// an overlaid edge (day chips top, control column right) never covers the
+  /// outermost fitted marker.
+  EdgeInsets get _fitPadding => EdgeInsets.fromLTRB(
+      32, 32 + widget.topOverlayInset, 32 + widget.rightOverlayInset, 32);
 
   static bool _hasCoords(ItineraryItem i) =>
       i.latitude != 0 || i.longitude != 0;
@@ -373,6 +401,10 @@ class _TripMapState extends State<TripMap> {
   /// deferral would not fire without a frame being scheduled).
   void _fitToTrip(List<LatLng> points) {
     if (points.isEmpty) return;
+    // Whatever framing results, it is for the box as laid out now — anchor
+    // the resize threshold to it (covers the signature/content re-fits and
+    // the reset button, not just the resize branch's own re-runs).
+    _lastFittedWidth = _lastMapWidth ?? _lastFittedWidth;
     try {
       if (points.length == 1) {
         _controller.move(points.first, 13);
@@ -579,6 +611,11 @@ class _TripMapState extends State<TripMap> {
     // Destination mode always has ≥2 route points to show, even when a
     // category lens empties the day-filtered items.
     if (mapped.isEmpty && stays.isEmpty && !destMode) {
+      // No live map, no camera: a later content arrival mounts a fresh
+      // FlutterMap whose initialCameraFit frames it at that layout's width,
+      // so widths remembered from a previous mapped phase are meaningless.
+      _lastMapWidth = null;
+      _lastFittedWidth = null;
       return Container(
         color: theme.colorScheme.surfaceContainerHighest,
         // Keep the centered content clear of the day-chip band's *visible*
@@ -731,14 +768,36 @@ class _TripMapState extends State<TripMap> {
       builder: (context, constraints) {
         final minZoom = appMapMinZoomFor(constraints.maxWidth);
 
-        // flutter_map adopts a changed minZoom into the camera's options but
-        // never re-clamps the live zoom, so after a resize nudge the camera
-        // back over the (possibly risen) floor. One move covers both resize
-        // failure modes: moveRaw re-applies clampZoom *and* the camera
-        // constraint, and no-ops when nothing is out of bounds.
+        // The camera never follows the box on its own, so a resize needs a
+        // post-frame correction — which one depends on how big it was:
+        //
+        //  * A meaningful change ([_refitWidthDelta] from the width the fit
+        //    was established at) means the current framing is for a box that
+        //    no longer exists — the post-#575 off-center report: first-fit
+        //    at one width, settle at another, cluster parked under the
+        //    control column. Re-run the fit over the current fit set, the
+        //    same move the fitSignature/content paths make. Skipped while a
+        //    pin is selected: that camera is point-centered, and a resize
+        //    keeps the point centered by itself.
+        //  * Anything smaller (scrollbars, sub-threshold jitter) keeps the
+        //    camera — a manual pan/zoom must survive it — but still needs
+        //    the zoom floor re-clamped: flutter_map adopts a changed
+        //    minZoom into the camera's options without re-clamping the live
+        //    zoom. One move covers both resize failure modes: moveRaw
+        //    re-applies clampZoom *and* the camera constraint, and no-ops
+        //    when nothing is out of bounds. (fitCamera clamps too, so the
+        //    refit branch needs no extra move.)
         if (_lastMapWidth != null && _lastMapWidth != constraints.maxWidth) {
+          final refit = widget.selectedPosition == null &&
+              _lastFittedWidth != null &&
+              (constraints.maxWidth - _lastFittedWidth!).abs() >=
+                  _refitWidthDelta;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
+            if (refit) {
+              _fitToTrip(fitPoints);
+              return;
+            }
             try {
               final camera = _controller.camera;
               _controller.move(camera.center, math.max(camera.zoom, minZoom));
@@ -746,6 +805,8 @@ class _TripMapState extends State<TripMap> {
           });
         }
         _lastMapWidth = constraints.maxWidth;
+        // First layout: the width initialCameraFit is about to frame.
+        _lastFittedWidth ??= constraints.maxWidth;
 
         // Center on the selected place when one is set (e.g. the map was just
         // (re)built after a list tap); otherwise fit the whole trip.
