@@ -2095,17 +2095,17 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String tripTravelMinutes(int minutes) {
-    return '$minutes min';
+    return '~$minutes min';
   }
 
   @override
   String tripTravelHours(int hours) {
-    return '$hours h';
+    return '~$hours h';
   }
 
   @override
   String tripTravelHoursMinutes(int hours, int minutes) {
-    return '$hours h $minutes min';
+    return '~$hours h $minutes min';
   }
 
   @override
@@ -2116,6 +2116,16 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String tripTravelTotal(String duration) {
     return '$duration de trayecto';
+  }
+
+  @override
+  String tripHotelLegFrom(String leg) {
+    return '$leg desde el hotel';
+  }
+
+  @override
+  String tripHotelLegBack(String leg) {
+    return '$leg de vuelta al hotel';
   }
 
   @override

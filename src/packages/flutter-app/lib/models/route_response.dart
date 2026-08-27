@@ -38,6 +38,11 @@ class RouteResponse {
   
   final String status;
 
+  /// Names of input locations skipped because coordinate resolution failed
+  /// (#577 contract): their timing entries are zeroed, everything else is
+  /// real. Absent when every location resolved.
+  final List<String>? unresolved;
+
   const RouteResponse({
     required this.optimizedRoute,
     required this.totalDistanceKm,
@@ -50,6 +55,7 @@ class RouteResponse {
     this.improvementPct,
     required this.locationCount,
     required this.status,
+    this.unresolved,
   });
 
   factory RouteResponse.fromJson(Map<String, dynamic> json) =>
@@ -111,7 +117,8 @@ class RouteResponse {
         other.originalDistance == originalDistance &&
         other.improvementPct == improvementPct &&
         other.locationCount == locationCount &&
-        other.status == status;
+        other.status == status &&
+        other.unresolved == unresolved;
   }
 
   @override
@@ -126,6 +133,7 @@ class RouteResponse {
         originalDistance.hashCode ^
         improvementPct.hashCode ^
         locationCount.hashCode ^
-        status.hashCode;
+        status.hashCode ^
+        unresolved.hashCode;
   }
 }

@@ -1338,24 +1338,27 @@
       "city": { "type": "String", "example": "Rome" }
     }
   },
-  "tripTravelMinutes": "{minutes} min",
+  "tripTravelMinutes": "~{minutes} min",
   "@tripTravelMinutes": {
+    "description": "Estimated travel duration between itinerary stops. The ~ is the honesty marker: these are heuristic estimates, never routed times, and every surface that shows one says so the same way.",
     "placeholders": {
       "minutes": {
         "type": "int"
       }
     }
   },
-  "tripTravelHours": "{hours}h",
+  "tripTravelHours": "~{hours}h",
   "@tripTravelHours": {
+    "description": "Estimated travel duration, whole hours. See tripTravelMinutes for the ~.",
     "placeholders": {
       "hours": {
         "type": "int"
       }
     }
   },
-  "tripTravelHoursMinutes": "{hours}h {minutes}m",
+  "tripTravelHoursMinutes": "~{hours}h {minutes}m",
   "@tripTravelHoursMinutes": {
+    "description": "Estimated travel duration, hours and minutes. See tripTravelMinutes for the ~.",
     "placeholders": {
       "hours": {
         "type": "int"
@@ -1381,6 +1384,26 @@
     "placeholders": {
       "duration": {
         "type": "String"
+      }
+    }
+  },
+  "tripHotelLegFrom": "{leg} from the hotel",
+  "@tripHotelLegFrom": {
+    "description": "Hotel anchor row above a day's first stop. {leg} is a pre-formatted duration-and-distance like '~15 min · 1.1 km'.",
+    "placeholders": {
+      "leg": {
+        "type": "String",
+        "example": "~15 min · 1.1 km"
+      }
+    }
+  },
+  "tripHotelLegBack": "{leg} back to the hotel",
+  "@tripHotelLegBack": {
+    "description": "Hotel anchor row below a day's last stop. {leg} is a pre-formatted duration-and-distance like '~15 min · 1.1 km'.",
+    "placeholders": {
+      "leg": {
+        "type": "String",
+        "example": "~15 min · 1.1 km"
       }
     }
   },

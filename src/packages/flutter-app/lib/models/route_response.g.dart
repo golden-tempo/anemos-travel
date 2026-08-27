@@ -23,6 +23,9 @@ RouteResponse _$RouteResponseFromJson(Map<String, dynamic> json) =>
       improvementPct: (json['improvement_percentage'] as num?)?.toDouble(),
       locationCount: (json['location_count'] as num).toInt(),
       status: json['status'] as String,
+      unresolved: (json['unresolved'] as List<dynamic>?)
+          ?.map((e) => e as String)
+          .toList(),
     );
 
 Map<String, dynamic> _$RouteResponseToJson(RouteResponse instance) =>
@@ -38,4 +41,5 @@ Map<String, dynamic> _$RouteResponseToJson(RouteResponse instance) =>
       'improvement_percentage': instance.improvementPct,
       'location_count': instance.locationCount,
       'status': instance.status,
+      'unresolved': instance.unresolved,
     };
