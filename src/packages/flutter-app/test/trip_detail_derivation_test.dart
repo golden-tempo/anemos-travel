@@ -622,10 +622,12 @@ void main() {
       final travel = {
         0: _timing(30), // Louvre -> Le Comptoir, same hub: labelled
         1: _timing(45), // Le Comptoir -> Colosseum, cross-hub: dropped
-        2: _timing(90), // Colosseum -> Trevi, same hub: labelled "1h 30m"
+        2: _timing(90), // Colosseum -> Trevi, same hub: labelled "~1h 30m"
       };
       final d = _compute(travelByPos: travel);
-      expect(d.segmentLabels, {0: '30 min', 2: '1h 30m'});
+      // The ~ marks every travel figure as the heuristic estimate it is
+      // (specs/day-travel-times) — map labels read the same formatter.
+      expect(d.segmentLabels, {0: '~30 min', 2: '~1h 30m'});
     });
 
     test('map inputs: shown gate, destinations, endpoints', () {
