@@ -32,6 +32,14 @@ func validateAccommodationInput(req *AddAccommodationRequest) error {
 	if err := boundedOptional("price_note", req.PriceNote, maxNoteLen); err != nil {
 		return err
 	}
+	// Coordinates arrive together or not at all: a one-sided pair can never
+	// render a pin (TripMap.stayHasCoords needs both) but would still occupy
+	// the column, and on PATCH a lone latitude would COALESCE-merge with a
+	// stored longitude from a different place. Same paired-write rule as the
+	// trip endpoint airports (migration 00064).
+	if (req.Latitude == nil) != (req.Longitude == nil) {
+		return fmt.Errorf("latitude and longitude must be provided together")
+	}
 	return validateCoords(req.Latitude, req.Longitude)
 }
 
@@ -65,6 +73,12 @@ type AddAccommodationRequest struct {
 	// PATCH-only: the "Booked" checkbox on confirmed rows. Ignored on add —
 	// new stays start unbooked.
 	Booked *bool `json:"booked"`
+
+	// PATCH-only: detach the stay's place — NULL both coordinates. Exists
+	// because UpdateAccommodation's COALESCE can overwrite coordinates but
+	// never clear them. Conflicts with latitude/longitude in the same body
+	// (400); ignored on add, where omitting the pair already means "none".
+	ClearLocation bool `json:"clear_location"`
 }
 
 func toAccommodationResponse(a store.Accommodation) AccommodationResponse {
@@ -187,6 +201,13 @@ func updateAccommodationHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// One body, one statement about location: clearing and setting coordinates
+	// together has no coherent meaning, so refuse rather than pick a winner.
+	if req.ClearLocation && (req.Latitude != nil || req.Longitude != nil) {
+		writeJSONError(w, http.StatusBadRequest,
+			"clear_location cannot be combined with latitude/longitude")
+		return
+	}
 	checkIn, err := parseDateParam(req.CheckIn)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "check_in must be YYYY-MM-DD")
@@ -198,18 +219,19 @@ func updateAccommodationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	acc, err := store.New(dbPool).UpdateAccommodation(r.Context(), store.UpdateAccommodationParams{
-		Name:      strPtrOrNil(strings.TrimSpace(req.Name)),
-		Provider:  req.Provider,
-		Url:       req.URL,
-		Address:   req.Address,
-		Latitude:  req.Latitude,
-		Longitude: req.Longitude,
-		CheckIn:   checkIn,
-		CheckOut:  checkOut,
-		PriceNote: req.PriceNote,
-		Booked:    req.Booked,
-		ID:        accID,
-		TripID:    tripID,
+		Name:          strPtrOrNil(strings.TrimSpace(req.Name)),
+		Provider:      req.Provider,
+		Url:           req.URL,
+		Address:       req.Address,
+		Latitude:      req.Latitude,
+		Longitude:     req.Longitude,
+		ClearLocation: req.ClearLocation,
+		CheckIn:       checkIn,
+		CheckOut:      checkOut,
+		PriceNote:     req.PriceNote,
+		Booked:        req.Booked,
+		ID:            accID,
+		TripID:        tripID,
 	})
 	if err != nil {
 		writeJSONError(w, http.StatusNotFound, "accommodation not found")

@@ -34,14 +34,19 @@ UPDATE accommodations SET dismissed = true WHERE id = $1 AND trip_id = $2 AND au
 -- name: UpdateAccommodation :one
 -- Partial update (COALESCE sqlc.narg idiom, see query/trips.sql UpdateTrip).
 -- Any edit confirms a draft (auto = false), taking it out of sync ownership.
--- COALESCE means fields can be overwritten but not cleared back to NULL.
+-- COALESCE means fields can be overwritten but not cleared back to NULL —
+-- which is why coordinates need clear_location: detaching a stay's place must
+-- write NULL, and COALESCE structurally cannot (the trip-description lesson,
+-- specs/trip-description). One statement stays the one writer.
 UPDATE accommodations
 SET name       = COALESCE(sqlc.narg('name'), name),
     provider   = COALESCE(sqlc.narg('provider'), provider),
     url        = COALESCE(sqlc.narg('url'), url),
     address    = COALESCE(sqlc.narg('address'), address),
-    latitude   = COALESCE(sqlc.narg('latitude'), latitude),
-    longitude  = COALESCE(sqlc.narg('longitude'), longitude),
+    latitude   = CASE WHEN sqlc.arg('clear_location')::bool THEN NULL
+                      ELSE COALESCE(sqlc.narg('latitude'), latitude) END,
+    longitude  = CASE WHEN sqlc.arg('clear_location')::bool THEN NULL
+                      ELSE COALESCE(sqlc.narg('longitude'), longitude) END,
     check_in   = COALESCE(sqlc.narg('check_in'), check_in),
     check_out  = COALESCE(sqlc.narg('check_out'), check_out),
     price_note = COALESCE(sqlc.narg('price_note'), price_note),

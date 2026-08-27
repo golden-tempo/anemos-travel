@@ -366,41 +366,48 @@ SET name       = COALESCE($1, name),
     provider   = COALESCE($2, provider),
     url        = COALESCE($3, url),
     address    = COALESCE($4, address),
-    latitude   = COALESCE($5, latitude),
-    longitude  = COALESCE($6, longitude),
-    check_in   = COALESCE($7, check_in),
-    check_out  = COALESCE($8, check_out),
-    price_note = COALESCE($9, price_note),
-    booked     = COALESCE($10, booked),
+    latitude   = CASE WHEN $5::bool THEN NULL
+                      ELSE COALESCE($6, latitude) END,
+    longitude  = CASE WHEN $5::bool THEN NULL
+                      ELSE COALESCE($7, longitude) END,
+    check_in   = COALESCE($8, check_in),
+    check_out  = COALESCE($9, check_out),
+    price_note = COALESCE($10, price_note),
+    booked     = COALESCE($11, booked),
     auto       = false
-WHERE id = $11 AND trip_id = $12 AND NOT dismissed
+WHERE id = $12 AND trip_id = $13 AND NOT dismissed
 RETURNING id, trip_id, name, provider, url, address, latitude, longitude, check_in, check_out, price_note, created_at, updated_at, auto, auto_key, dismissed, position, booked
 `
 
 type UpdateAccommodationParams struct {
-	Name      *string     `json:"name"`
-	Provider  *string     `json:"provider"`
-	Url       *string     `json:"url"`
-	Address   *string     `json:"address"`
-	Latitude  *float64    `json:"latitude"`
-	Longitude *float64    `json:"longitude"`
-	CheckIn   pgtype.Date `json:"check_in"`
-	CheckOut  pgtype.Date `json:"check_out"`
-	PriceNote *string     `json:"price_note"`
-	Booked    *bool       `json:"booked"`
-	ID        uuid.UUID   `json:"id"`
-	TripID    uuid.UUID   `json:"trip_id"`
+	Name          *string     `json:"name"`
+	Provider      *string     `json:"provider"`
+	Url           *string     `json:"url"`
+	Address       *string     `json:"address"`
+	ClearLocation bool        `json:"clear_location"`
+	Latitude      *float64    `json:"latitude"`
+	Longitude     *float64    `json:"longitude"`
+	CheckIn       pgtype.Date `json:"check_in"`
+	CheckOut      pgtype.Date `json:"check_out"`
+	PriceNote     *string     `json:"price_note"`
+	Booked        *bool       `json:"booked"`
+	ID            uuid.UUID   `json:"id"`
+	TripID        uuid.UUID   `json:"trip_id"`
 }
 
 // Partial update (COALESCE sqlc.narg idiom, see query/trips.sql UpdateTrip).
 // Any edit confirms a draft (auto = false), taking it out of sync ownership.
-// COALESCE means fields can be overwritten but not cleared back to NULL.
+// COALESCE means fields can be overwritten but not cleared back to NULL —
+// which is why coordinates need clear_location: detaching a stay's place must
+// write NULL, and COALESCE structurally cannot (the trip-description lesson,
+// specs/trip-description). One statement stays the one writer.
 func (q *Queries) UpdateAccommodation(ctx context.Context, arg UpdateAccommodationParams) (Accommodation, error) {
 	row := q.db.QueryRow(ctx, updateAccommodation,
 		arg.Name,
 		arg.Provider,
 		arg.Url,
 		arg.Address,
+		arg.ClearLocation,
 		arg.Latitude,
 		arg.Longitude,
 		arg.CheckIn,
