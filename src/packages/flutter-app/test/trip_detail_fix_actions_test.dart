@@ -476,10 +476,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AddStaySheet), findsOneWidget);
 
-    await tester.enterText(
-        find.descendant(
-            of: find.byType(AddStaySheet), matching: find.byType(TextField).first),
-        'Hotel Ibis');
+    // By key, not position: the place-search field sits above the name field,
+    // so `find.byType(TextField).first` would land on search. The taller
+    // sheet can also push the save button below the test viewport, where a
+    // bare tap only warns — scroll it into view first.
+    await tester.enterText(find.byKey(kStayNameFieldKey), 'Hotel Ibis');
+    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Add stay'));
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Add stay'));
     await tester.pumpAndSettle();
 

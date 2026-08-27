@@ -443,6 +443,19 @@
   "bookingsStayProviderLabel": "Provider (Airbnb, Booking.com, …)",
   "bookingsStayUrlLabel": "Listing URL",
   "bookingsStayAddressLabel": "Address",
+  "bookingsStaySearchLabel": "Search for the place",
+  "@bookingsStaySearchLabel": {
+    "description": "Optional place-search field at the top of the stay sheet; picking a result fills name/address and attaches coordinates for the trip map."
+  },
+  "bookingsStaySearchHint": "e.g. Hotel Estherea, Amsterdam",
+  "bookingsStayPlaced": "Location attached — shown on the trip map",
+  "@bookingsStayPlaced": {
+    "description": "Replaces the search field once the stay carries coordinates; the trailing X detaches them."
+  },
+  "bookingsStayPlacedRemove": "Remove location",
+  "@bookingsStayPlacedRemove": {
+    "description": "Tooltip of the X on the attached-location row; saving after detaching clears the stay's coordinates."
+  },
   "bookingsCheckInOut": "Check-in / check-out",
   "bookingsPriceNoteLabel": "Price note (e.g. €120/night)",
   "bookingsSegmentFromLabel": "From *",

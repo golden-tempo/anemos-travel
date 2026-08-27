@@ -1,8 +1,20 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/l10n.dart';
 import '../models/accommodation.dart';
+import '../models/place_search_result.dart';
 import '../models/trip_segment.dart';
+import '../providers/places_api_provider.dart';
 import '../theme/spacing.dart';
+
+/// Test keys for the stay sheet's place-search elements. The name field needs
+/// one too: with the search field mounted above it, position-based finders
+/// (`find.byType(TextField).first`) land on search instead.
+const kStaySearchFieldKey = Key('stay-search-field');
+const kStayNameFieldKey = Key('stay-name-field');
+const kStayPlacedRowKey = Key('stay-placed-row');
+const kStayPlacedRemoveKey = Key('stay-placed-remove');
 
 /// Transport modes are canonical API values ('flight', 'train', …) sent to the
 /// server, so they are never translated — only their display labels are
@@ -63,6 +75,19 @@ class _AddStaySheetState extends State<AddStaySheet> {
   DateTime? _checkIn;
   DateTime? _checkOut;
 
+  // Place attachment (specs day-travel-times, ticket C). The rule: coordinates
+  // ride with a PICK, visibly. Picking a search result fills name + address
+  // and attaches lat/lng; re-picking replaces all three; the X on the attached
+  // row is the only detach. Free-typing name or address never touches the
+  // coordinates — the attached row keeps that state visible instead of the
+  // sheet guessing whether a rename meant a different place.
+  final _search = TextEditingController();
+  Timer? _debounce;
+  String _query = ''; // debounced search text driving placeSearchProvider
+  double? _lat;
+  double? _lng;
+  bool _hadCoords = false; // the stay carried a renderable pin at open
+
   @override
   void initState() {
     super.initState();
@@ -75,6 +100,16 @@ class _AddStaySheetState extends State<AddStaySheet> {
       _priceNote.text = a.priceNote ?? '';
       _checkIn = a.checkIn == null ? null : DateTime.tryParse(a.checkIn!);
       _checkOut = a.checkOut == null ? null : DateTime.tryParse(a.checkOut!);
+      // Adopt only a pin the map would actually render — same predicate as
+      // TripMap.stayHasCoords, inlined so this sheet doesn't import the map.
+      // A junk (0,0) stay opens unattached rather than showing a row for a
+      // pin that doesn't exist; picking a place overwrites the junk.
+      final lat = a.latitude, lng = a.longitude;
+      if (lat != null && lng != null && (lat != 0 || lng != 0)) {
+        _lat = lat;
+        _lng = lng;
+        _hadCoords = true;
+      }
     } else {
       if (widget.initialName != null) _name.text = widget.initialName!;
       if (widget.initialAddress != null) {
@@ -91,10 +126,39 @@ class _AddStaySheetState extends State<AddStaySheet> {
 
   @override
   void dispose() {
-    for (final c in [_name, _provider, _url, _address, _priceNote]) {
+    _debounce?.cancel();
+    for (final c in [_name, _provider, _url, _address, _priceNote, _search]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      if (mounted) setState(() => _query = value.trim());
+    });
+  }
+
+  void _pick(PlaceSearchResult place) {
+    // Cancel any in-flight debounce so a stale keystroke can't resurface the
+    // results list after the field is gone.
+    _debounce?.cancel();
+    setState(() {
+      _name.text = place.name;
+      if (place.address.isNotEmpty) _address.text = place.address;
+      _lat = place.latitude;
+      _lng = place.longitude;
+      _search.clear();
+      _query = '';
+    });
+  }
+
+  void _detach() {
+    setState(() {
+      _lat = null;
+      _lng = null;
+    });
   }
 
   String _fmt(DateTime d) =>
@@ -127,6 +191,15 @@ class _AddStaySheetState extends State<AddStaySheet> {
         'price_note': _priceNote.text.trim(),
       if (_checkIn != null) 'check_in': _fmt(_checkIn!),
       if (_checkOut != null) 'check_out': _fmt(_checkOut!),
+      // Attached place → the pair rides the body (the server requires both
+      // together). Detached during an edit → clear_location, because the
+      // PATCH's COALESCE cannot write NULL from an omitted key. A stay that
+      // never had coordinates sends neither — ungeocoded stays stay legal.
+      if (_lat != null && _lng != null) ...{
+        'latitude': _lat,
+        'longitude': _lng,
+      } else if (_hadCoords)
+        'clear_location': true,
     });
   }
 
@@ -150,7 +223,41 @@ class _AddStaySheetState extends State<AddStaySheet> {
             Text(editing ? l10n.bookingsEditStay : l10n.bookingsAddAStay,
                 style: theme.textTheme.titleMedium),
             const SizedBox(height: AppSpacing.md),
+            // Place search XOR attached row — the add-place dialog's mechanism
+            // (add_itinerary_item_dialog.dart), mirrored rather than shared:
+            // that dialog's search is welded into its search-or-manual state
+            // machine, while here manual entry stays the default and search
+            // only enhances it. Typing below never requires a pick.
+            if (_lat == null) ...[
+              TextField(
+                key: kStaySearchFieldKey,
+                controller: _search,
+                decoration: InputDecoration(
+                  labelText: l10n.bookingsStaySearchLabel,
+                  hintText: l10n.bookingsStaySearchHint,
+                  prefixIcon: const Icon(Icons.search),
+                  border: const OutlineInputBorder(),
+                ),
+                onChanged: _onSearchChanged,
+              ),
+              if (_query.isNotEmpty) _buildSearchResults(theme),
+            ] else
+              ListTile(
+                key: kStayPlacedRowKey,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.place, color: theme.colorScheme.primary),
+                title: Text(l10n.bookingsStayPlaced,
+                    style: theme.textTheme.bodyMedium),
+                trailing: IconButton(
+                  key: kStayPlacedRemoveKey,
+                  icon: const Icon(Icons.clear),
+                  tooltip: l10n.bookingsStayPlacedRemove,
+                  onPressed: _detach,
+                ),
+              ),
+            const SizedBox(height: AppSpacing.md),
             TextField(
+              key: kStayNameFieldKey,
               controller: _name,
               decoration: InputDecoration(
                 labelText: l10n.bookingsStayNameLabel,
@@ -224,6 +331,56 @@ class _AddStaySheetState extends State<AddStaySheet> {
         ),
       ),
     );
+  }
+
+  Widget _buildSearchResults(ThemeData theme) {
+    final l10n = context.l10n;
+    return Consumer(builder: (context, ref, _) {
+      final results = ref.watch(placeSearchProvider(_query));
+      return results.when(
+        data: (list) {
+          if (list.isEmpty) {
+            return Padding(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              child: Text(l10n.itemDialogNoResults),
+            );
+          }
+          return Container(
+            constraints: const BoxConstraints(maxHeight: 240),
+            margin: const EdgeInsets.only(top: AppSpacing.sm),
+            decoration: BoxDecoration(
+              border: Border.all(color: theme.colorScheme.outlineVariant),
+              borderRadius: AppRadius.smAll,
+            ),
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: list.length,
+              itemBuilder: (context, i) {
+                final place = list[i] as PlaceSearchResult;
+                return ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.place),
+                  title: Text(place.name),
+                  subtitle: place.address.isEmpty ? null : Text(place.address),
+                  onTap: () => _pick(place),
+                );
+              },
+            ),
+          );
+        },
+        loading: () => const Padding(
+          padding: EdgeInsets.all(AppSpacing.md),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+        // Search unavailable (e.g. no Places key): the manual fields below
+        // are the path, same steer as the add-place dialog.
+        error: (e, _) => Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Text(l10n.itemDialogSearchUnavailable,
+              style: TextStyle(color: theme.colorScheme.error)),
+        ),
+      );
+    });
   }
 }
 

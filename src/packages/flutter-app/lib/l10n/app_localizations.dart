@@ -1874,6 +1874,30 @@ abstract class AppLocalizations {
   /// **'Address'**
   String get bookingsStayAddressLabel;
 
+  /// Optional place-search field at the top of the stay sheet; picking a result fills name/address and attaches coordinates for the trip map.
+  ///
+  /// In en, this message translates to:
+  /// **'Search for the place'**
+  String get bookingsStaySearchLabel;
+
+  /// No description provided for @bookingsStaySearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Hotel Estherea, Amsterdam'**
+  String get bookingsStaySearchHint;
+
+  /// Replaces the search field once the stay carries coordinates; the trailing X detaches them.
+  ///
+  /// In en, this message translates to:
+  /// **'Location attached — shown on the trip map'**
+  String get bookingsStayPlaced;
+
+  /// Tooltip of the X on the attached-location row; saving after detaching clears the stay's coordinates.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove location'**
+  String get bookingsStayPlacedRemove;
+
   /// No description provided for @bookingsCheckInOut.
   ///
   /// In en, this message translates to:

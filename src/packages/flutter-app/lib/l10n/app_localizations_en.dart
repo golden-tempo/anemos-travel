@@ -976,6 +976,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get bookingsStayAddressLabel => 'Address';
 
   @override
+  String get bookingsStaySearchLabel => 'Search for the place';
+
+  @override
+  String get bookingsStaySearchHint => 'e.g. Hotel Estherea, Amsterdam';
+
+  @override
+  String get bookingsStayPlaced => 'Location attached — shown on the trip map';
+
+  @override
+  String get bookingsStayPlacedRemove => 'Remove location';
+
+  @override
   String get bookingsCheckInOut => 'Check-in / check-out';
 
   @override
