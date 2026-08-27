@@ -81,8 +81,13 @@ func optimizeBlockOrder(locations []map[string]any, idxs []int) []map[string]any
 
 	// Reuse the location-route optimizer's lower-level steps directly; we only
 	// need the reordered sequence, not its timing/Places-resolution machinery.
+	// Every loc has coordinates (guarded above), so all indices are candidates.
 	ro := NewRouteOptimizer(locs)
-	route := ro.optimizeWith2Opt(ro.nearestNeighborRoute(0, false), false, 100)
+	all := make([]int, len(locs))
+	for i := range all {
+		all[i] = i
+	}
+	route := ro.optimizeWith2Opt(ro.nearestNeighborRoute(0, all), false, 100)
 
 	out := make([]map[string]any, 0, len(idxs))
 	for _, local := range route {
