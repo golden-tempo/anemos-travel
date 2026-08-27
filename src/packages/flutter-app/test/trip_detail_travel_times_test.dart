@@ -26,10 +26,13 @@ class _FakeTripsApiService extends TripsApiService {
 }
 
 /// Serves canned per-leg timings for /optimize-route (preserve-order mode), so
-/// the screen's travel-time labels render without a backend.
+/// the screen's travel-time labels render without a backend. Minutes are keyed
+/// by the FROM location's name — the compute is per day-run now, so an
+/// index-canned fake would drift with the request split; a name-keyed one
+/// serves every request shape the same legs.
 class _FakeApiClient extends ApiClient {
-  final List<int> legMinutes; // travel_to_next per location, by input order
-  _FakeApiClient(this.legMinutes) : super(baseUrl: 'http://test');
+  final Map<String, int> legMinutesByFrom;
+  _FakeApiClient(this.legMinutesByFrom) : super(baseUrl: 'http://test');
 
   @override
   Future<RouteResponse> optimizeRoute(RouteRequest request) async {
@@ -40,7 +43,11 @@ class _FakeApiClient extends ApiClient {
           arrivalTime: '09:00',
           departureTime: '10:00',
           visitDurationMin: 60,
-          travelToNextMin: i < legMinutes.length ? legMinutes[i] : 0,
+          // The last location of a one-way preserve-order route has no next
+          // leg — zeroed, like the real server.
+          travelToNextMin: i < request.locations.length - 1
+              ? (legMinutesByFrom[request.locations[i].name] ?? 0)
+              : 0,
           travelToNextKm: 10,
         ),
     ];
@@ -104,8 +111,12 @@ void main() {
       ProviderScope(
         overrides: [
           tripsApiServiceProvider.overrideWithValue(_FakeTripsApiService(trip)),
-          // Leg 0: Louvre -> Café (12 min); leg 1: Café -> Versailles (45 min).
-          apiClientProvider.overrideWithValue(_FakeApiClient([12, 45])),
+          // Louvre -> Café (12 min); Café -> Versailles (45 min). The second
+          // leg crosses a day boundary, so it reaches the day-2 request only
+          // as its bridge waypoint (Café rides along as context) — which is
+          // exactly what keeps this label alive under per-day compute.
+          apiClientProvider.overrideWithValue(
+              _FakeApiClient({'Louvre': 12, 'Café de Flore': 45})),
         ],
         child: MaterialApp(
       localizationsDelegates: testLocalizationsDelegates,home: TripDetailScreen(tripId: 't1')),
@@ -114,7 +125,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Day trip · Versailles'), findsOneWidget);
-    // The sub-header carries the hub -> day-trip leg time.
-    expect(find.text('45 min from Paris'), findsOneWidget);
+    // The sub-header carries the hub -> day-trip leg time (the ~ marks every
+    // travel figure as the estimate it is).
+    expect(find.text('~45 min from Paris'), findsOneWidget);
   });
 }

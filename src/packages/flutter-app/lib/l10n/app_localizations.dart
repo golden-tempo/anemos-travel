@@ -3632,22 +3632,22 @@ abstract class AppLocalizations {
   /// **'{date}: check out of {city}'**
   String tripCalendarCheckOutSemantics(String date, String city);
 
-  /// No description provided for @tripTravelMinutes.
+  /// Estimated travel duration between itinerary stops. The ~ is the honesty marker: these are heuristic estimates, never routed times, and every surface that shows one says so the same way.
   ///
   /// In en, this message translates to:
-  /// **'{minutes} min'**
+  /// **'~{minutes} min'**
   String tripTravelMinutes(int minutes);
 
-  /// No description provided for @tripTravelHours.
+  /// Estimated travel duration, whole hours. See tripTravelMinutes for the ~.
   ///
   /// In en, this message translates to:
-  /// **'{hours}h'**
+  /// **'~{hours}h'**
   String tripTravelHours(int hours);
 
-  /// No description provided for @tripTravelHoursMinutes.
+  /// Estimated travel duration, hours and minutes. See tripTravelMinutes for the ~.
   ///
   /// In en, this message translates to:
-  /// **'{hours}h {minutes}m'**
+  /// **'~{hours}h {minutes}m'**
   String tripTravelHoursMinutes(int hours, int minutes);
 
   /// No description provided for @tripTravelFromHub.
@@ -3661,6 +3661,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{duration} travel'**
   String tripTravelTotal(String duration);
+
+  /// Hotel anchor row above a day's first stop. {leg} is a pre-formatted duration-and-distance like '~15 min · 1.1 km'.
+  ///
+  /// In en, this message translates to:
+  /// **'{leg} from the hotel'**
+  String tripHotelLegFrom(String leg);
+
+  /// Hotel anchor row below a day's last stop. {leg} is a pre-formatted duration-and-distance like '~15 min · 1.1 km'.
+  ///
+  /// In en, this message translates to:
+  /// **'{leg} back to the hotel'**
+  String tripHotelLegBack(String leg);
 
   /// No description provided for @tripRainChance.
   ///

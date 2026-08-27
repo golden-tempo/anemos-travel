@@ -52,6 +52,13 @@ const double _spineLead = AppSpacing.lg;
   /// The rail's centre within a row, measured from the row's own indent.
 const double _spineCenter = _spineLead + _spineMarker / 2;
 
+  /// A per-hop rail label only when it changes a decision (the settled
+  /// density rule, specs/day-travel-times): at or above this many minutes, or
+  /// when the hop's mode differs from the day's dominant one. Below that the
+  /// rail stays a plain hairline — a six-stop day of three-minute walks needs
+  /// no five extra rows. Hotel anchor rows are exempt: they anchor the day.
+const int _hopLabelMinMinutes = 10;
+
   /// Greek islands/ports we offer ferry connectors between (mirrors the API's
   /// isGreekLocation set; kept small and local since it only gates the UI hint).
 const _greekIslands = {
@@ -172,8 +179,9 @@ extension on _TripDetailScreenState {
     if (!items.any((it) => it.day != null)) {
       // A dayless leg renders flat, with no day headers — so it has no gaps to
       // point at. The derivation mirrors this branch and hands back an empty
-      // [emptyDays] here.
-      return _dayTripSectionSlivers(items, theme);
+      // [emptyDays] here. No hotel anchors either: staysOnNight needs a day.
+      return _dayTripSectionSlivers(items, theme,
+          dominantMode: _dominantRunMode(items, null));
     }
     // Per-day weather (specs/weather-in-itinerary): one report per city group
     // for its date window — one API call per city per trip view, cached by the
@@ -236,8 +244,17 @@ extension on _TripDetailScreenState {
         final month = tripStart?.add(Duration(days: day - 1)).month;
         final showMonth = month == null || month != lastMonth;
         lastMonth = month;
+        // The day's hotel anchor hops and its dominant travel mode feed the
+        // header (total + icon) and the hop-label threshold below. The total
+        // includes the anchor legs: getting there and back is the day's
+        // movement too.
+        final hotelHops = _hotelHopsFor(groupKey, day);
+        final dominantMode = _dominantRunMode(run, hotelHops);
+        final travelMin = _runTravelMin(run) +
+            (hotelHops?.out?.travelToNextMin ?? 0) +
+            (hotelHops?.back?.travelToNextMin ?? 0);
         final header = _daySubHeader(
-            day, tripStart, theme, collapsed, _runTravelMin(run), () {
+            day, tripStart, theme, collapsed, travelMin, () {
           _rebuild(() {
             if (collapsed) {
               _collapsedDays.remove(dayKey);
@@ -263,7 +280,8 @@ extension on _TripDetailScreenState {
                 : null,
             headerKey: _dayHeaderKeys.putIfAbsent(dayKey, GlobalKey.new),
             isToday: day == todayDay,
-            showMonth: showMonth);
+            showMonth: showMonth,
+            dominantMode: dominantMode);
         // Tonight caption (specs/happening-now): a non-pinned content row —
         // it scrolls and collapses with the section, never joining the
         // pinned chrome. [showTonight] is true for at most one group, so
@@ -313,12 +331,17 @@ extension on _TripDetailScreenState {
               SliverPinnedHeader(child: header),
               if (weatherChip != null) _boxSliver([weatherChip]),
               if (tonight != null) _boxSliver([tonight]),
-              ..._dayTripSectionSlivers(run, theme),
+              // Hotel rows ride inside this non-collapsed branch only, so a
+              // folded day (collapsed above, or auto-folded past city) shows
+              // its header and nothing extra — pinned by test.
+              ..._dayTripSectionSlivers(run, theme,
+                  hotelHops: hotelHops, dominantMode: dominantMode),
             ],
           ));
         }
       } else {
-        slivers.addAll(_dayTripSectionSlivers(run, theme));
+        slivers.addAll(_dayTripSectionSlivers(run, theme,
+            dominantMode: _dominantRunMode(run, null)));
       }
     }
     // Open days after the leg's last planned one — the common case on a spine,
@@ -891,17 +914,24 @@ extension on _TripDetailScreenState {
   /// day-trip batch) renders as its own [SliverReorderableList] so items can
   /// be dragged inline within it; the within-city travel connector between
   /// adjacent tiles is folded into the row below it and travels with it.
+  ///
+  /// [hotelHops] (dated runs only) wraps the section in its hotel anchor
+  /// rows: "from the hotel" above the first batch, "back to the hotel" below
+  /// the last, each at that batch's own indent so the rail stays one line.
+  /// [dominantMode] feeds the per-hop label threshold.
   List<Widget> _dayTripSectionSlivers(
-      List<ItineraryItem> items, ThemeData theme) {
-    final slivers = <Widget>[];
+      List<ItineraryItem> items, ThemeData theme,
+      {({LocationTiming? out, LocationTiming? back})? hotelHops,
+      String? dominantMode}) {
+    final batches =
+        <({List<ItineraryItem> items, double indent, Widget? subHeader})>[];
     var i = 0;
     while (i < items.length) {
       final dt = items[i].dayTripFrom?.trim();
       if (dt != null && dt.isNotEmpty) {
         final town = _cityOf(items[i]) ?? context.l10n.tripDayTripFallback;
-        slivers.add(_boxSliver([
-          _dayTripSubHeader(town, theme, _dayTripTravelLabel(items[i])),
-        ]));
+        final subHeader =
+            _dayTripSubHeader(town, theme, _dayTripTravelLabel(items[i]));
         final batch = <ItineraryItem>[];
         while (i < items.length) {
           final it = items[i];
@@ -913,7 +943,7 @@ extension on _TripDetailScreenState {
             break;
           }
         }
-        slivers.add(_batchReorderableSliver(batch, 32, theme));
+        batches.add((items: batch, indent: 32, subHeader: subHeader));
       } else {
         final batch = <ItineraryItem>[];
         while (i < items.length &&
@@ -921,7 +951,32 @@ extension on _TripDetailScreenState {
           batch.add(items[i]);
           i++;
         }
-        slivers.add(_batchReorderableSliver(batch, 12, theme));
+        batches.add((items: batch, indent: 12, subHeader: null));
+      }
+    }
+    final out = hotelHops?.out;
+    final back = hotelHops?.back;
+    final slivers = <Widget>[];
+    for (var b = 0; b < batches.length; b++) {
+      final batch = batches[b];
+      final subHeader = batch.subHeader;
+      if (subHeader != null) slivers.add(_boxSliver([subHeader]));
+      // Each anchor row extends the batch's rail into itself (railTop /
+      // railBottom below), so the spine begins at the hotel and ends at it
+      // instead of gapping at the first and last markers.
+      final hotelOut = b == 0 ? out : null;
+      final hotelBack = b == batches.length - 1 ? back : null;
+      if (hotelOut != null) {
+        slivers.add(_boxSliver(
+            [_hotelConnector(hotelOut, batch.indent, theme, back: false)]));
+      }
+      slivers.add(_batchReorderableSliver(batch.items, batch.indent, theme,
+          railTop: hotelOut != null,
+          railBottom: hotelBack != null,
+          dominantMode: dominantMode));
+      if (hotelBack != null) {
+        slivers.add(_boxSliver(
+            [_hotelConnector(hotelBack, batch.indent, theme, back: true)]));
       }
     }
     return slivers;
@@ -932,8 +987,13 @@ extension on _TripDetailScreenState {
   /// confined to the batch, a subset of _sectionOf's boundary (items rendered
   /// apart can't be dragged past each other — the menu's "Reorder section"
   /// sheet still covers the full section).
+  ///
+  /// [railTop]/[railBottom] extend the spine past the first/last marker to
+  /// meet an adjacent hotel anchor row; [dominantMode] feeds the connectors'
+  /// label threshold.
   Widget _batchReorderableSliver(
-      List<ItineraryItem> batch, double indent, ThemeData theme) {
+      List<ItineraryItem> batch, double indent, ThemeData theme,
+      {bool railTop = false, bool railBottom = false, String? dominantMode}) {
     // Narrow first: phones reorder via the kebab (Move up/down + Reorder
     // section), so no handle is built at all — the same null-handle path
     // offline/singleton batches already take.
@@ -953,7 +1013,8 @@ extension on _TripDetailScreenState {
       itemBuilder: (context, i) {
         final item = batch[i];
         final connector = i > 0
-            ? _travelConnector(batch[i - 1], item, indent, theme)
+            ? _travelConnector(batch[i - 1], item, indent, theme,
+                dominantMode: dominantMode)
             : null;
         return Column(
           key: ValueKey(item.id),
@@ -967,9 +1028,11 @@ extension on _TripDetailScreenState {
               // The batch IS the spine's run: consecutive stops within one
               // day (or one day-trip). Rail above every stop but the first,
               // below every stop but the last — so a day's rail begins and
-              // ends on a marker instead of trailing into the next section.
-              railAbove: i > 0,
-              railBelow: i < batch.length - 1,
+              // ends on a marker instead of trailing into the next section
+              // (or, anchored, on the hotel rows just past them).
+              railAbove: i > 0 || (i == 0 && railTop),
+              railBelow: i < batch.length - 1 ||
+                  (i == batch.length - 1 && railBottom),
               dragHandle: canDrag
                   ? ReorderableDragStartListener(
                       index: i,
@@ -1129,22 +1192,38 @@ extension on _TripDetailScreenState {
   }
 
 
-  /// A small "↓ 12 min · 4.3 km" row shown between two consecutive itinerary
-  /// tiles, but only for within-city hops (same hub, truly adjacent in the
-  /// itinerary order). Returns null when it shouldn't render.
+  /// A small "🚶 ~14 min" row shown between two consecutive itinerary tiles,
+  /// but only for within-city hops (same hub, truly adjacent in the itinerary
+  /// order) that EARN the label: at least [_hopLabelMinMinutes], or a mode
+  /// differing from the day's dominant one ([dominantMode]). Distance stays
+  /// off ordinary hops — the duration is the decision; the kilometres were
+  /// noise. Returns null when it shouldn't render (the neighbouring tiles'
+  /// own rail stubs keep the spine a plain hairline).
   Widget? _travelConnector(ItineraryItem from, ItineraryItem to,
-      double indentLeft, ThemeData theme) {
+      double indentLeft, ThemeData theme,
+      {String? dominantMode}) {
     if (to.position != from.position + 1) return null;
     if (_hubOf(from) != _hubOf(to)) return null;
     final timing = _travelByPos[from.position];
     if (timing == null || timing.travelToNextMin <= 0) return null;
+    final mode = timing.travelToNextMode;
+    final differs =
+        mode != null && dominantMode != null && mode != dominantMode;
+    if (timing.travelToNextMin < _hopLabelMinMinutes && !differs) return null;
 
-    final km = timing.travelToNextKm;
-    final dist = km > 0 ? ' · ${km.toStringAsFixed(1)} km' : '';
     final muted = theme.colorScheme.onSurfaceVariant;
-    final icon = km > 0 && km <= 1.2
-        ? Icons.directions_walk
-        : Icons.directions_car_outlined;
+    // The icon follows the computed mode (#577 contract). The old
+    // distance-constant rule (walk under 1.2 km, else a car — which read
+    // Amsterdam as a road trip) survives only as the fallback for a payload
+    // that carries no mode.
+    final km = timing.travelToNextKm;
+    final icon = switch (mode) {
+      'walk' => Icons.directions_walk,
+      'transit' => Icons.directions_transit_outlined,
+      _ => km > 0 && km <= 1.2
+          ? Icons.directions_walk
+          : Icons.directions_car_outlined,
+    };
     // The hop reads as a label ON the spine: the rail runs the full height of
     // this row (both neighbours are stops by construction — the caller only
     // builds a connector BETWEEN two tiles), and the text sits to its right.
@@ -1164,7 +1243,51 @@ extension on _TripDetailScreenState {
               const SizedBox(width: 6),
               Flexible(
                 child: Text(
-                  '${_fmtTravel(timing.travelToNextMin)}$dist',
+                  _fmtTravel(timing.travelToNextMin),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+
+  /// A hotel anchor row: "🏨 ~15 min · 1.1 km from the hotel" above a day's
+  /// first stop, "… back to the hotel" below its last ([back]). Always shown
+  /// when computable — exempt from [_hopLabelMinMinutes], because the anchors
+  /// say how well the hotel sits relative to the day, which is also why
+  /// distance stays ON these rows while ordinary hops dropped it.
+  Widget _hotelConnector(
+      LocationTiming timing, double indentLeft, ThemeData theme,
+      {required bool back}) {
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final km = timing.travelToNextKm;
+    final leg = km > 0
+        ? '${_fmtTravel(timing.travelToNextMin)} · ${km.toStringAsFixed(1)} km'
+        : _fmtTravel(timing.travelToNextMin);
+    final label = back
+        ? context.l10n.tripHotelLegBack(leg)
+        : context.l10n.tripHotelLegFrom(leg);
+    return Stack(
+      children: [
+        _railSegment(theme, indentLeft + _spineCenter, top: 0, bottom: 0),
+        Padding(
+          padding: EdgeInsets.only(
+              left: indentLeft + _spineCenter + AppSpacing.lg,
+              top: AppSpacing.xs,
+              bottom: AppSpacing.xs),
+          child: Row(
+            children: [
+              Icon(Icons.hotel_outlined, size: 14, color: muted),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(color: muted),
@@ -1190,6 +1313,48 @@ extension on _TripDetailScreenState {
       }
     }
     return total;
+  }
+
+
+  /// The hotel anchor hops for a day-run, keyed the way
+  /// [_computeTravelTimes] stored them.
+  ({LocationTiming? out, LocationTiming? back})? _hotelHopsFor(
+          String groupKey, int day) =>
+      _hotelHopsByRun['$groupKey#$day'];
+
+
+  /// The day's dominant travel mode — 'walk' or 'transit' — voted by the
+  /// day's rendered legs (the run's within-city hops plus its hotel anchor
+  /// hops, which are movement of the same day): majority by hop count, ties
+  /// to the larger summed minutes, then walk. Null when no leg carries a
+  /// mode, so callers can keep a legacy fallback.
+  String? _dominantRunMode(List<ItineraryItem> run,
+      ({LocationTiming? out, LocationTiming? back})? hotelHops) {
+    var walkN = 0, transitN = 0, walkMin = 0, transitMin = 0;
+    void vote(LocationTiming? t) {
+      if (t == null || t.travelToNextMin <= 0) return;
+      switch (t.travelToNextMode) {
+        case 'walk':
+          walkN++;
+          walkMin += t.travelToNextMin;
+        case 'transit':
+          transitN++;
+          transitMin += t.travelToNextMin;
+      }
+    }
+
+    for (var k = 0; k < run.length - 1; k++) {
+      final a = run[k];
+      final b = run[k + 1];
+      if (b.position == a.position + 1 && _hubOf(a) == _hubOf(b)) {
+        vote(_travelByPos[a.position]);
+      }
+    }
+    vote(hotelHops?.out);
+    vote(hotelHops?.back);
+    if (walkN == 0 && transitN == 0) return null;
+    if (walkN != transitN) return walkN > transitN ? 'walk' : 'transit';
+    return walkMin >= transitMin ? 'walk' : 'transit';
   }
 
 
@@ -1258,7 +1423,8 @@ extension on _TripDetailScreenState {
       VoidCallback? onRefine,
       {Key? headerKey,
       bool isToday = false,
-      bool showMonth = true}) {
+      bool showMonth = true,
+      String? dominantMode}) {
     final l10n = context.l10n;
     final label = _dayHeaderLabel(day, tripStart, showMonth: showMonth);
     final muted = theme.colorScheme.onSurfaceVariant;
@@ -1317,14 +1483,28 @@ extension on _TripDetailScreenState {
                     ],
                   ),
                 ),
-                // Narrow drops the day travel-total: it is fixed-width (no
-                // ellipsis) and fights the date label, and the per-leg
-                // connectors below carry the same information.
-                if (travelMin > 0 && !_narrow) ...[
-                  Icon(Icons.directions_car_outlined, size: 14, color: muted),
+                // The day total renders at EVERY width — the settled density
+                // rule (specs/day-travel-times): narrow shortens the string
+                // (drops the "travel" suffix), it no longer hides the number.
+                // The per-hop connectors below are thresholded now, so this
+                // is the one place a day's movement is always glanceable.
+                // The icon follows the day's dominant mode, not a hard-coded
+                // car; the car survives only as the no-mode legacy fallback.
+                if (travelMin > 0) ...[
+                  Icon(
+                    switch (dominantMode) {
+                      'walk' => Icons.directions_walk,
+                      'transit' => Icons.directions_transit_outlined,
+                      _ => Icons.directions_car_outlined,
+                    },
+                    size: 14,
+                    color: muted,
+                  ),
                   const SizedBox(width: 4),
                   Text(
-                    l10n.tripTravelTotal(_fmtTravel(travelMin)),
+                    _narrow
+                        ? _fmtTravel(travelMin)
+                        : l10n.tripTravelTotal(_fmtTravel(travelMin)),
                     style: theme.textTheme.bodySmall?.copyWith(color: muted),
                   ),
                   const SizedBox(width: 8),

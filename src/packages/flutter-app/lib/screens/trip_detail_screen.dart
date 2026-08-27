@@ -73,6 +73,7 @@ import '../widgets/booking_todo_card.dart';
 import '../widgets/budget_section.dart';
 import '../widgets/budget_target_dialog.dart';
 import '../widgets/trip_health_sheet.dart';
+import '../widgets/trip_map.dart' show TripMap;
 import '../widgets/trip_review_section.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/city_events_sheet.dart';
@@ -335,6 +336,14 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   // that item, to the next item in itinerary order). Empty until computed and on
   // any failure — travel times are an enhancement and never block the itinerary.
   Map<int, LocationTiming> _travelByPos = {};
+  // Hotel anchor hops per day-run ('groupKey#day'): the stay→first-stop and
+  // last-stop→stay legs of a day whose night has a geocoded confirmed stay.
+  // Kept OUT of [_travelByPos] deliberately: that map's entries mean "the leg
+  // from this item to the NEXT ITEM in itinerary order" (the derivation's
+  // segmentLabels read it for cross-day map legs), and a back-to-hotel hop
+  // stored under the day's last item would mislabel the day-boundary segment.
+  Map<String, ({LocationTiming? out, LocationTiming? back})> _hotelHopsByRun =
+      {};
 
   // ── Deferred first-frame fan-out (time-to-interactive, lever 3) ───────
   // The first CONTENT frame pays only for what it shows. The live tile map
@@ -1407,49 +1416,246 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   /// home-leg gate — see [groundTravelMode].
   static String? _groundModeOf(Trip trip) => groundTravelMode(trip.travelMode);
 
-  /// Computes per-leg travel times for the itinerary in its existing display
-  /// order by calling /optimize-route in preserve-order mode (no reordering).
-  /// Results are keyed by the source item's position; failures leave the map
-  /// empty so the itinerary still renders.
+  /// Computes per-leg travel times by calling /optimize-route in
+  /// preserve-order mode — one small request PER DAY-RUN (a group's
+  /// consecutive same-day items), never one per trip. Per-day is what makes
+  /// failure local: an unresolvable place or a failed request darkens its own
+  /// day's legs and nothing else, where the old whole-trip request was
+  /// all-or-nothing and swallowed the loss silently (specs/day-travel-times —
+  /// the feature spent weeks dark because of exactly that).
+  ///
+  /// Results are keyed by the source item's position, as before, with the
+  /// invariant that an item's entry always means "the leg to the NEXT ITEM in
+  /// itinerary order". Two kinds of context waypoint extend a request without
+  /// bending that invariant:
+  ///
+  ///  - Anchor: a day-run whose night has a confirmed geocoded stay
+  ///    ([TripDerivation.staysOnNight] + [TripMap.stayHasCoords]) rides the
+  ///    stay as FIRST and LAST waypoint; the two hops land in
+  ///    [_hotelHopsByRun], never in [_travelByPos]. Days whose items straddle
+  ///    two runs (a transition day with stops in two cities) are never
+  ///    anchored — their morning belongs to the PREVIOUS night's hotel, so a
+  ///    single stay would label something false; absence over a wrong claim.
+  ///  - Bridge: an unanchored run whose first item has a same-hub
+  ///    predecessor at position-1 leads with that predecessor, restoring the
+  ///    cross-run hop the per-day split would lose (the map's day-boundary
+  ///    segment labels, and "45 min from Paris" on a whole-day day trip).
+  ///    Bridge and leading anchor are mutually exclusive by construction.
+  ///
+  /// A run's own LAST entry is never written to [_travelByPos]: unanchored,
+  /// the server zeroes it (one-way route); anchored, it holds the
+  /// back-to-hotel hop, which belongs to the hotel store.
   Future<void> _computeTravelTimes(Trip trip) async {
-    final items = trip.items ?? const <ItineraryItem>[];
-    final withCoords =
-        items.where((i) => i.latitude != 0 || i.longitude != 0).length;
-    if (withCoords < 2) return;
-    try {
-      final locations = [
-        for (final it in items)
-          Location(
-            id: it.id,
-            name: it.name,
-            placeId: it.placeId,
-            address: it.address,
-            // (0,0) is the "no location" sentinel (e.g. manually added places
-            // without a Places match) — send null so the optimizer skips the
-            // coordinate rather than routing via the Gulf of Guinea.
-            latitude:
-                it.latitude == 0 && it.longitude == 0 ? null : it.latitude,
-            longitude:
-                it.latitude == 0 && it.longitude == 0 ? null : it.longitude,
-            category: it.category,
-          ),
-      ];
-      final resp = await ref.read(apiClientProvider).optimizeRoute(
-            RouteRequest(
-              locations: locations,
-              returnToStart: false,
-              preserveOrder: true,
-            ),
-          );
-      final timings = resp.locationTimings;
-      final map = <int, LocationTiming>{};
-      for (var i = 0; i < items.length && i < timings.length; i++) {
-        map[items[i].position] = timings[i];
+    // Synchronous prefix (no awaits yet): derivation, run split, and job
+    // assembly all read one consistent snapshot of the trip.
+    final derivation = _derive(trip);
+    final epoch = _itemOrderEpoch;
+
+    bool hasCoords(ItineraryItem it) => it.latitude != 0 || it.longitude != 0;
+    Location itemLocation(ItineraryItem it) => Location(
+          id: it.id,
+          name: it.name,
+          placeId: it.placeId,
+          address: it.address,
+          // (0,0) is the "no location" sentinel (e.g. manually added places
+          // without a Places match) — send null so the optimizer resolves by
+          // name or skips, rather than routing via the Gulf of Guinea.
+          latitude: hasCoords(it) ? it.latitude : null,
+          longitude: hasCoords(it) ? it.longitude : null,
+          category: it.category,
+        );
+    Location stayLocation(Accommodation a, String tag) => Location(
+          id: 'stay:${a.id}:$tag',
+          name: a.name,
+          address: a.address,
+          latitude: a.latitude,
+          longitude: a.longitude,
+          category: 'lodging',
+        );
+
+    // Split every group into runs of consecutive same-day items (day may be
+    // null: legacy dayless legs render flat as one run). Group items are
+    // position-consecutive slices of the itinerary, so a run's internal hops
+    // are exactly the ones the itinerary tab can render.
+    final runs = <({String key, int? day, List<ItineraryItem> items})>[];
+    for (final group in derivation.groups) {
+      var i = 0;
+      while (i < group.items.length) {
+        final day = group.items[i].day;
+        final items = <ItineraryItem>[];
+        while (i < group.items.length && group.items[i].day == day) {
+          items.add(group.items[i]);
+          i++;
+        }
+        runs.add((key: '${group.key}#$day', day: day, items: items));
       }
-      if (mounted) setState(() => _travelByPos = map);
-    } catch (_) {
-      // Non-fatal: leave travel times empty.
     }
+    final runsPerDay = <int, int>{};
+    for (final r in runs) {
+      final d = r.day;
+      if (d != null) runsPerDay[d] = (runsPerDay[d] ?? 0) + 1;
+    }
+
+    final byPos = {
+      for (final it in trip.items ?? const <ItineraryItem>[]) it.position: it
+    };
+
+    // The API caps a request at 50 locations; 40 items + anchor/bridge
+    // context stays comfortably under it. Oversized runs (a big dayless leg)
+    // split into chunks bridged by the previous chunk's last item, so no
+    // in-run hop is lost at a seam.
+    const chunkSize = 40;
+
+    final jobs = <({
+      String runKey,
+      List<Location> locations,
+      List<ItineraryItem> items,
+      ItineraryItem? bridge,
+      bool anchorOut,
+      bool anchorBack,
+    })>[];
+    for (final r in runs) {
+      Accommodation? anchor;
+      final day = r.day;
+      if (day != null && runsPerDay[day] == 1) {
+        // First confirmed geocoded stay covering the run's night, in
+        // staysOnNight order (= the stays list's order), decides multi-stay
+        // nights.
+        for (final a in derivation.staysOnNight(day)) {
+          if (TripMap.stayHasCoords(a)) {
+            anchor = a;
+            break;
+          }
+        }
+      }
+      ItineraryItem? runBridge;
+      if (anchor == null) {
+        final prev = byPos[r.items.first.position - 1];
+        if (prev != null &&
+            hasCoords(prev) &&
+            hubOf(prev) == hubOf(r.items.first)) {
+          runBridge = prev;
+        }
+      }
+      for (var s = 0; s < r.items.length; s += chunkSize) {
+        final end = s + chunkSize < r.items.length
+            ? s + chunkSize
+            : r.items.length;
+        final items = r.items.sublist(s, end);
+        final first = s == 0;
+        final last = end == r.items.length;
+        final bridge = first ? runBridge : r.items[s - 1];
+        final anchorOut = first && anchor != null;
+        final anchorBack = last && anchor != null;
+        final locations = [
+          if (anchorOut) stayLocation(anchor, 'out'),
+          if (bridge != null) itemLocation(bridge),
+          for (final it in items) itemLocation(it),
+          if (anchorBack) stayLocation(anchor, 'back'),
+        ];
+        // Nothing to compute without two locatable waypoints (mirrors the
+        // old global withCoords gate, per request): skip, don't error.
+        if (locations.where((l) => l.latitude != null).length < 2) continue;
+        jobs.add((
+          runKey: r.key,
+          locations: locations,
+          items: items,
+          bridge: bridge,
+          anchorOut: anchorOut,
+          anchorBack: anchorBack,
+        ));
+      }
+    }
+
+    final newTravel = <int, LocationTiming>{};
+    final outByRun = <String, LocationTiming>{};
+    final backByRun = <String, LocationTiming>{};
+
+    Future<void> runJob(
+        ({
+          String runKey,
+          List<Location> locations,
+          List<ItineraryItem> items,
+          ItineraryItem? bridge,
+          bool anchorOut,
+          bool anchorBack,
+        }) job) async {
+      try {
+        final resp = await ref.read(apiClientProvider).optimizeRoute(
+              RouteRequest(
+                locations: job.locations,
+                returnToStart: false,
+                preserveOrder: true,
+              ),
+            );
+        if (resp.status != 'success') {
+          debugPrint(
+              'travel times: ${job.runKey}: status "${resp.status}", dropped');
+          return;
+        }
+        // Positional contract (#577): one timing entry per input location.
+        // Clamped defensively so a short reply can never throw.
+        final t = resp.locationTimings;
+        LocationTiming? at(int i) => i >= 0 && i < t.length ? t[i] : null;
+        final base = job.anchorOut || job.bridge != null ? 1 : 0;
+        final bridge = job.bridge;
+        if (bridge != null) {
+          final bt = at(0);
+          if (bt != null) newTravel[bridge.position] = bt;
+        }
+        if (job.anchorOut) {
+          final ot = at(0);
+          if (ot != null && ot.travelToNextMin > 0) {
+            outByRun[job.runKey] = ot;
+          }
+        }
+        for (var j = 0; j + 1 < job.items.length; j++) {
+          final jt = at(base + j);
+          if (jt != null) newTravel[job.items[j].position] = jt;
+        }
+        if (job.anchorBack && job.items.isNotEmpty) {
+          final bt = at(base + job.items.length - 1);
+          if (bt != null && bt.travelToNextMin > 0) {
+            backByRun[job.runKey] = bt;
+          }
+        }
+        final unresolved = resp.unresolved;
+        if (unresolved != null && unresolved.isNotEmpty) {
+          debugPrint('travel times: ${job.runKey}: unresolved '
+              '${unresolved.join(', ')} (their legs stay dark)');
+        }
+      } catch (e) {
+        // The per-day catch is the whole point: this run's legs stay dark,
+        // every other day still renders — and the miss is logged, where the
+        // old whole-trip catch (_) erased the feature with no signal at all.
+        debugPrint('travel times: ${job.runKey} failed: $e');
+      }
+    }
+
+    // Small fixed concurrency: fast enough for a 15-run trip, gentle on the
+    // shared IP rate bucket.
+    final queue = List.of(jobs);
+    Future<void> worker() async {
+      while (queue.isNotEmpty) {
+        await runJob(queue.removeAt(0));
+      }
+    }
+
+    await Future.wait([for (var w = 0; w < 3; w++) worker()]);
+
+    // A reorder or reload mid-flight means these results describe positions
+    // that no longer exist; drop them — the load that changed the trip
+    // recomputes.
+    if (!mounted || !identical(trip, _trip) || epoch != _itemOrderEpoch) {
+      return;
+    }
+    setState(() {
+      _travelByPos = newTravel;
+      _hotelHopsByRun = {
+        for (final key in {...outByRun.keys, ...backByRun.keys})
+          key: (out: outByRun[key], back: backByRun[key]),
+      };
+    });
   }
 
   /// Builds the auto-TODO payload from the itinerary's location groups: a stay
