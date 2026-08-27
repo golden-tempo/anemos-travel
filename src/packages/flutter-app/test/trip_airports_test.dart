@@ -90,13 +90,29 @@ BookingTodo _todo(String kind, String key, String title,
     BookingTodo(
         id: key, kind: kind, todoKey: key, title: title, role: role, auto: auto);
 
+String _iso(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+// Calendar-day arithmetic, never Duration (the #570 rule): Duration-based day
+// addition lands a calendar day short in the midnight hour across a DST
+// fall-back.
+String _rel(int days) {
+  final now = DateTime.now();
+  return _iso(DateTime(now.year, now.month, now.day + days));
+}
+
 /// A two-city trip whose first and last transport rows are the journey's ends,
 /// labelled by the server with the roles it stores as identity.
+///
+/// Dated in the FUTURE, deliberately: these tests tap row menus, and a trip
+/// whose window has begun folds departed cities to their headers (#576),
+/// hiding the very rows under test. The original fixed 2026-08-24 window aged
+/// into that fold overnight and went red with zero code changes.
 Trip _trip() => Trip(
       id: 't1',
       title: 'Europe',
-      startDate: '2026-08-24',
-      endDate: '2026-08-28',
+      startDate: _rel(30),
+      endDate: _rel(34),
       createdAt: '2026-08-01',
       updatedAt: '2026-08-01',
       originAirport: 'EWR',
