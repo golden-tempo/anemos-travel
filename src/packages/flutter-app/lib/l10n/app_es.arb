@@ -976,6 +976,7 @@
   "chatSend": "Enviar",
   "chatStopGenerating": "Detener la generación",
   "chatAttachImages": "Adjuntar imágenes",
+  "chatShareLocation": "Compartir mi ubicación",
   "chatStopDictating": "Dejar de dictar",
   "chatDictate": "Dictar",
   "chatDropImages": "Suelta imágenes para adjuntarlas",

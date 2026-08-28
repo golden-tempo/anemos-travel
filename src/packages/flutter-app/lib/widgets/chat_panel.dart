@@ -28,10 +28,12 @@ import '../theme/spacing.dart';
 import '../utils/errors.dart';
 import '../utils/clipboard_images_stub.dart'
     if (dart.library.js_interop) '../utils/clipboard_images_web.dart';
+import '../utils/geolocation_types.dart';
 import '../utils/place_links.dart';
 import '../utils/money_format.dart';
 import '../utils/tracked_launch.dart';
 import 'add_to_trip_sheet.dart';
+import 'near_me_locate.dart';
 import 'place_photo_card.dart';
 import 'source_links_card.dart';
 import 'result_summary_chip.dart';
@@ -104,6 +106,12 @@ class ChatPanel extends ConsumerStatefulWidget {
   /// Defaults to the platform file picker; injectable for tests.
   final Future<List<(Uint8List, String)>> Function()? pickImages;
 
+  /// Current-position lookup for the composer's location button. Null falls
+  /// back to the shared web/stub conditional import — which in VM widget
+  /// tests reports unsupported, so injecting a fake is the only way a test
+  /// reaches the geolocation-success branch (see [shareNearMeLocation]).
+  final Future<GeoResult> Function()? getPosition;
+
   /// Renders the composer as a rounded floating card instead of a full-bleed
   /// bottom bar. Set by hosts that width-cap the panel mid-screen (the 760px
   /// Agent column); the refine dock and mobile sheet keep the default.
@@ -121,6 +129,7 @@ class ChatPanel extends ConsumerStatefulWidget {
     this.onViewTrip,
     this.attachmentPipeline = const ImageAttachmentPipeline(),
     this.pickImages,
+    this.getPosition,
     this.floatingComposer = false,
   });
 
@@ -163,6 +172,11 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
 
   /// Whether a drag hovers over the panel — drives the drop overlay.
   bool _dragging = false;
+
+  /// True while the composer's location button waits on a geolocation fix —
+  /// swaps the button to a spinner and disables it, so a second tap
+  /// mid-locate is a no-op (same pattern as [NearMeChip]).
+  bool _locatingNearMe = false;
 
   /// Where Up/Down have walked back to in [_sentHistory], newest first.
   /// **-1 means not browsing** — the composer holds the user's own words.
@@ -333,6 +347,26 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
     _stickToBottom = true;
     _scrollToBottom();
   }
+
+  /// Sends the machine-built location message from the composer's location
+  /// button. Bypasses the composer text entirely — the message is app-written,
+  /// like a quick reply, so a half-typed draft stays untouched — but keeps
+  /// [_send]'s snap-to-bottom so the context chip lands in view.
+  void _sendNearMe(String text, {String? displayLabel}) {
+    ref.read(widget.notifier).sendMessage(text, displayLabel: displayLabel);
+    _stickToBottom = true;
+    _scrollToBottom();
+  }
+
+  /// The composer location button's tap: the same shared flow [NearMeChip]
+  /// runs, mid-conversation — a fix sends the seeded, labelled message via
+  /// [_sendNearMe]; no fix opens the typed-place fallback dialog.
+  Future<void> _shareLocation() => shareNearMeLocation(
+        context,
+        onSend: _sendNearMe,
+        onLocating: (locating) => setState(() => _locatingNearMe = locating),
+        getPosition: widget.getPosition,
+      );
 
   /// The inverse of [_send]. The notifier rolls the in-flight turn out of the
   /// transcript and hands back the message that started it; it goes into the
@@ -616,6 +650,8 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
             onStop: _stop,
             hasDraftAttachments: _pending.isNotEmpty || _processingCount > 0,
             onAttach: _pickImages,
+            locatingNearMe: _locatingNearMe,
+            onShareLocation: _shareLocation,
             dictation: _dictation,
             floating: widget.floatingComposer,
           ),
@@ -2049,6 +2085,13 @@ class _InputBar extends StatelessWidget {
   final VoidCallback onStop;
   final bool hasDraftAttachments;
   final VoidCallback onAttach;
+
+  /// Whether the location lookup behind [onShareLocation] is in flight.
+  final bool locatingNearMe;
+
+  /// Tap of the composer's location button: runs the shared near-me flow
+  /// ([shareNearMeLocation]) and sends the result as a new message.
+  final VoidCallback onShareLocation;
   final DictationController dictation;
   final bool floating;
 
@@ -2062,6 +2105,8 @@ class _InputBar extends StatelessWidget {
     required this.onStop,
     required this.hasDraftAttachments,
     required this.onAttach,
+    required this.locatingNearMe,
+    required this.onShareLocation,
     required this.dictation,
     this.floating = false,
   });
@@ -2131,6 +2176,10 @@ class _InputBar extends StatelessWidget {
             onPressed: onAttach,
             icon: const Icon(Icons.attach_file),
           ),
+          _NearMeButton(
+            locating: locatingNearMe,
+            onPressed: onShareLocation,
+          ),
           Expanded(
             // The LayoutBuilder is here, inside the Expanded, because this is
             // the only place the field's REAL width is known: it already
@@ -2199,6 +2248,32 @@ class _InputBar extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The composer's "share my location" button — [NearMeChip]'s flow moved
+/// mid-conversation. Same icon, same progress pattern as the chip: while a
+/// lookup is in flight the icon becomes a small spinner and the button
+/// disables, so a second tap mid-locate is a no-op.
+class _NearMeButton extends StatelessWidget {
+  final bool locating;
+  final VoidCallback onPressed;
+
+  const _NearMeButton({required this.locating, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: context.l10n.chatShareLocation,
+      onPressed: locating ? null : onPressed,
+      icon: locating
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.my_location),
     );
   }
 }

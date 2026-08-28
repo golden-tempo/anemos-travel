@@ -5684,6 +5684,12 @@ abstract class AppLocalizations {
   /// **'Attach images'**
   String get chatAttachImages;
 
+  /// Tooltip and a11y label for the chat composer's location button, which sends a seeded what's-near-me message with the traveler's current coordinates (same flow as the Home/Plan nearMeChipLabel chip, mid-conversation).
+  ///
+  /// In en, this message translates to:
+  /// **'Share my location'**
+  String get chatShareLocation;
+
   /// No description provided for @chatStopDictating.
   ///
   /// In en, this message translates to:
