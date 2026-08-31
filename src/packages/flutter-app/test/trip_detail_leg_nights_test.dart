@@ -13,6 +13,7 @@ import 'package:travel_route_planner/services/trips_api_service.dart';
 import 'package:travel_route_planner/providers/booking_todos_provider.dart';
 import 'package:travel_route_planner/providers/trips_provider.dart';
 import 'package:travel_route_planner/screens/trip_detail_screen.dart';
+import 'package:travel_route_planner/utils/date_formats.dart';
 
 import 'support/chip_finders.dart';
 import 'support/city_groups.dart';
@@ -86,15 +87,38 @@ Future<void> _pump(WidgetTester tester, Trip trip, {Locale? locale}) async {
   await tester.pumpAndSettle();
 }
 
-/// Prague Aug 24 – Aug 27 (3 nights), Kraków Aug 27 – Sep 1 (5 nights) —
-/// the canonical example the feature was asked for. Day numbers encode each
-/// city's ARRIVAL: a leg runs until the next leg's first item day
-/// (specs/leg-departure-dates), with the last leg carried to the trip end.
+/// Calendar-day anchor for every fixture trip below: tonight + 7, so the
+/// trip is always UPCOMING. The fixed Aug/Sep 2026 windows went red the week
+/// the calendar crossed them (#579 all over again: #576 folds departed cities
+/// by DateTime.now(), and a city whose days are all past renders nothing like
+/// the expanded group these tests pin). Offsets from the anchor keep each
+/// fixture's original leg structure — day numbers and night counts are
+/// unchanged, only the absolute dates moved.
+final _anchor = DateUtils.dateOnly(DateTime.now()).add(const Duration(days: 7));
+
+String _iso(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-'
+    '${d.month.toString().padLeft(2, '0')}-'
+    '${d.day.toString().padLeft(2, '0')}';
+
+/// The city-header chip's range text for a leg running [from]–[to] days after
+/// [_anchor] — computed with the same helper the chip renders through.
+String _range(int from, int to) => formatShortRange(
+    _anchor.add(Duration(days: from)), _anchor.add(Duration(days: to)));
+
+/// A bare single-date chip (the zero-night squeeze), [offset] days after
+/// [_anchor].
+String _chipDate(int offset) => mmmd().format(_anchor.add(Duration(days: offset)));
+
+/// Prague day 1, Kraków day 4 — the canonical example the feature was asked
+/// for. Day numbers encode each city's ARRIVAL: a leg runs until the next
+/// leg's first item day (specs/leg-departure-dates), with the last leg
+/// carried to the trip end. Prague gets 3 nights, Kraków 5.
 Trip _pragueKrakowTrip() => Trip(
       id: 't1',
       title: 'Big Summer',
-      startDate: '2026-08-24',
-      endDate: '2026-09-01',
+      startDate: _iso(_anchor),
+      endDate: _iso(_anchor.add(const Duration(days: 8))),
       createdAt: '2026-08-01',
       updatedAt: '2026-08-01',
       items: [
@@ -103,8 +127,8 @@ Trip _pragueKrakowTrip() => Trip(
       ],
     );
 
-/// [_pragueKrakowTrip] with Kraków run through Sep 12 (16 nights) plus Vienna
-/// Sep 12 – Sep 14 (2 nights). Kraków's chip is the strict widest (26 glyphs
+/// [_pragueKrakowTrip] with Kraków run to day 20 (16 nights) plus Vienna for
+/// the trip's last 2 nights. Kraków's chip is the strict widest (26 glyphs
 /// under the uniform-advance test font vs 25 for the others), so a regression
 /// to per-row intrinsic widths misaligns its row against the other two, and
 /// the shared width here is one glyph wider than [_pragueKrakowTrip]'s — the
@@ -112,8 +136,8 @@ Trip _pragueKrakowTrip() => Trip(
 Trip _threeCityTrip() => Trip(
       id: 't1',
       title: 'Big Summer',
-      startDate: '2026-08-24',
-      endDate: '2026-09-14',
+      startDate: _iso(_anchor),
+      endDate: _iso(_anchor.add(const Duration(days: 21))),
       createdAt: '2026-08-01',
       updatedAt: '2026-08-01',
       items: [
@@ -123,14 +147,14 @@ Trip _threeCityTrip() => Trip(
       ],
     );
 
-/// Quito shares Galápagos's Sep 6 arrival — a genuine zero-night leg
+/// Quito shares Galápagos's day-6 arrival — a genuine zero-night leg
 /// (specs/leg-departure-dates) with a bare single-date chip between two
 /// counted legs.
 Trip _squeezeTrip() => Trip(
       id: 't1',
       title: 'Squeeze',
-      startDate: '2026-09-01',
-      endDate: '2026-09-07',
+      startDate: _iso(_anchor),
+      endDate: _iso(_anchor.add(const Duration(days: 6))),
       createdAt: '2026-08-01',
       updatedAt: '2026-08-01',
       items: [
@@ -144,12 +168,13 @@ Trip _squeezeTrip() => Trip(
 
 /// Prague plus an item whose locality can't be resolved — the 'Other places'
 /// group, whose header has no refine sparkle to align against. Its day-4
-/// arrival ends Prague at Aug 27 and the last-leg anchor runs it to Sep 1.
+/// arrival ends Prague at day 3 and the last-leg anchor runs it to the trip
+/// end (5 nights).
 Trip _pragueMysteryTrip() => Trip(
       id: 't1',
       title: 'Big Summer',
-      startDate: '2026-08-24',
-      endDate: '2026-09-01',
+      startDate: _iso(_anchor),
+      endDate: _iso(_anchor.add(const Duration(days: 8))),
       createdAt: '2026-08-01',
       updatedAt: '2026-08-01',
       items: [
@@ -190,9 +215,9 @@ void main() {
     await _pump(tester, _pragueKrakowTrip());
 
     // Scoped per row: the count must sit in the SAME chip as its range.
-    expect(chipTextIn('Prague', 'Aug 24 – Aug 27'), findsOneWidget);
+    expect(chipTextIn('Prague', _range(0, 3)), findsOneWidget);
     expect(chipTextIn('Prague', '· 3 nights'), findsOneWidget);
-    expect(chipTextIn('Kraków', 'Aug 27 – Sep 1'), findsOneWidget);
+    expect(chipTextIn('Kraków', _range(3, 8)), findsOneWidget);
     expect(chipTextIn('Kraków', '· 5 nights'), findsOneWidget);
   });
 
@@ -202,9 +227,9 @@ void main() {
     // Galápagos leg still gets its counter.
     await _pump(tester, _squeezeTrip());
 
-    expect(chipTextIn('Quito', 'Sep 6'), findsOneWidget);
+    expect(chipTextIn('Quito', _chipDate(5)), findsOneWidget);
     expect(find.textContaining('0 nights'), findsNothing);
-    expect(chipTextIn('Galápagos', 'Sep 6 – Sep 7'), findsOneWidget);
+    expect(chipTextIn('Galápagos', _range(5, 6)), findsOneWidget);
     expect(chipTextIn('Galápagos', '· 1 night'), findsOneWidget);
   });
 
@@ -262,7 +287,7 @@ void main() {
     // The dates still belong to Prague's header (chipTextIn scopes to the
     // row), but they now sit on a SECOND line under the name.
     final name = cityHeaderLabel('Prague');
-    final dates = chipTextIn('Prague', 'Aug 24 – Aug 27');
+    final dates = chipTextIn('Prague', _range(0, 3));
     expect(dates, findsOneWidget);
     expect(chipTextIn('Prague', '· 3 nights'), findsOneWidget);
     expect(
@@ -335,11 +360,11 @@ void main() {
         moreOrLessEquals(iconX, epsilon: 0.1),
         reason: 'calendar icons must form a column');
 
-    final rangeX = tester.getTopLeft(find.text('Aug 24 – Aug 27')).dx;
-    expect(tester.getTopLeft(find.text('Aug 27 – Sep 12')).dx,
+    final rangeX = tester.getTopLeft(find.text(_range(0, 3))).dx;
+    expect(tester.getTopLeft(find.text(_range(3, 19))).dx,
         moreOrLessEquals(rangeX, epsilon: 0.1),
         reason: 'range starts must form a column');
-    expect(tester.getTopLeft(find.text('Sep 12 – Sep 14')).dx,
+    expect(tester.getTopLeft(find.text(_range(19, 21))).dx,
         moreOrLessEquals(rangeX, epsilon: 0.1),
         reason: 'range starts must form a column');
 
