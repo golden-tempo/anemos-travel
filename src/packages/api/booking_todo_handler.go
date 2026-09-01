@@ -248,6 +248,7 @@ func syncBookingTodosHandler(w http.ResponseWriter, r *http.Request) {
 	// computeTripLegs — the same derivation the page renders and the `legs`
 	// payload serializes — so "which point is Florence" has one answer.
 	var legCoords map[string]legEndpoint
+	var gw *gatewayResolver
 	overrides := map[string]string{}
 	if hasTransportRow(derived) {
 		items, itemsErr := q.GetItineraryItemsByTrip(r.Context(), tripID)
@@ -267,6 +268,10 @@ func syncBookingTodosHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		// Gateway airports (specs/leg-gateway-airports): loaded with the same
+		// once-per-sync discipline as legCoords; unknown cities resolve
+		// lazily inside the loop, bounded by the resolver's own cap.
+		gw = newGatewayResolver(r.Context(), q, tripID, duffelService)
 	}
 	keys := make([]string, 0, len(derived))
 	// One batch upsert instead of a round trip per row. The batch statement
@@ -298,6 +303,7 @@ func syncBookingTodosHandler(w http.ResponseWriter, r *http.Request) {
 		// never disagree with each other.
 		origin, destination := d.Origin, d.Destination
 		title := strings.TrimSpace(d.Title)
+		subtitle := d.Subtitle
 		switch {
 		case ident.role == roleHomeOutbound && departureLabel != "":
 			origin = &departureLabel
@@ -322,6 +328,31 @@ func syncBookingTodosHandler(w http.ResponseWriter, r *http.Request) {
 			if m, ok := overrides[ident.key]; ok {
 				effective = m
 			}
+			// Gateway relabeling: an inter-city FLIGHT leg whose endpoint
+			// city flies via another airport shows — and searches — that
+			// airport, while the row's identity keeps the city pair
+			// (booking_todo_identity.go). Same never-disagree rule as the
+			// home legs above: labels, title and link all read the one
+			// substituted pair, and the subtitle keeps the planned city so
+			// the row still maps to the itinerary. Applied AFTER mode
+			// resolution: the coordinate lookup and the mode ladder must see
+			// the CITY, and a leg ridden by train needs no airport.
+			if ident.role == roleInterCity && effective == "flight" && gw != nil {
+				var quals []string
+				if g := gw.gatewayFor(strPtrVal(origin), legEndpointFrom(strPtrVal(origin), legCoords)); g != nil {
+					quals = append(quals, gatewayQualifier("From", strPtrVal(origin)))
+					lbl := gatewayLabel(*g)
+					origin = &lbl
+				}
+				if g := gw.gatewayFor(destination, legEndpointFrom(destination, legCoords)); g != nil {
+					quals = append(quals, gatewayQualifier("For", destination))
+					destination = gatewayLabel(*g)
+				}
+				if len(quals) > 0 {
+					title = strPtrVal(origin) + " → " + destination
+					subtitle = gatewaySubtitle(quals, d.Subtitle)
+				}
+			}
 			url, provider = transportModeLink(effective, destination, origin, d.DepartDate, d.Passengers)
 		} else {
 			url, provider = bookingSearchURL(kind, destination, origin, d.DepartDate, d.ReturnDate, d.Guests, d.Passengers, d.Provider)
@@ -335,7 +366,7 @@ func syncBookingTodosHandler(w http.ResponseWriter, r *http.Request) {
 			Kind:             kind,
 			TodoKey:          ident.key,
 			Title:            title,
-			Subtitle:         d.Subtitle,
+			Subtitle:         subtitle,
 			Provider:         providerPtr,
 			SearchUrl:        strPtrOrNil(url),
 			DepartDate:       depart,

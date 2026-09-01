@@ -120,12 +120,14 @@ SELECT * FROM booking_todos
 WHERE trip_id = $1 AND auto = true AND role IN ('home_outbound', 'home_return')
 ORDER BY position ASC, created_at ASC;
 
--- name: RelabelHomeBookingTodo :one
--- Repoints ONE journey-endpoint row at a new airport. Content only: the row
+-- name: RelabelBookingTodo :one
+-- Repoints ONE transport row's endpoint labels. Content only: the row
 -- keeps its id, so booked, mode, position and any trip_expenses row linked by
 -- source_id ride along untouched — which is the entire reason the key stopped
--- containing the airport (00064). todo_key is deliberately absent: the @home
--- identity does not move when the label does.
+-- containing the airport (00064). todo_key is deliberately absent: identity
+-- (home token or city pair) does not move when the label does. Serves both
+-- the journey endpoints (set_trip_origin) and inter-city gateway relabels
+-- (set_leg_gateway, 00075).
 UPDATE booking_todos
 SET origin_label = sqlc.narg('origin_label'),
     destination_label = sqlc.narg('destination_label'),

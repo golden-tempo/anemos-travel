@@ -845,6 +845,36 @@ func runGetTripTool(ctx context.Context, authed bool, uid uuid.UUID, boundTripID
 			b.WriteString("Transport:\n" + strings.Join(lines, ""))
 		}
 	}
+	// Gateway airports (00075): the model must SEE these to search flights
+	// with the right code and to know the correction tool exists — an
+	// invisible gateway is how "I can't rename those legs" happened.
+	// Display-cased via the legs when possible (the table stores the fold).
+	if gws, err := q.ListTripLegGateways(ctx, trip.ID); err == nil {
+		caseOf := map[string]string{}
+		if stays, serr := q.ListAccommodationsByTrip(ctx, trip.ID); serr == nil {
+			for _, leg := range computeTripLegs(trip, items, stays) {
+				caseOf[gatewayCityFold(leg.Label)] = leg.Label
+			}
+		}
+		var lines []string
+		for _, g := range gws {
+			if !gatewayRelabelsRow(g) {
+				continue
+			}
+			name := g.CityFold
+			if c, ok := caseOf[g.CityFold]; ok {
+				name = c
+			}
+			src := "auto-detected; correct with set_leg_gateway if wrong"
+			if g.Source == "traveler" {
+				src = "traveler-set"
+			}
+			lines = append(lines, fmt.Sprintf("- %s flies via %s (%s)\n", name, gatewayLabel(g), src))
+		}
+		if len(lines) > 0 {
+			b.WriteString("Gateway airports — cities with no airport of their own; search flights with the gateway code:\n" + strings.Join(lines, ""))
+		}
+	}
 	// Booking checklist with ids so the agent can update/remove stale items;
 	// degrade silently on error — the itinerary alone is still useful.
 	if todos, err := q.ListBookingTodosByTrip(ctx, trip.ID); err == nil && len(todos) > 0 {
