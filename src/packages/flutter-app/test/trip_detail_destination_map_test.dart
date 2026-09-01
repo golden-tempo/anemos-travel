@@ -48,10 +48,10 @@ void main() {
   final trip = Trip(
     id: 't1',
     title: 'Paris & Rome',
-    createdAt: '2026-06-01',
-    updatedAt: '2026-06-01',
-    startDate: '2026-09-01',
-    endDate: '2026-09-02',
+    createdAt: '2037-06-01',
+    updatedAt: '2037-06-01',
+    startDate: '2037-09-01',
+    endDate: '2037-09-02',
     items: [
       _item(0, 'Louvre', 'Paris', 48.8606, 2.3376, 1),
       _item(1, 'Orsay', 'Paris', 48.8600, 2.3266, 1),

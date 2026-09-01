@@ -128,10 +128,10 @@ void main() {
     Trip mappableTrip() => Trip(
           id: 't1',
           title: 'Lisbon Trip',
-          startDate: '2026-09-01',
-          endDate: '2026-09-06',
-          createdAt: '2026-06-01',
-          updatedAt: '2026-06-01',
+          startDate: '2037-09-01',
+          endDate: '2037-09-06',
+          createdAt: '2037-06-01',
+          updatedAt: '2037-06-01',
           items: const [
             ItineraryItem(
               id: 'i0',
@@ -178,7 +178,7 @@ void main() {
         (WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({
         'trip_cache.u1.trip.t1': jsonEncode({
-          'saved_at': '2026-08-01T10:00:00.000',
+          'saved_at': '2037-08-01T10:00:00.000',
           'trip': mappableTrip().toJson(),
         }),
       });
@@ -216,8 +216,8 @@ void main() {
         title: 'Lisbon Trip',
         startDate: iso(DateTime.now().add(const Duration(days: 10))),
         endDate: iso(DateTime.now().add(const Duration(days: 13))),
-        createdAt: '2026-06-01',
-        updatedAt: '2026-06-01',
+        createdAt: '2037-06-01',
+        updatedAt: '2037-06-01',
         items: const [
           ItineraryItem(
             id: 'i0',
@@ -242,7 +242,7 @@ void main() {
       SharedPreferences.setMockInitialValues({
         'recent_trip.user-1': jsonEncode({'id': 't1', 'title': 'Lisbon Trip'}),
         'trip_cache.user-1.trip.t1': jsonEncode({
-          'saved_at': '2026-08-01T10:00:00.000',
+          'saved_at': '2037-08-01T10:00:00.000',
           'trip': trip.toJson(),
         }),
       });

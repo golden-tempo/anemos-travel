@@ -93,10 +93,10 @@ ItineraryItem _item(int pos, String name, {int? day, String? city}) =>
 Trip _trip({TripRefineChat? chat, bool withItems = true}) => Trip(
       id: 't1',
       title: 'Greek Islands',
-      startDate: '2026-08-01',
-      endDate: '2026-08-05',
-      createdAt: '2026-07-01',
-      updatedAt: '2026-07-01',
+      startDate: '2037-08-01',
+      endDate: '2037-08-05',
+      createdAt: '2037-07-01',
+      updatedAt: '2037-07-01',
       refineChat: chat,
       items: withItems
           ? [
@@ -109,7 +109,7 @@ Trip _trip({TripRefineChat? chat, bool withItems = true}) => Trip(
 TripRefineChat _summary({int count = 4}) => TripRefineChat(
       messageCount: count,
       preview: 'Naxos then Paros.',
-      updatedAt: '2026-07-30T10:00:00Z',
+      updatedAt: '2037-07-30T10:00:00Z',
     );
 
 TripRefineChatDetail _detail() => const TripRefineChatDetail(
@@ -123,7 +123,7 @@ TripRefineChatDetail _detail() => const TripRefineChatDetail(
         ChatSessionMessage(role: 'assistant', content: 'Naxos then Paros.'),
       ],
       messageCount: 2,
-      updatedAt: '2026-07-30T10:00:00Z',
+      updatedAt: '2037-07-30T10:00:00Z',
     );
 
 Widget _app(_FakeTripsApiService api) => ProviderScope(

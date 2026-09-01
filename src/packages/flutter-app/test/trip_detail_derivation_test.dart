@@ -65,10 +65,10 @@ List<ItineraryItem> _items() => [
 Trip _trip({List<ItineraryItem>? items, List<Accommodation>? stays}) => Trip(
       id: 't1',
       title: 'Paris & Rome',
-      startDate: '2026-09-01',
-      endDate: '2026-09-05',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-09-01',
+      endDate: '2037-09-05',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: items ?? _items(),
       accommodations: stays,
     );
@@ -79,8 +79,8 @@ const _parisStay = Accommodation(
   address: 'Rue X, Paris, France',
   latitude: 48.87,
   longitude: 2.36,
-  checkIn: '2026-09-01',
-  checkOut: '2026-09-03',
+  checkIn: '2037-09-01',
+  checkOut: '2037-09-03',
 );
 
 const _draftStay = Accommodation(
@@ -285,10 +285,10 @@ void main() {
         trip: Trip(
           id: 't2',
           title: 'Day trip',
-          startDate: '2026-09-01',
-          endDate: '2026-09-01',
-          createdAt: '2026-08-01',
-          updatedAt: '2026-08-01',
+          startDate: '2037-09-01',
+          endDate: '2037-09-01',
+          createdAt: '2037-08-01',
+          updatedAt: '2037-08-01',
           items: [
             _item(0, 'Louvre', city: 'Paris', day: 1, lat: 48.86, lng: 2.35)
           ],
@@ -487,15 +487,15 @@ void main() {
       // page actually showed: Sep 2, Sep 2, Sep 1, Sep 3, Sep 1.
       final todos = [
         _todo('custom:door74',
-            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-02'),
+            kind: 'other', cityLabel: 'Paris', departDate: '2037-09-02'),
         _todo('custom:renvy',
-            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-02'),
+            kind: 'other', cityLabel: 'Paris', departDate: '2037-09-02'),
         _todo('custom:rijksmuseum',
-            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-01'),
+            kind: 'other', cityLabel: 'Paris', departDate: '2037-09-01'),
         _todo('custom:lookout',
-            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-03'),
+            kind: 'other', cityLabel: 'Paris', departDate: '2037-09-03'),
         _todo('custom:moeders',
-            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-01'),
+            kind: 'other', cityLabel: 'Paris', departDate: '2037-09-01'),
       ];
       final grouped = _compute(bookingTodos: todos).groupedBookings;
       expect([for (final t in grouped.slots[0].others) t.todoKey], [
@@ -518,10 +518,10 @@ void main() {
       final todos = [
         _todo('custom:no-date-first', kind: 'other', cityLabel: 'Paris'),
         _todo('custom:late',
-            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-01'),
+            kind: 'other', cityLabel: 'Paris', departDate: '2037-09-01'),
         _todo('custom:no-date-second', kind: 'other', cityLabel: 'Paris'),
         _todo('custom:early',
-            kind: 'other', cityLabel: 'Paris', departDate: '2026-08-31'),
+            kind: 'other', cityLabel: 'Paris', departDate: '2037-08-31'),
       ];
       final grouped = _compute(bookingTodos: todos).groupedBookings;
       expect([for (final t in grouped.slots[0].others) t.todoKey], [
@@ -536,13 +536,13 @@ void main() {
       // Paris' latest must not outrank Rome's earliest — runs sort separately.
       final todos = [
         _todo('custom:paris-late',
-            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-01'),
+            kind: 'other', cityLabel: 'Paris', departDate: '2037-09-01'),
         _todo('custom:rome-late',
-            kind: 'other', cityLabel: 'Rome', departDate: '2026-09-05'),
+            kind: 'other', cityLabel: 'Rome', departDate: '2037-09-05'),
         _todo('custom:paris-early',
-            kind: 'other', cityLabel: 'Paris', departDate: '2026-08-31'),
+            kind: 'other', cityLabel: 'Paris', departDate: '2037-08-31'),
         _todo('custom:rome-early',
-            kind: 'other', cityLabel: 'Rome', departDate: '2026-09-04'),
+            kind: 'other', cityLabel: 'Rome', departDate: '2037-09-04'),
       ];
       final grouped = _compute(bookingTodos: todos).groupedBookings;
       expect([for (final t in grouped.slots[0].others) t.todoKey],
@@ -559,11 +559,11 @@ void main() {
       // alone; re-deriving here would be the second spelling docs/zen.md
       // forbids.
       final todos = [
-        _todo('custom:dinner', kind: 'other', departDate: '2026-09-02'),
+        _todo('custom:dinner', kind: 'other', departDate: '2037-09-02'),
         // An explicit label on that same shared date IS honoured — the
         // traveler (or agent) said so, and derivation never overrides.
         _todo('custom:lookout',
-            kind: 'other', cityLabel: 'Rome', departDate: '2026-09-02'),
+            kind: 'other', cityLabel: 'Rome', departDate: '2037-09-02'),
         // A city the trip no longer visits: residual, not vanished.
         _todo('custom:berlin-show', kind: 'other', cityLabel: 'Berlin'),
       ];
@@ -593,14 +593,14 @@ void main() {
       // last-leg trip-end anchor).
       final d = _compute(bookingTodos: [
         _todo('custom:run2-dinner',
-            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-05'),
+            kind: 'other', cityLabel: 'Paris', departDate: '2037-09-05'),
         _todo('custom:run1-dinner',
-            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-01'),
+            kind: 'other', cityLabel: 'Paris', departDate: '2037-09-01'),
         // No date: the label's first run, deterministically.
         _todo('custom:undated', kind: 'other', cityLabel: 'Paris'),
         // A date no Paris window contains falls to the first run too.
         _todo('custom:rome-day-dinner',
-            kind: 'other', cityLabel: 'Paris', departDate: '2026-09-03'),
+            kind: 'other', cityLabel: 'Paris', departDate: '2037-09-03'),
       ]).groupedBookings;
       // WHICH run each claims is what this test is about; the order inside a
       // run is by date (Sep 1, Sep 3, then the undated one) — see the sorting
@@ -713,8 +713,8 @@ void main() {
         address: 'Via Y, Rome',
         latitude: 41.9,
         longitude: 12.5,
-        checkIn: '2026-09-03',
-        checkOut: '2026-09-05',
+        checkIn: '2037-09-03',
+        checkOut: '2037-09-05',
       );
       final withStay = _compute(trip: _trip(items: items, stays: [romeStay]));
       expect(withStay.mappedLegKeys, {'Paris', 'Rome'});
@@ -760,8 +760,8 @@ void main() {
         address: 'Ring 1, Vienna',
         latitude: 48.2,
         longitude: 16.37,
-        checkIn: '2026-09-04',
-        checkOut: '2026-09-06',
+        checkIn: '2037-09-04',
+        checkOut: '2037-09-06',
       );
       final squeezed = _compute(
         trip: _trip(
@@ -782,8 +782,8 @@ void main() {
         trip: Trip(
           id: 't3',
           title: 'No dates',
-          createdAt: '2026-08-01',
-          updatedAt: '2026-08-01',
+          createdAt: '2037-08-01',
+          updatedAt: '2037-08-01',
           items: _items(),
           accommodations: const [_parisStay],
         ),
@@ -1003,10 +1003,10 @@ void main() {
         trip: Trip(
           id: 't-spine',
           title: 'Iberia',
-          startDate: '2026-09-01',
-          endDate: '2026-09-08',
-          createdAt: '2026-08-01',
-          updatedAt: '2026-08-01',
+          startDate: '2037-09-01',
+          endDate: '2037-09-08',
+          createdAt: '2037-08-01',
+          updatedAt: '2037-08-01',
           items: [
             _item(0, 'Time Out Market', city: 'Lisbon', day: 1),
             _item(1, 'Belem', city: 'Lisbon', day: 4),
@@ -1028,16 +1028,16 @@ void main() {
         trip: Trip(
           id: 't-home',
           title: 'Madrid',
-          startDate: '2026-09-01',
-          endDate: '2026-09-08',
-          createdAt: '2026-08-01',
-          updatedAt: '2026-08-01',
+          startDate: '2037-09-01',
+          endDate: '2037-09-08',
+          createdAt: '2037-08-01',
+          updatedAt: '2037-08-01',
           items: [_item(0, 'Prado', city: 'Madrid', day: 1)],
         ),
       );
       // The leg genuinely renders through Sep 8 — that is the last-leg anchor
       // working, and the test states it rather than hiding the divergence.
-      expect(d.visibleRanges.single.end, DateTime.parse('2026-09-08'));
+      expect(d.visibleRanges.single.end, DateTime.parse('2037-09-08'));
       expect(d.groups.single.emptyDays, [2, 3, 4, 5, 6, 7]);
     });
 
@@ -1055,10 +1055,10 @@ void main() {
         trip: Trip(
           id: 't-undated-items',
           title: 'Lisbon',
-          startDate: '2026-09-01',
-          endDate: '2026-09-08',
-          createdAt: '2026-08-01',
-          updatedAt: '2026-08-01',
+          startDate: '2037-09-01',
+          endDate: '2037-09-08',
+          createdAt: '2037-08-01',
+          updatedAt: '2037-08-01',
           items: [_item(0, 'Time Out Market', city: 'Lisbon')],
         ),
       );
@@ -1070,8 +1070,8 @@ void main() {
         trip: Trip(
           id: 't-undated',
           title: 'Someday',
-          createdAt: '2026-08-01',
-          updatedAt: '2026-08-01',
+          createdAt: '2037-08-01',
+          updatedAt: '2037-08-01',
           items: [_item(0, 'Prado', city: 'Madrid', day: 1)],
         ),
       );
@@ -1086,10 +1086,10 @@ void main() {
         trip: Trip(
           id: 't-filler',
           title: 'Lisbon',
-          startDate: '2026-09-01',
-          endDate: '2026-09-04',
-          createdAt: '2026-08-01',
-          updatedAt: '2026-08-01',
+          startDate: '2037-09-01',
+          endDate: '2037-09-04',
+          createdAt: '2037-08-01',
+          updatedAt: '2037-08-01',
           items: [
             _item(0, 'Lisbon', city: 'Lisbon', day: 1),
             _item(1, 'Time Out Market', city: 'Lisbon', day: 2),
@@ -1106,10 +1106,10 @@ void main() {
         trip: Trip(
           id: 't-jump',
           title: 'Madrid',
-          startDate: '2026-09-01',
-          endDate: '2026-09-04',
-          createdAt: '2026-08-01',
-          updatedAt: '2026-08-01',
+          startDate: '2037-09-01',
+          endDate: '2037-09-04',
+          createdAt: '2037-08-01',
+          updatedAt: '2037-08-01',
           items: [_item(0, 'Prado', city: 'Madrid', day: 1)],
         ),
       );

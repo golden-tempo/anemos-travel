@@ -43,8 +43,8 @@ class _FakeTripsApiService extends TripsApiService {
 Trip _trip() => Trip(
       id: 't1',
       title: 'Lisbon Trip',
-      createdAt: '2026-06-01',
-      updatedAt: '2026-06-01',
+      createdAt: '2037-06-01',
+      updatedAt: '2037-06-01',
       items: const [],
     );
 
@@ -129,7 +129,7 @@ void main() {
       id: 'e1',
       name: 'Fado Night',
       venue: 'Casa do Fado',
-      startDate: '2026-08-12', // a Wednesday
+      startDate: '2037-08-12', // a Wednesday
       startTime: '20:00',
       url: 'https://tickets.example/e1',
     );
@@ -152,7 +152,7 @@ void main() {
     const event = Event(
       id: 'e2',
       name: 'Jazz Evening',
-      startDate: '2026-08-12',
+      startDate: '2037-08-12',
       startTime: '19:30',
     );
     await tester.pumpWidget(localizedTestApp(

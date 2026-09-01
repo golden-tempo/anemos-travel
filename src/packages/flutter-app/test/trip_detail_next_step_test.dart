@@ -156,10 +156,10 @@ Trip _trip({
     Trip(
       id: 't1',
       title: 'Greece',
-      startDate: '2026-09-01',
-      endDate: '2026-09-05',
-      createdAt: '2026-07-01',
-      updatedAt: '2026-07-01',
+      startDate: '2037-09-01',
+      endDate: '2037-09-05',
+      createdAt: '2037-07-01',
+      updatedAt: '2037-07-01',
       access: access,
       items: items ??
           [
@@ -240,7 +240,7 @@ TripReview _transportReview({required String mode}) => TripReview(
           label: mode == 'ferry' ? 'Find ferries' : 'Find flights',
           origin: 'Paris',
           destination: 'Lyon',
-          date: '2026-09-03',
+          date: '2037-09-03',
           mode: mode,
         ),
         seedPrompt: _transportSeed,
@@ -257,7 +257,7 @@ BookingTodo _parisLyonLeg({String? mode}) => BookingTodo(
       todoKey: 'transport:paris>>lyon',
       title: 'Paris → Lyon',
       provider: mode == 'ferry' ? 'ferry' : 'google_flights',
-      departDate: '2026-09-03',
+      departDate: '2037-09-03',
       mode: mode,
       position: 2,
     );
