@@ -87,10 +87,10 @@ Trip _trip({required int perDay, required int berlinDays}) {
   return Trip(
     id: 't1',
     title: 'Grand tour',
-    createdAt: '2026-06-01',
-    updatedAt: '2026-06-01',
-    startDate: '2026-09-01',
-    endDate: '2026-09-${(4 + berlinDays).toString().padLeft(2, '0')}',
+    createdAt: '2037-06-01',
+    updatedAt: '2037-06-01',
+    startDate: '2037-09-01',
+    endDate: '2037-09-${(4 + berlinDays).toString().padLeft(2, '0')}',
     items: items,
   );
 }

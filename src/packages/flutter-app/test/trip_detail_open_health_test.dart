@@ -50,10 +50,10 @@ void main() {
   Trip trip() => Trip(
         id: 't1',
         title: 'Northern Europe',
-        startDate: '2026-09-01',
-        endDate: '2026-09-05',
-        createdAt: '2026-07-01',
-        updatedAt: '2026-07-01',
+        startDate: '2037-09-01',
+        endDate: '2037-09-05',
+        createdAt: '2037-07-01',
+        updatedAt: '2037-07-01',
         items: [
           ItineraryItem(
             id: 'i0',

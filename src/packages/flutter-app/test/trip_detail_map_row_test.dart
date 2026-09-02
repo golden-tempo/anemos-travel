@@ -68,10 +68,10 @@ ItineraryItem _item(
 Trip _trip({TripRefineChat? chat}) => Trip(
       id: 't1',
       title: 'Grand tour',
-      createdAt: '2026-06-01',
-      updatedAt: '2026-06-01',
-      startDate: '2026-09-01',
-      endDate: '2026-09-05',
+      createdAt: '2037-06-01',
+      updatedAt: '2037-06-01',
+      startDate: '2037-09-01',
+      endDate: '2037-09-05',
       refineChat: chat,
       items: [
         _item(0, 'Louvre', 'Paris', 48.8606, 2.3376, 1),
@@ -135,7 +135,7 @@ void main() {
           chat: const TripRefineChat(
         messageCount: 17,
         preview: 'Great choice! Go ahead and add it.',
-        updatedAt: '2026-08-25T10:00:00Z',
+        updatedAt: '2037-08-25T10:00:00Z',
       )),
       review: _lodgingReview,
       surface: const Size(1200, 800),
@@ -235,7 +235,7 @@ void main() {
           chat: const TripRefineChat(
         messageCount: 17,
         preview: 'Great choice! Go ahead and add it.',
-        updatedAt: '2026-08-25T10:00:00Z',
+        updatedAt: '2037-08-25T10:00:00Z',
       )),
       review: _lodgingReview,
       surface: const Size(1200, 800),
@@ -275,7 +275,7 @@ void main() {
           chat: const TripRefineChat(
         messageCount: 3,
         preview: 'Naxos then Paros.',
-        updatedAt: '2026-08-25T10:00:00Z',
+        updatedAt: '2037-08-25T10:00:00Z',
       )),
       review: _lodgingReview,
       surface: const Size(375, 800),

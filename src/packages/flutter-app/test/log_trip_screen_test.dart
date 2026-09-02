@@ -101,15 +101,19 @@ FilledButton _saveButton(WidgetTester tester) =>
     tester.widget<FilledButton>(find.byKey(kLogTripSaveButtonKey));
 
 /// Drives the Material date-range picker to a fixed past range: open it, pick
-/// the first and last selectable days of the month it lands on, confirm.
+/// day 1 of the month it lands on twice (a same-day range), confirm.
 Future<void> _pickDates(WidgetTester tester) async {
   await tester.tap(find.byIcon(Icons.calendar_month_outlined));
   await tester.pumpAndSettle();
-  // The picker opens on the last selectable month (today's). Days 1 and 2 of
-  // it are always in range, and a two-day span is enough for the assertions.
+  // The picker opens on the last selectable month (today's), whose only
+  // day guaranteed selectable is day 1: ON the 1st it is the sole
+  // in-range day, so the old '1' then '2' pick left the range open and
+  // failed every first of the month. Tapping day 1 twice closes a
+  // same-day range on any calendar day, and the assertions only need
+  // dates to exist, not a span.
   await tester.tap(find.text('1').first);
   await tester.pumpAndSettle();
-  await tester.tap(find.text('2').first);
+  await tester.tap(find.text('1').first);
   await tester.pumpAndSettle();
   await tester.tap(find.text('Save'));
   await tester.pumpAndSettle();

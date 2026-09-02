@@ -84,10 +84,10 @@ ItineraryItem _item(int pos, String name, {int? day, String? city}) =>
 Trip _trip() => Trip(
       id: 't1',
       title: 'Colombia Hop',
-      startDate: '2026-08-01',
-      endDate: '2026-08-05',
-      createdAt: '2026-07-01',
-      updatedAt: '2026-07-01',
+      startDate: '2037-08-01',
+      endDate: '2037-08-05',
+      createdAt: '2037-07-01',
+      updatedAt: '2037-07-01',
       items: [
         _item(0, 'Johnny Cay', day: 1, city: 'San Andrés'),
         _item(1, 'Comuna 13', day: 3, city: 'Medellín'),

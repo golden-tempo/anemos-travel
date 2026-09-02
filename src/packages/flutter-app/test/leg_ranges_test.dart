@@ -37,8 +37,8 @@ Trip _trip(
       title: 'Fixture',
       startDate: startDate,
       endDate: endDate,
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: items,
       accommodations: stays,
     );
@@ -54,16 +54,16 @@ void main() {
           _item(1, 'Liseberg', 'Gothenburg', day: 3),
           _item(2, 'Prado', 'Madrid', day: 5),
         ],
-        startDate: '2026-08-24',
-        endDate: '2026-08-28',
+        startDate: '2037-08-24',
+        endDate: '2037-08-28',
       ));
       expect(ranges.length, 2);
-      expect(ranges[0].start, _d('2026-08-24'));
-      expect(ranges[0].end, _d('2026-08-26'));
+      expect(ranges[0].start, _d('2037-08-24'));
+      expect(ranges[0].end, _d('2037-08-26'));
       // Madrid's raw range collapses to its single item day — the visible
       // pass, not this one, pulls its start back to the arrival.
-      expect(ranges[1].start, _d('2026-08-28'));
-      expect(ranges[1].end, _d('2026-08-28'));
+      expect(ranges[1].start, _d('2037-08-28'));
+      expect(ranges[1].end, _d('2037-08-28'));
       expect(ranges[1].stayAnchored, isFalse);
     });
 
@@ -73,11 +73,11 @@ void main() {
           _item(0, 'Prague', 'Prague', day: 4),
           _item(1, 'Kraków', 'Kraków', day: 9),
         ],
-        startDate: '2026-08-24',
-        endDate: '2026-09-01',
+        startDate: '2037-08-24',
+        endDate: '2037-09-01',
       ));
-      expect(ranges[0].start, _d('2026-08-24'));
-      expect(ranges[0].end, _d('2026-08-27'));
+      expect(ranges[0].start, _d('2037-08-24'));
+      expect(ranges[0].end, _d('2037-08-27'));
     });
 
     test('a confirmed stay overrides item days and sets stayAnchored', () {
@@ -86,20 +86,20 @@ void main() {
           _item(0, 'Museo', 'Medellín', day: 1),
           _item(1, 'Quito', 'Quito', day: 5),
         ],
-        startDate: '2026-09-01',
-        endDate: '2026-09-07',
+        startDate: '2037-09-01',
+        endDate: '2037-09-07',
         stays: const [
           Accommodation(
             id: 'a1',
             name: 'Hotel Quito',
             address: 'Av. González Suárez, Quito, Ecuador',
-            checkIn: '2026-09-03',
-            checkOut: '2026-09-05',
+            checkIn: '2037-09-03',
+            checkOut: '2037-09-05',
           ),
         ],
       ));
-      expect(ranges[1].start, _d('2026-09-03'));
-      expect(ranges[1].end, _d('2026-09-05'));
+      expect(ranges[1].start, _d('2037-09-03'));
+      expect(ranges[1].end, _d('2037-09-05'));
       expect(ranges[1].stayAnchored, isTrue);
     });
 
@@ -111,21 +111,21 @@ void main() {
         () {
       final ranges = rawLegRanges(_trip(
         [_item(0, 'Quito', 'Quito', day: 3)],
-        startDate: '2026-09-01',
-        endDate: '2026-09-05',
+        startDate: '2037-09-01',
+        endDate: '2037-09-05',
         stays: const [
           Accommodation(
             id: 'a1',
             name: 'Stay in Quito',
-            checkIn: '2026-09-02',
-            checkOut: '2026-09-04',
+            checkIn: '2037-09-02',
+            checkOut: '2037-09-04',
           ),
         ],
       ));
       expect(ranges[0].stayAnchored, isFalse);
       // First-leg anchor applies instead: start = trip start.
-      expect(ranges[0].start, _d('2026-09-01'));
-      expect(ranges[0].end, _d('2026-09-03'));
+      expect(ranges[0].start, _d('2037-09-01'));
+      expect(ranges[0].end, _d('2037-09-03'));
     });
 
     test('undated legs take the weighted auto-allocation slice', () {
@@ -136,13 +136,13 @@ void main() {
           _item(2, 'Marais walk', 'Paris'),
           _item(3, 'Colosseum', 'Rome'),
         ],
-        startDate: '2026-06-01',
-        endDate: '2026-06-08', // 8 days: Paris (3 items) 6, Rome (1 item) 2
+        startDate: '2037-06-01',
+        endDate: '2037-06-08', // 8 days: Paris (3 items) 6, Rome (1 item) 2
       ));
-      expect(ranges[0].start, _d('2026-06-01'));
-      expect(ranges[0].end, _d('2026-06-06'));
-      expect(ranges[1].start, _d('2026-06-07'));
-      expect(ranges[1].end, _d('2026-06-08'));
+      expect(ranges[0].start, _d('2037-06-01'));
+      expect(ranges[0].end, _d('2037-06-06'));
+      expect(ranges[1].start, _d('2037-06-07'));
+      expect(ranges[1].end, _d('2037-06-08'));
     });
 
     test('more locations than days maps each to one ascending day', () {
@@ -152,12 +152,12 @@ void main() {
           _item(1, 'B', 'Beta'),
           _item(2, 'C', 'Gamma'),
         ],
-        startDate: '2026-06-01',
-        endDate: '2026-06-02', // 2 days, 3 cities
+        startDate: '2037-06-01',
+        endDate: '2037-06-02', // 2 days, 3 cities
       ));
-      expect(ranges[0].start, _d('2026-06-01'));
-      expect(ranges[1].start, _d('2026-06-01'));
-      expect(ranges[2].start, _d('2026-06-02'));
+      expect(ranges[0].start, _d('2037-06-01'));
+      expect(ranges[1].start, _d('2037-06-01'));
+      expect(ranges[2].start, _d('2037-06-02'));
       for (final r in ranges) {
         expect(r.start, r.end);
       }
@@ -180,15 +180,15 @@ void main() {
           _item(1, 'Liseberg', 'Gothenburg', day: 3),
           _item(2, 'Prado', 'Madrid', day: 5),
         ],
-        startDate: '2026-08-24',
-        endDate: '2026-08-28',
+        startDate: '2037-08-24',
+        endDate: '2037-08-28',
       ));
       // Gothenburg's own last item day (Aug 26) sets nothing — its end is
       // Madrid's arrival; Madrid arrives the day the trip ends.
-      expect(ranges[0].start, _d('2026-08-24'));
-      expect(ranges[0].end, _d('2026-08-28'));
-      expect(ranges[1].start, _d('2026-08-28'));
-      expect(ranges[1].end, _d('2026-08-28'));
+      expect(ranges[0].start, _d('2037-08-24'));
+      expect(ranges[0].end, _d('2037-08-28'));
+      expect(ranges[1].start, _d('2037-08-28'));
+      expect(ranges[1].end, _d('2037-08-28'));
     });
 
     test('the first leg anchors to the trip start and runs to the arrival',
@@ -198,13 +198,13 @@ void main() {
           _item(0, 'Prague', 'Prague', day: 4),
           _item(1, 'Kraków', 'Kraków', day: 9),
         ],
-        startDate: '2026-08-24',
-        endDate: '2026-09-01',
+        startDate: '2037-08-24',
+        endDate: '2037-09-01',
       ));
-      expect(ranges[0].start, _d('2026-08-24'));
-      expect(ranges[0].end, _d('2026-09-01'));
-      expect(ranges[1].start, _d('2026-09-01'));
-      expect(ranges[1].end, _d('2026-09-01'));
+      expect(ranges[0].start, _d('2037-08-24'));
+      expect(ranges[0].end, _d('2037-09-01'));
+      expect(ranges[1].start, _d('2037-09-01'));
+      expect(ranges[1].end, _d('2037-09-01'));
     });
 
     // The out-of-order trip the old rule answered with a loud zero-night
@@ -220,15 +220,15 @@ void main() {
           _item(3, 'Mitad del Mundo', 'Galápagos', day: 6),
           _item(4, 'Tortuga Bay', 'Galápagos', day: 7),
         ],
-        startDate: '2026-09-01',
-        endDate: '2026-09-07',
+        startDate: '2037-09-01',
+        endDate: '2037-09-07',
       ));
-      expect(ranges[0].start, _d('2026-09-01'));
-      expect(ranges[0].end, _d('2026-09-05'));
-      expect(ranges[1].start, _d('2026-09-05'));
-      expect(ranges[1].end, _d('2026-09-06'));
-      expect(ranges[2].start, _d('2026-09-06'));
-      expect(ranges[2].end, _d('2026-09-07'));
+      expect(ranges[0].start, _d('2037-09-01'));
+      expect(ranges[0].end, _d('2037-09-05'));
+      expect(ranges[1].start, _d('2037-09-05'));
+      expect(ranges[1].end, _d('2037-09-06'));
+      expect(ranges[2].start, _d('2037-09-06'));
+      expect(ranges[2].end, _d('2037-09-07'));
     });
 
     test('cities sharing one arrival day pinch to zero-night stops', () {
@@ -239,17 +239,17 @@ void main() {
           _item(2, 'Guayaquil', 'Guayaquil', day: 4),
           _item(3, 'Cartagena', 'Cartagena', day: 4),
         ],
-        startDate: '2026-09-01',
-        endDate: '2026-09-07',
+        startDate: '2037-09-01',
+        endDate: '2037-09-07',
       ));
-      expect(ranges[0].start, _d('2026-09-01'));
-      expect(ranges[0].end, _d('2026-09-04'));
-      expect(ranges[1].start, _d('2026-09-04'));
-      expect(ranges[1].end, _d('2026-09-04'));
-      expect(ranges[2].start, _d('2026-09-04'));
-      expect(ranges[2].end, _d('2026-09-04'));
-      expect(ranges[3].start, _d('2026-09-04'));
-      expect(ranges[3].end, _d('2026-09-07'));
+      expect(ranges[0].start, _d('2037-09-01'));
+      expect(ranges[0].end, _d('2037-09-04'));
+      expect(ranges[1].start, _d('2037-09-04'));
+      expect(ranges[1].end, _d('2037-09-04'));
+      expect(ranges[2].start, _d('2037-09-04'));
+      expect(ranges[2].end, _d('2037-09-04'));
+      expect(ranges[3].start, _d('2037-09-04'));
+      expect(ranges[3].end, _d('2037-09-07'));
     });
 
     // The tail case of the boundary rule: the planner leaves the day home
@@ -267,13 +267,13 @@ void main() {
           _item(3, 'Anne Frank House', 'Amsterdam', day: 5),
           // Day 6 (Aug 25) is the journey home and carries nothing.
         ],
-        startDate: '2026-08-20',
-        endDate: '2026-08-25',
+        startDate: '2037-08-20',
+        endDate: '2037-08-25',
       ));
-      expect(ranges[0].start, _d('2026-08-20'));
-      expect(ranges[0].end, _d('2026-08-23'));
-      expect(ranges[1].start, _d('2026-08-23'));
-      expect(ranges[1].end, _d('2026-08-25'));
+      expect(ranges[0].start, _d('2037-08-20'));
+      expect(ranges[0].end, _d('2037-08-23'));
+      expect(ranges[1].start, _d('2037-08-23'));
+      expect(ranges[1].end, _d('2037-08-25'));
     });
 
     // A confirmed stay's dates are explicit on both ends: its check-in is the
@@ -285,22 +285,22 @@ void main() {
           _item(0, 'Louvre', 'Paris', day: 1),
           _item(1, 'Rijksmuseum', 'Amsterdam', day: 4),
         ],
-        startDate: '2026-08-20',
-        endDate: '2026-08-25',
+        startDate: '2037-08-20',
+        endDate: '2037-08-25',
         stays: const [
           Accommodation(
             id: 'a1',
             name: 'Hotel Pulitzer',
             address: 'Prinsengracht, Amsterdam',
-            checkIn: '2026-08-23',
-            checkOut: '2026-08-24',
+            checkIn: '2037-08-23',
+            checkOut: '2037-08-24',
           ),
         ],
       ));
-      expect(ranges[0].start, _d('2026-08-20'));
-      expect(ranges[0].end, _d('2026-08-23'));
-      expect(ranges[1].start, _d('2026-08-23'));
-      expect(ranges[1].end, _d('2026-08-24'));
+      expect(ranges[0].start, _d('2037-08-20'));
+      expect(ranges[0].end, _d('2037-08-23'));
+      expect(ranges[1].start, _d('2037-08-23'));
+      expect(ranges[1].end, _d('2037-08-24'));
     });
 
     // An item dated past the next city's arrival no longer widens its own leg
@@ -315,13 +315,13 @@ void main() {
           _item(1, 'Comuna 13', 'Medellín', day: 6),
           _item(2, 'Quito', 'Quito', day: 4),
         ],
-        startDate: '2026-09-01',
-        endDate: '2026-09-07',
+        startDate: '2037-09-01',
+        endDate: '2037-09-07',
       ));
-      expect(ranges[0].start, _d('2026-09-01'));
-      expect(ranges[0].end, _d('2026-09-04'));
-      expect(ranges[1].start, _d('2026-09-04'));
-      expect(ranges[1].end, _d('2026-09-07'));
+      expect(ranges[0].start, _d('2037-09-01'));
+      expect(ranges[0].end, _d('2037-09-04'));
+      expect(ranges[1].start, _d('2037-09-04'));
+      expect(ranges[1].end, _d('2037-09-07'));
     });
 
     // A confirmed stay's explicit dates hold against a neighbour's items:
@@ -335,22 +335,22 @@ void main() {
           _item(1, 'Comuna 13', 'Medellín', day: 6),
           _item(2, 'Quito', 'Quito', day: 5),
         ],
-        startDate: '2026-09-01',
-        endDate: '2026-09-07',
+        startDate: '2037-09-01',
+        endDate: '2037-09-07',
         stays: const [
           Accommodation(
             id: 'a1',
             name: 'Hotel Quito',
             address: 'Av. González Suárez, Quito, Ecuador',
-            checkIn: '2026-09-03',
-            checkOut: '2026-09-05',
+            checkIn: '2037-09-03',
+            checkOut: '2037-09-05',
           ),
         ],
       ));
-      expect(ranges[0].start, _d('2026-09-01'));
-      expect(ranges[0].end, _d('2026-09-03'));
-      expect(ranges[1].start, _d('2026-09-03'));
-      expect(ranges[1].end, _d('2026-09-05'));
+      expect(ranges[0].start, _d('2037-09-01'));
+      expect(ranges[0].end, _d('2037-09-03'));
+      expect(ranges[1].start, _d('2037-09-03'));
+      expect(ranges[1].end, _d('2037-09-05'));
     });
 
     // A gap AFTER a confirmed stay closes from the other side: the checkout
@@ -362,22 +362,22 @@ void main() {
           _item(0, 'Time Out Market', 'Lisbon', day: 1),
           _item(1, 'Livraria Lello', 'Porto', day: 7),
         ],
-        startDate: '2026-09-01',
-        endDate: '2026-09-08',
+        startDate: '2037-09-01',
+        endDate: '2037-09-08',
         stays: const [
           Accommodation(
             id: 'a1',
             name: 'Lisbon Loft',
             address: 'Alfama, Lisbon',
-            checkIn: '2026-09-01',
-            checkOut: '2026-09-05',
+            checkIn: '2037-09-01',
+            checkOut: '2037-09-05',
           ),
         ],
       ));
-      expect(ranges[0].start, _d('2026-09-01'));
-      expect(ranges[0].end, _d('2026-09-05'));
-      expect(ranges[1].start, _d('2026-09-05'));
-      expect(ranges[1].end, _d('2026-09-08'));
+      expect(ranges[0].start, _d('2037-09-01'));
+      expect(ranges[0].end, _d('2037-09-05'));
+      expect(ranges[1].start, _d('2037-09-05'));
+      expect(ranges[1].end, _d('2037-09-08'));
     });
 
     // A confirmed stay whose checkout runs past the next leg's arrival
@@ -389,22 +389,22 @@ void main() {
           _item(0, 'Time Out Market', 'Lisbon', day: 1),
           _item(1, 'Livraria Lello', 'Porto', day: 3),
         ],
-        startDate: '2026-09-01',
-        endDate: '2026-09-08',
+        startDate: '2037-09-01',
+        endDate: '2037-09-08',
         stays: const [
           Accommodation(
             id: 'a1',
             name: 'Lisbon Loft',
             address: 'Alfama, Lisbon',
-            checkIn: '2026-09-01',
-            checkOut: '2026-09-05',
+            checkIn: '2037-09-01',
+            checkOut: '2037-09-05',
           ),
         ],
       ));
-      expect(ranges[0].start, _d('2026-09-01'));
-      expect(ranges[0].end, _d('2026-09-05'));
-      expect(ranges[1].start, _d('2026-09-03'));
-      expect(ranges[1].end, _d('2026-09-08'));
+      expect(ranges[0].start, _d('2037-09-01'));
+      expect(ranges[0].end, _d('2037-09-05'));
+      expect(ranges[1].start, _d('2037-09-03'));
+      expect(ranges[1].end, _d('2037-09-08'));
     });
 
     // Auto slices: Rome's slice starts Jun 7, so that is its arrival and
@@ -417,13 +417,13 @@ void main() {
           _item(2, 'Marais walk', 'Paris'),
           _item(3, 'Colosseum', 'Rome'),
         ],
-        startDate: '2026-06-01',
-        endDate: '2026-06-08',
+        startDate: '2037-06-01',
+        endDate: '2037-06-08',
       ));
-      expect(ranges[0].start, _d('2026-06-01'));
-      expect(ranges[0].end, _d('2026-06-07'));
-      expect(ranges[1].start, _d('2026-06-07'));
-      expect(ranges[1].end, _d('2026-06-08'));
+      expect(ranges[0].start, _d('2037-06-01'));
+      expect(ranges[0].end, _d('2037-06-07'));
+      expect(ranges[1].start, _d('2037-06-07'));
+      expect(ranges[1].end, _d('2037-06-08'));
     });
 
     // More locations than days: Alpha and Beta share the Jun 1 arrival —
@@ -436,15 +436,15 @@ void main() {
           _item(1, 'B', 'Beta'),
           _item(2, 'C', 'Gamma'),
         ],
-        startDate: '2026-06-01',
-        endDate: '2026-06-02',
+        startDate: '2037-06-01',
+        endDate: '2037-06-02',
       ));
-      expect(ranges[0].start, _d('2026-06-01'));
-      expect(ranges[0].end, _d('2026-06-01'));
-      expect(ranges[1].start, _d('2026-06-01'));
-      expect(ranges[1].end, _d('2026-06-02'));
-      expect(ranges[2].start, _d('2026-06-02'));
-      expect(ranges[2].end, _d('2026-06-02'));
+      expect(ranges[0].start, _d('2037-06-01'));
+      expect(ranges[0].end, _d('2037-06-01'));
+      expect(ranges[1].start, _d('2037-06-01'));
+      expect(ranges[1].end, _d('2037-06-02'));
+      expect(ranges[2].start, _d('2037-06-02'));
+      expect(ranges[2].end, _d('2037-06-02'));
     });
 
     // diverges: client-side a null-range leg still participates in the chain
@@ -461,17 +461,17 @@ void main() {
           _item(1, 'mystery', null),
           _item(2, 'C', 'Gamma', day: 5),
         ],
-        startDate: '2026-06-01',
+        startDate: '2037-06-01',
         // No end date: no auto-allocation, so the hubless leg has null range.
       ));
       expect(ranges.length, 3);
       // Chain break: Alpha cannot see an arrival past the null leg, so it
       // keeps its own end (the Go twin extends it to Jun 5).
-      expect(ranges[0].end, _d('2026-06-01'));
-      expect(ranges[1].start, _d('2026-06-01')); // adopts prev end...
+      expect(ranges[0].end, _d('2037-06-01'));
+      expect(ranges[1].start, _d('2037-06-01')); // adopts prev end...
       expect(ranges[1].end, isNull); // ...but its own end is null
       // Chain reset: Gamma keeps its raw start, un-adjusted.
-      expect(ranges[2].start, _d('2026-06-05'));
+      expect(ranges[2].start, _d('2037-06-05'));
     });
   });
 
@@ -521,31 +521,31 @@ void main() {
             _item(3, 'Cais da Ribeira', 'Porto', day: 6),
             _item(4, 'Museo del Prado', 'Madrid', day: 6),
           ],
-          startDate: '2026-09-01',
-          endDate: '2026-09-08',
+          startDate: '2037-09-01',
+          endDate: '2037-09-08',
         );
 
     test('renders the same ranges a dense itinerary would', () {
       final ranges = visibleLegRanges(spine());
       expect(ranges.length, 3);
-      expect(ranges[0].start, _d('2026-09-01'));
-      expect(ranges[0].end, _d('2026-09-04'));
-      expect(ranges[1].start, _d('2026-09-04'));
-      expect(ranges[1].end, _d('2026-09-06'));
+      expect(ranges[0].start, _d('2037-09-01'));
+      expect(ranges[0].end, _d('2037-09-04'));
+      expect(ranges[1].start, _d('2037-09-04'));
+      expect(ranges[1].end, _d('2037-09-06'));
       // The last-leg anchor carries Madrid through the trip's end; its own
       // items stop on the day it was reached.
-      expect(ranges[2].start, _d('2026-09-06'));
-      expect(ranges[2].end, _d('2026-09-08'));
+      expect(ranges[2].start, _d('2037-09-06'));
+      expect(ranges[2].end, _d('2037-09-08'));
     });
 
     test('a one-city spine is one arrival place stretched by the trip end', () {
       final ranges = visibleLegRanges(_trip(
         [_item(0, 'Museo del Prado', 'Madrid', day: 1)],
-        startDate: '2026-09-01',
-        endDate: '2026-09-08',
+        startDate: '2037-09-01',
+        endDate: '2037-09-08',
       ));
-      expect(ranges.single.start, _d('2026-09-01'));
-      expect(ranges.single.end, _d('2026-09-08'));
+      expect(ranges.single.start, _d('2037-09-01'));
+      expect(ranges.single.end, _d('2037-09-08'));
     });
 
     // The same trip built from arrival anchors ALONE — no move-on places.
@@ -561,15 +561,15 @@ void main() {
           _item(1, 'Livraria Lello', 'Porto', day: 4),
           _item(2, 'Museo del Prado', 'Madrid', day: 6),
         ],
-        startDate: '2026-09-01',
-        endDate: '2026-09-08',
+        startDate: '2037-09-01',
+        endDate: '2037-09-08',
       ));
-      expect(ranges[0].start, _d('2026-09-01'));
-      expect(ranges[0].end, _d('2026-09-04'));
-      expect(ranges[1].start, _d('2026-09-04'));
-      expect(ranges[1].end, _d('2026-09-06'));
-      expect(ranges[2].start, _d('2026-09-06'));
-      expect(ranges[2].end, _d('2026-09-08'));
+      expect(ranges[0].start, _d('2037-09-01'));
+      expect(ranges[0].end, _d('2037-09-04'));
+      expect(ranges[1].start, _d('2037-09-04'));
+      expect(ranges[1].end, _d('2037-09-06'));
+      expect(ranges[2].start, _d('2037-09-06'));
+      expect(ranges[2].end, _d('2037-09-08'));
     });
   });
 
@@ -592,15 +592,15 @@ void main() {
           _item(5, 'Main Market Square', 'Kraków', day: 6),
           _item(6, 'Wawel Castle', 'Kraków', day: 7),
         ],
-        startDate: '2026-08-24',
-        endDate: '2026-08-31',
+        startDate: '2037-08-24',
+        endDate: '2037-08-31',
       ));
-      expect(ranges[0].start, _d('2026-08-24'));
-      expect(ranges[0].end, _d('2026-08-26'));
-      expect(ranges[1].start, _d('2026-08-26'));
-      expect(ranges[1].end, _d('2026-08-29')); // three nights, day 6 empty
-      expect(ranges[2].start, _d('2026-08-29'));
-      expect(ranges[2].end, _d('2026-08-31'));
+      expect(ranges[0].start, _d('2037-08-24'));
+      expect(ranges[0].end, _d('2037-08-26'));
+      expect(ranges[1].start, _d('2037-08-26'));
+      expect(ranges[1].end, _d('2037-08-29')); // three nights, day 6 empty
+      expect(ranges[2].start, _d('2037-08-29'));
+      expect(ranges[2].end, _d('2037-08-31'));
     });
 
     // The travel day emptied (acceptance 2 and 3): the same trip WITH a place
@@ -618,15 +618,15 @@ void main() {
           _item(6, 'Main Market Square', 'Kraków', day: 6),
           _item(7, 'Wawel Castle', 'Kraków', day: 7),
         ],
-        startDate: '2026-08-24',
-        endDate: '2026-08-31',
+        startDate: '2037-08-24',
+        endDate: '2037-08-31',
       ));
-      expect(ranges[0].start, _d('2026-08-24'));
-      expect(ranges[0].end, _d('2026-08-26'));
-      expect(ranges[1].start, _d('2026-08-26'));
-      expect(ranges[1].end, _d('2026-08-29'));
-      expect(ranges[2].start, _d('2026-08-29'));
-      expect(ranges[2].end, _d('2026-08-31'));
+      expect(ranges[0].start, _d('2037-08-24'));
+      expect(ranges[0].end, _d('2037-08-26'));
+      expect(ranges[1].start, _d('2037-08-26'));
+      expect(ranges[1].end, _d('2037-08-29'));
+      expect(ranges[2].start, _d('2037-08-29'));
+      expect(ranges[2].end, _d('2037-08-31'));
     });
 
     // A multi-day gap belongs to the city the traveler is still in, not to a
@@ -638,13 +638,13 @@ void main() {
           _item(1, 'Alfama walk', 'Lisbon', day: 2),
           _item(2, 'Livraria Lello', 'Porto', day: 5),
         ],
-        startDate: '2026-09-01',
-        endDate: '2026-09-08',
+        startDate: '2037-09-01',
+        endDate: '2037-09-08',
       ));
-      expect(ranges[0].start, _d('2026-09-01'));
-      expect(ranges[0].end, _d('2026-09-05'));
-      expect(ranges[1].start, _d('2026-09-05'));
-      expect(ranges[1].end, _d('2026-09-08'));
+      expect(ranges[0].start, _d('2037-09-01'));
+      expect(ranges[0].end, _d('2037-09-05'));
+      expect(ranges[1].start, _d('2037-09-05'));
+      expect(ranges[1].end, _d('2037-09-08'));
     });
 
     // The convention's shared transition day still renders identically: a
@@ -657,13 +657,13 @@ void main() {
           _item(2, 'Old Town Square', 'Prague', day: 3),
           _item(3, 'Charles Bridge Walk', 'Prague', day: 6),
         ],
-        startDate: '2026-08-24',
-        endDate: '2026-08-29',
+        startDate: '2037-08-24',
+        endDate: '2037-08-29',
       ));
-      expect(ranges[0].start, _d('2026-08-24'));
-      expect(ranges[0].end, _d('2026-08-26'));
-      expect(ranges[1].start, _d('2026-08-26'));
-      expect(ranges[1].end, _d('2026-08-29'));
+      expect(ranges[0].start, _d('2037-08-24'));
+      expect(ranges[0].end, _d('2037-08-26'));
+      expect(ranges[1].start, _d('2037-08-26'));
+      expect(ranges[1].end, _d('2037-08-29'));
     });
 
     // A genuine revisit keeps three runs with correct boundaries — a hub in
@@ -679,16 +679,16 @@ void main() {
           _item(4, 'Marais walk', 'Paris', day: 6),
           _item(5, 'Montmartre', 'Paris', day: 7),
         ],
-        startDate: '2026-06-01',
-        endDate: '2026-06-08',
+        startDate: '2037-06-01',
+        endDate: '2037-06-08',
       ));
       expect(ranges.length, 3);
-      expect(ranges[0].start, _d('2026-06-01'));
-      expect(ranges[0].end, _d('2026-06-03'));
-      expect(ranges[1].start, _d('2026-06-03'));
-      expect(ranges[1].end, _d('2026-06-06'));
-      expect(ranges[2].start, _d('2026-06-06'));
-      expect(ranges[2].end, _d('2026-06-08'));
+      expect(ranges[0].start, _d('2037-06-01'));
+      expect(ranges[0].end, _d('2037-06-03'));
+      expect(ranges[1].start, _d('2037-06-03'));
+      expect(ranges[1].end, _d('2037-06-06'));
+      expect(ranges[2].start, _d('2037-06-06'));
+      expect(ranges[2].end, _d('2037-06-08'));
     });
   });
 }

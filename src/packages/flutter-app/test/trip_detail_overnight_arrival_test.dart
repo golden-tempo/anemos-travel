@@ -141,10 +141,10 @@ void main() {
   Trip makeTrip({List<TripSegment>? segments}) => Trip(
         id: 't1',
         title: 'Amsterdam',
-        startDate: '2026-08-24',
-        endDate: '2026-08-28',
-        createdAt: '2026-08-01',
-        updatedAt: '2026-08-01',
+        startDate: '2037-08-24',
+        endDate: '2037-08-28',
+        createdAt: '2037-08-01',
+        updatedAt: '2037-08-01',
         segments: segments,
         items: [
           _item(0, 'Rijksmuseum', 'Amsterdam', day: 1),
@@ -193,7 +193,7 @@ void main() {
     // search seed behind "Find flights", and dropping it would strip the date
     // from a link on the most-used row in the app to buy purity in a field
     // nobody reads. A search date is a query; the subtitle is the assertion.
-    expect(outbound['depart_date'], '2026-08-24');
+    expect(outbound['depart_date'], '2037-08-24');
   });
 
   testWidgets('a confirmed overnight segment gives the outbound leg both dates',
@@ -205,8 +205,8 @@ void main() {
           id: 's1',
           origin: 'EWR',
           destination: 'Amsterdam',
-          departDate: '2026-08-23',
-          arriveDate: '2026-08-24',
+          departDate: '2037-08-23',
+          arriveDate: '2037-08-24',
         ),
       ]),
     );
@@ -216,7 +216,7 @@ void main() {
     // The load-bearing half: this is what the server rebuilds search_url from,
     // what seeds the in-app flight search, what pre-fills Add-details, and what
     // the Trips-list "first leg departs" nudge reads via MIN(depart_date).
-    expect(outbound['depart_date'], '2026-08-23');
+    expect(outbound['depart_date'], '2037-08-23');
   });
 
   testWidgets('a same-day segment keeps the single-date shape', (tester) async {
@@ -227,8 +227,8 @@ void main() {
           id: 's1',
           origin: 'EWR',
           destination: 'Amsterdam',
-          departDate: '2026-08-24',
-          arriveDate: '2026-08-24',
+          departDate: '2037-08-24',
+          arriveDate: '2037-08-24',
         ),
       ]),
     );
@@ -245,7 +245,7 @@ void main() {
           id: 's1',
           origin: 'EWR',
           destination: 'Amsterdam',
-          departDate: '2026-08-23',
+          departDate: '2037-08-23',
         ),
       ]),
     );
@@ -269,7 +269,7 @@ void main() {
     final home = leg(derived, 'transport:rome>>ewr');
     expect(home['subtitle'], isNot(contains('Arrives')));
     expect(home['subtitle'], isNot(contains('→')));
-    expect(home['depart_date'], '2026-08-28');
+    expect(home['depart_date'], '2037-08-28');
   });
 
   testWidgets('an auto (suggested) segment is not treated as a recorded fact',
@@ -283,8 +283,8 @@ void main() {
           id: 's1',
           origin: 'EWR',
           destination: 'Amsterdam',
-          departDate: '2026-08-23',
-          arriveDate: '2026-08-24',
+          departDate: '2037-08-23',
+          arriveDate: '2037-08-24',
           auto: true,
         ),
       ]),
@@ -293,7 +293,7 @@ void main() {
     expect(
         leg(derived, 'transport:ewr>>amsterdam')['subtitle'], 'Arrives Aug 24');
     expect(
-        leg(derived, 'transport:ewr>>amsterdam')['depart_date'], '2026-08-24');
+        leg(derived, 'transport:ewr>>amsterdam')['depart_date'], '2037-08-24');
   });
 
   testWidgets('only one segment dates a leg when several match the same city',
@@ -310,15 +310,15 @@ void main() {
           id: 's1',
           origin: 'EWR',
           destination: 'Amsterdam',
-          departDate: '2026-08-23',
-          arriveDate: '2026-08-24',
+          departDate: '2037-08-23',
+          arriveDate: '2037-08-24',
         ),
         _segment(
           id: 's2',
           origin: 'EWR',
           destination: 'Amsterdam',
-          departDate: '2026-08-20',
-          arriveDate: '2026-08-21',
+          departDate: '2037-08-20',
+          arriveDate: '2037-08-21',
         ),
       ]),
     );
@@ -331,7 +331,7 @@ void main() {
     expect(dated.single['todo_key'], 'transport:ewr>>amsterdam');
     // The FIRST candidate won — the loser's dates appear nowhere.
     expect(dated.single['subtitle'], 'Aug 23 → Aug 24');
-    expect(dated.single['depart_date'], '2026-08-23');
+    expect(dated.single['depart_date'], '2037-08-23');
   });
 
   // Two pumpWidget calls in ONE test reuse the same State, so _load never
@@ -358,8 +358,8 @@ void main() {
           id: 's1',
           origin: 'EWR',
           destination: 'Amsterdam',
-          departDate: '2026-08-23',
-          arriveDate: '2026-08-24',
+          departDate: '2037-08-23',
+          arriveDate: '2037-08-24',
         ),
       ]),
     );
@@ -374,10 +374,10 @@ void main() {
 Trip _tripWithAirports({List<TripSegment>? segments}) => Trip(
       id: 't1',
       title: 'Amsterdam',
-      startDate: '2026-08-24',
-      endDate: '2026-08-28',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-08-24',
+      endDate: '2037-08-28',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       originAirport: 'EWR',
       returnAirport: 'EWR',
       segments: segments,

@@ -93,10 +93,10 @@ void main() {
     final trip = Trip(
       id: 't1',
       title: 'Iberia',
-      startDate: '2026-08-24',
-      endDate: '2026-08-28',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-08-24',
+      endDate: '2037-08-28',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: [
         _item(0, 'Feskekôrka', 'Gothenburg', day: 1),
         _item(1, 'Liseberg', 'Gothenburg', day: 3),
@@ -123,14 +123,14 @@ void main() {
 
     final madridStay = derived.singleWhere((t) => t['todo_key'] == 'stay:madrid');
     expect(madridStay['subtitle'], 'Aug 28');
-    expect(madridStay['depart_date'], '2026-08-28');
-    expect(madridStay['return_date'], '2026-08-28');
+    expect(madridStay['depart_date'], '2037-08-28');
+    expect(madridStay['return_date'], '2037-08-28');
 
     // The inbound leg departs when Gothenburg's rendered span ends — Madrid's
     // arrival day, not Gothenburg's own last item day (Aug 26).
     final leg = derived
         .singleWhere((t) => t['todo_key'] == 'transport:gothenburg>>madrid');
-    expect(leg['depart_date'], '2026-08-28');
+    expect(leg['depart_date'], '2037-08-28');
 
     // Gothenburg's stay covers the whole rendered span, including the two
     // unplanned nights before the move-on — the pin that stays and headers
@@ -138,8 +138,8 @@ void main() {
     final gothenburgStay =
         derived.singleWhere((t) => t['todo_key'] == 'stay:gothenburg');
     expect(gothenburgStay['subtitle'], 'Aug 24 – Aug 28');
-    expect(gothenburgStay['depart_date'], '2026-08-24');
-    expect(gothenburgStay['return_date'], '2026-08-28');
+    expect(gothenburgStay['depart_date'], '2037-08-24');
+    expect(gothenburgStay['return_date'], '2037-08-28');
   });
 
   testWidgets(
@@ -154,10 +154,10 @@ void main() {
     final trip = Trip(
       id: 't1',
       title: 'Big Summer',
-      startDate: '2026-08-24',
-      endDate: '2026-09-01',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-08-24',
+      endDate: '2037-09-01',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: [
         _item(0, 'Prague', 'Prague', day: 4),
         _item(1, 'Kraków', 'Kraków', day: 9),
@@ -195,19 +195,19 @@ void main() {
     final pragueStay =
         derived.singleWhere((t) => t['todo_key'] == 'stay:prague');
     expect(pragueStay['subtitle'], 'Aug 24 – Sep 1');
-    expect(pragueStay['depart_date'], '2026-08-24');
-    expect(pragueStay['return_date'], '2026-09-01');
+    expect(pragueStay['depart_date'], '2037-08-24');
+    expect(pragueStay['return_date'], '2037-09-01');
 
     final homeLeg =
         derived.singleWhere((t) => t['todo_key'] == 'transport:ewr>>prague');
     expect(homeLeg['title'], 'EWR → Prague');
-    expect(homeLeg['depart_date'], '2026-08-24');
+    expect(homeLeg['depart_date'], '2037-08-24');
 
     // The second city's arrival is its own first item day (Sep 1) — the
     // boundary Prague's rendered end derives from.
     final krakowStay =
         derived.singleWhere((t) => t['todo_key'] == 'stay:kraków');
-    expect(krakowStay['depart_date'], '2026-09-01');
+    expect(krakowStay['depart_date'], '2037-09-01');
   });
 
   testWidgets(
@@ -220,10 +220,10 @@ void main() {
     final trip = Trip(
       id: 't1',
       title: 'Iberia',
-      startDate: '2026-08-24',
-      endDate: '2026-08-28',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-08-24',
+      endDate: '2037-08-28',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: [
         _item(0, 'Feskekôrka', 'Gothenburg', day: 1),
         _item(1, 'Liseberg', 'Gothenburg', day: 3),
@@ -262,10 +262,10 @@ void main() {
     final trip = Trip(
       id: 't1',
       title: 'Montreal Weekend',
-      startDate: '2026-08-15',
-      endDate: '2026-08-17',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-08-15',
+      endDate: '2037-08-17',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       travelMode: 'car',
       origin: 'Lake George, NY',
       items: [
