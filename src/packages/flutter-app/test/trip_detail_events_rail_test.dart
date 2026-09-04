@@ -78,27 +78,27 @@ Event _event(String date, String time, String name) => Event(
 /// Berlin Sep 1–4 as the live API returns it: events on every day, most of
 /// them bunched on the last one.
 List<Event> _berlinEvents() => [
-      _event('2026-09-01', '19:00', 'Swingin Hermlins'),
-      _event('2026-09-01', '20:30', 'Baby Keem'),
-      _event('2026-09-02', '19:30', 'Was Ihr wollt'),
-      _event('2026-09-02', '20:00', 'Saying the Wrong Thing'),
-      _event('2026-09-02', '20:15', 'YEBBA'),
-      _event('2026-09-03', '18:30', 'Cirque du Soleil'),
-      _event('2026-09-03', '20:00', 'Dance Gavin Dance'),
-      _event('2026-09-04', '16:00', 'Brews Cruise'),
-      _event('2026-09-04', '18:00', 'Lachkater Comedy'),
-      _event('2026-09-04', '19:30', 'Romeo und Julia'),
-      _event('2026-09-04', '19:35', 'Alex Spencer'),
-      _event('2026-09-04', '20:00', 'Hallucinations'),
+      _event('2037-09-01', '19:00', 'Swingin Hermlins'),
+      _event('2037-09-01', '20:30', 'Baby Keem'),
+      _event('2037-09-02', '19:30', 'Was Ihr wollt'),
+      _event('2037-09-02', '20:00', 'Saying the Wrong Thing'),
+      _event('2037-09-02', '20:15', 'YEBBA'),
+      _event('2037-09-03', '18:30', 'Cirque du Soleil'),
+      _event('2037-09-03', '20:00', 'Dance Gavin Dance'),
+      _event('2037-09-04', '16:00', 'Brews Cruise'),
+      _event('2037-09-04', '18:00', 'Lachkater Comedy'),
+      _event('2037-09-04', '19:30', 'Romeo und Julia'),
+      _event('2037-09-04', '19:35', 'Alex Spencer'),
+      _event('2037-09-04', '20:00', 'Hallucinations'),
     ];
 
 Trip _berlinTrip() => Trip(
       id: 't1',
       title: 'Poland & Germany',
-      startDate: '2026-08-27',
-      endDate: '2026-09-04',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-08-27',
+      endDate: '2037-09-04',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: [
         // Kraków's places stop on day 6, but its leg runs until Berlin's
         // arrival (the boundary rule): Aug 27 – Sep 4.
@@ -122,10 +122,10 @@ Trip _berlinTrip() => Trip(
 Trip _revisitTrip() => Trip(
       id: 't2',
       title: 'Cyclades',
-      startDate: '2026-09-01',
-      endDate: '2026-09-06',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-09-01',
+      endDate: '2037-09-06',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: [
         _item(0, 'Oia', 'Fira', day: 1),
         _item(1, 'Portara', 'Naxos', day: 3),
@@ -197,7 +197,7 @@ void main() {
     _useTallViewport(tester);
     final capped = [
       for (var i = 0; i < kEventsServerCap; i++)
-        _event('2026-09-04', '${(i % 12) + 8}:00', 'Event $i'),
+        _event('2037-09-04', '${(i % 12) + 8}:00', 'Event $i'),
     ];
     await _pump(tester, _berlinTrip(),
         events: (q) => q.city == 'Berlin' ? capped : const []);
@@ -254,8 +254,8 @@ void main() {
       (tester) async {
     _useTallViewport(tester);
     final few = [
-      _event('2026-09-02', '19:00', 'Only one'),
-      _event('2026-09-03', '20:00', 'And another'),
+      _event('2037-09-02', '19:00', 'Only one'),
+      _event('2037-09-03', '20:00', 'And another'),
     ];
     await _pump(tester, _berlinTrip(),
         events: (q) => q.city == 'Berlin' ? few : const []);
@@ -277,8 +277,8 @@ void main() {
     // last day, so the header chip renders a bare Sep 4 visit (the boundary
     // rule leaves Kraków holding Aug 27 – Sep 4) and the lookup must agree
     // with it rather than query days the traveler spends in Kraków.
-    expect(berlin.startDate, '2026-09-04');
-    expect(berlin.endDate, '2026-09-04');
+    expect(berlin.startDate, '2037-09-04');
+    expect(berlin.endDate, '2037-09-04');
   });
 
   testWidgets('a revisited city looks up each visit on its own window',

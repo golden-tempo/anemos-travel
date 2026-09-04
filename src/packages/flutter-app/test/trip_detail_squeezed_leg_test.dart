@@ -58,10 +58,10 @@ ItineraryItem _item(int pos, String name, String city, {int? day}) =>
 Trip _trip(List<ItineraryItem> items, {List<Accommodation>? stays}) => Trip(
       id: 't1',
       title: 'Squeeze',
-      startDate: '2026-09-01',
-      endDate: '2026-09-07',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-09-01',
+      endDate: '2037-09-07',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: items,
       accommodations: stays,
     );
@@ -108,24 +108,24 @@ void main() {
 
     final quitoStay =
         derived.singleWhere((t) => t['todo_key'] == 'stay:quito');
-    expect(quitoStay['depart_date'], '2026-09-05');
-    expect(quitoStay['return_date'], '2026-09-06');
+    expect(quitoStay['depart_date'], '2037-09-05');
+    expect(quitoStay['return_date'], '2037-09-06');
     expect(quitoStay['subtitle'], 'Sep 5 – Sep 6');
 
     expect(
         derived.singleWhere(
             (t) => t['todo_key'] == 'transport:medellín>>quito')['depart_date'],
-        '2026-09-05');
+        '2037-09-05');
     // The onward flight rides Quito's VISIBLE end — Galápagos's arrival day.
     expect(
         derived.singleWhere((t) =>
             t['todo_key'] == 'transport:quito>>galápagos')['depart_date'],
-        '2026-09-06');
+        '2037-09-06');
 
     final galStay =
         derived.singleWhere((t) => t['todo_key'] == 'stay:galápagos');
-    expect(galStay['depart_date'], '2026-09-06');
-    expect(galStay['return_date'], '2026-09-07');
+    expect(galStay['depart_date'], '2037-09-06');
+    expect(galStay['return_date'], '2037-09-07');
 
     // Headers: every leg carries a real range and a night count — the
     // stray item collapses nothing.
@@ -150,20 +150,20 @@ void main() {
     );
 
     final quitoStay = derived.singleWhere((t) => t['todo_key'] == 'stay:quito');
-    expect(quitoStay['depart_date'], '2026-09-04');
-    expect(quitoStay['return_date'], '2026-09-05');
+    expect(quitoStay['depart_date'], '2037-09-04');
+    expect(quitoStay['return_date'], '2037-09-05');
     final guayaquilStay =
         derived.singleWhere((t) => t['todo_key'] == 'stay:guayaquil');
-    expect(guayaquilStay['depart_date'], '2026-09-05');
-    expect(guayaquilStay['return_date'], '2026-09-07');
+    expect(guayaquilStay['depart_date'], '2037-09-05');
+    expect(guayaquilStay['return_date'], '2037-09-07');
     expect(
         derived.singleWhere(
             (t) => t['todo_key'] == 'transport:medellín>>quito')['depart_date'],
-        '2026-09-04');
+        '2037-09-04');
     expect(
         derived.singleWhere((t) =>
             t['todo_key'] == 'transport:quito>>guayaquil')['depart_date'],
-        '2026-09-05');
+        '2037-09-05');
   });
 
   testWidgets('a confirmed stay is never collapsed by a neighbour\'s items',
@@ -183,8 +183,8 @@ void main() {
             id: 'a1',
             name: 'Hotel Quito',
             address: 'Av. González Suárez, Quito, Ecuador',
-            checkIn: '2026-09-03',
-            checkOut: '2026-09-05',
+            checkIn: '2037-09-03',
+            checkOut: '2037-09-05',
           ),
         ],
       ),
@@ -192,8 +192,8 @@ void main() {
 
     final quitoStay =
         derived.singleWhere((t) => t['todo_key'] == 'stay:quito');
-    expect(quitoStay['depart_date'], '2026-09-03');
-    expect(quitoStay['return_date'], '2026-09-05');
+    expect(quitoStay['depart_date'], '2037-09-03');
+    expect(quitoStay['return_date'], '2037-09-05');
     expect(chipTextIn('Quito', 'Sep 3 – Sep 5'), findsOneWidget);
     expect(chipTextIn('Quito', '· 2 nights'), findsOneWidget);
   });

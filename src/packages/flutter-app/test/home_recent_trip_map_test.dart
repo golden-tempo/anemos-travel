@@ -89,18 +89,18 @@ ChatSessionSummary _chat(String id, String title) => ChatSessionSummary(
       title: title,
       preview: 'Thinking about a week of island hopping.',
       messageCount: 4,
-      createdAt: '2026-07-01T10:00:00Z',
-      updatedAt: '2026-07-02T10:00:00Z',
+      createdAt: '2037-07-01T10:00:00Z',
+      updatedAt: '2037-07-02T10:00:00Z',
     );
 
 /// Two geocoded cities — enough for TripMap's destination-overview mode.
 Trip _mappableTrip(String id, String title) => Trip(
       id: id,
       title: title,
-      startDate: '2026-09-01',
-      endDate: '2026-09-06',
-      createdAt: '2026-06-01',
-      updatedAt: '2026-06-01',
+      startDate: '2037-09-01',
+      endDate: '2037-09-06',
+      createdAt: '2037-06-01',
+      updatedAt: '2037-06-01',
       items: [
         ItineraryItem(
           id: 'i0',
@@ -128,8 +128,8 @@ Trip _mappableTrip(String id, String title) => Trip(
 Trip _unmappableTrip(String id, String title) => Trip(
       id: id,
       title: title,
-      createdAt: '2026-06-01',
-      updatedAt: '2026-06-01',
+      createdAt: '2037-06-01',
+      updatedAt: '2037-06-01',
       items: [
         ItineraryItem(
           id: 'i0',
@@ -154,7 +154,7 @@ MapEntry<String, Object> _recentTripEntry(String tripId, String title) =>
 MapEntry<String, Object> _cachedTripEntry(Trip trip) => MapEntry(
       'trip_cache.user-1.trip.${trip.id}',
       jsonEncode({
-        'saved_at': '2026-08-01T10:00:00.000',
+        'saved_at': '2037-08-01T10:00:00.000',
         'trip': trip.toJson(),
       }),
     );

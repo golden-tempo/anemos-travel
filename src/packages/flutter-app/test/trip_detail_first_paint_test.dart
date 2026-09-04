@@ -153,8 +153,8 @@ ItineraryItem _item(int pos, String name,
 Trip _trip(String title) => Trip(
       id: 't1',
       title: title,
-      createdAt: '2026-06-01',
-      updatedAt: '2026-06-01',
+      createdAt: '2037-06-01',
+      updatedAt: '2037-06-01',
       items: [_item(0, 'Acropolis')],
     );
 
@@ -162,8 +162,8 @@ Trip _trip(String title) => Trip(
 Trip _coordTrip() => Trip(
       id: 't1',
       title: 'Paris Trip',
-      createdAt: '2026-06-01',
-      updatedAt: '2026-06-01',
+      createdAt: '2037-06-01',
+      updatedAt: '2037-06-01',
       items: [
         _item(0, 'Louvre', lat: 48.86, lng: 2.33, city: 'Paris'),
         _item(1, 'Orsay', lat: 48.85, lng: 2.32, city: 'Paris'),
@@ -175,10 +175,10 @@ Trip _coordTrip() => Trip(
 Trip _datedTrip() => Trip(
       id: 't1',
       title: 'Paris Trip',
-      createdAt: '2026-06-01',
-      updatedAt: '2026-06-01',
-      startDate: '2026-09-10',
-      endDate: '2026-09-11',
+      createdAt: '2037-06-01',
+      updatedAt: '2037-06-01',
+      startDate: '2037-09-10',
+      endDate: '2037-09-11',
       items: [
         _item(0, 'Louvre', day: 1, city: 'Paris'),
         _item(1, 'Orsay', day: 2, city: 'Paris'),
@@ -189,8 +189,8 @@ Trip _datedTrip() => Trip(
 Trip _longTrip(String title) => Trip(
       id: 't1',
       title: title,
-      createdAt: '2026-06-01',
-      updatedAt: '2026-06-01',
+      createdAt: '2037-06-01',
+      updatedAt: '2037-06-01',
       items: [for (var i = 0; i < 30; i++) _item(i, 'Stop $i')],
     );
 

@@ -38,10 +38,10 @@ class _FakeTripsApiService extends TripsApiService {
 Trip _trip({String? access, List<BookingTodo>? todos}) => Trip(
       id: 't1',
       title: 'Sevilla week',
-      createdAt: '2026-06-01',
-      updatedAt: '2026-06-01',
-      startDate: '2026-09-01',
-      endDate: '2026-09-03',
+      createdAt: '2037-06-01',
+      updatedAt: '2037-06-01',
+      startDate: '2037-09-01',
+      endDate: '2037-09-03',
       access: access,
       ownerName: access == null ? null : 'Brian',
       items: [
@@ -103,7 +103,7 @@ void main() {
     // unscoped find.text would match twice and say nothing about the row
     // under test.
     expect(find.text('Refine with AI'), findsNothing);
-    expect(find.textContaining('2026-09-01'), findsNothing);
+    expect(find.textContaining('2037-09-01'), findsNothing);
     expect(find.widgetWithText(ActionChip, 'Sep 1 – Sep 3'), findsOneWidget);
 
     // ...and no app-bar sparkle either: that icon is what bought the header
@@ -222,8 +222,8 @@ void main() {
     final tall = Trip(
       id: 't1',
       title: 'Sevilla week',
-      createdAt: '2026-06-01',
-      updatedAt: '2026-06-01',
+      createdAt: '2037-06-01',
+      updatedAt: '2037-06-01',
       items: [
         for (var k = 0; k < 6; k++)
           ItineraryItem(
@@ -313,7 +313,7 @@ void main() {
     // of the viewport. Wide showed the raw ISO pair until 2026-08-14 purely
     // because only narrow was ever fixed.
     expect(find.widgetWithText(ActionChip, 'Sep 1 – Sep 3'), findsOneWidget);
-    expect(find.text('2026-09-01 → 2026-09-03'), findsNothing);
+    expect(find.text('2037-09-01 → 2026-09-03'), findsNothing);
     expect(find.byTooltip('Refine with AI'), findsNothing);
   });
 
@@ -394,8 +394,8 @@ void main() {
     final live = Trip(
       id: 't1',
       title: 'Sevilla week',
-      createdAt: '2026-06-01',
-      updatedAt: '2026-06-01',
+      createdAt: '2037-06-01',
+      updatedAt: '2037-06-01',
       startDate: iso(now.subtract(const Duration(days: 1))),
       endDate: iso(now.add(const Duration(days: 1))),
       items: [

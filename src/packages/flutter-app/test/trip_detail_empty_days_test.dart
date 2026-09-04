@@ -66,10 +66,10 @@ void _useTallViewport(WidgetTester tester) {
 Trip _spineTrip({String id = 't-spine'}) => Trip(
       id: id,
       title: 'Iberia',
-      startDate: '2026-09-01',
-      endDate: '2026-09-06',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-09-01',
+      endDate: '2037-09-06',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: [
         _item(0, 'Time Out Market', day: 1, city: 'Lisbon'),
         _item(1, 'Pasteis de Belem', day: 4, city: 'Lisbon'),
@@ -139,10 +139,10 @@ void main() {
       Trip(
         id: 't-dense',
         title: 'Lisbon',
-        startDate: '2026-09-01',
-        endDate: '2026-09-03',
-        createdAt: '2026-08-01',
-        updatedAt: '2026-08-01',
+        startDate: '2037-09-01',
+        endDate: '2037-09-03',
+        createdAt: '2037-08-01',
+        updatedAt: '2037-08-01',
         items: [
           _item(0, 'Time Out Market', day: 1, city: 'Lisbon'),
           _item(1, 'Pasteis de Belem', day: 2, city: 'Lisbon'),
@@ -171,10 +171,10 @@ void main() {
       Trip(
         id: 't-quiet',
         title: 'Lisbon',
-        startDate: '2026-09-01',
-        endDate: '2026-09-03',
-        createdAt: '2026-08-01',
-        updatedAt: '2026-08-01',
+        startDate: '2037-09-01',
+        endDate: '2037-09-03',
+        createdAt: '2037-08-01',
+        updatedAt: '2037-08-01',
         items: [
           _item(0, 'Time Out Market', day: 1, city: 'Lisbon'),
           _item(1, 'Pasteis de Belem', day: 2, city: 'Lisbon'),

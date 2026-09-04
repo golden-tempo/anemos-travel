@@ -56,8 +56,8 @@ Trip _trip({List<ItineraryItem> items = const [], String? start, String? end}) =
       title: 'Lisbon Trip',
       startDate: start,
       endDate: end,
-      createdAt: '2026-06-01',
-      updatedAt: '2026-06-01',
+      createdAt: '2037-06-01',
+      updatedAt: '2037-06-01',
       items: items,
     );
 
@@ -152,14 +152,14 @@ void main() {
       name: 'Fado Night',
       venue: 'Casa do Fado',
       city: 'Lisbon',
-      startDate: '2026-08-12',
+      startDate: '2037-08-12',
       startTime: '19:30',
       latitude: 38.7,
       longitude: -9.1,
     );
     final service = _FakeTripsApiService(
       trips: [_trip()],
-      detail: _trip(start: '2026-08-10', end: '2026-08-15'),
+      detail: _trip(start: '2037-08-10', end: '2037-08-15'),
     );
 
     await tester.pumpWidget(

@@ -93,10 +93,10 @@ Future<void> _pump(WidgetTester tester, Trip trip, {Locale? locale}) async {
 Trip _pragueKrakowTrip() => Trip(
       id: 't1',
       title: 'Big Summer',
-      startDate: '2026-08-24',
-      endDate: '2026-09-01',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-08-24',
+      endDate: '2037-09-01',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: [
         _item(0, 'Prague', 'Prague', day: 1),
         _item(1, 'Kraków', 'Kraków', day: 4),
@@ -112,10 +112,10 @@ Trip _pragueKrakowTrip() => Trip(
 Trip _threeCityTrip() => Trip(
       id: 't1',
       title: 'Big Summer',
-      startDate: '2026-08-24',
-      endDate: '2026-09-14',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-08-24',
+      endDate: '2037-09-14',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: [
         _item(0, 'Prague', 'Prague', day: 1),
         _item(1, 'Kraków', 'Kraków', day: 4),
@@ -129,10 +129,10 @@ Trip _threeCityTrip() => Trip(
 Trip _squeezeTrip() => Trip(
       id: 't1',
       title: 'Squeeze',
-      startDate: '2026-09-01',
-      endDate: '2026-09-07',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-09-01',
+      endDate: '2037-09-07',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: [
         _item(0, 'Museo', 'Medellín', day: 1),
         _item(1, 'Comuna 13', 'Medellín', day: 6),
@@ -148,10 +148,10 @@ Trip _squeezeTrip() => Trip(
 Trip _pragueMysteryTrip() => Trip(
       id: 't1',
       title: 'Big Summer',
-      startDate: '2026-08-24',
-      endDate: '2026-09-01',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-08-24',
+      endDate: '2037-09-01',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: [
         _item(0, 'Prague', 'Prague', day: 1),
         // No city AND no address: cityOf falls back to parsing the address,

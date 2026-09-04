@@ -58,10 +58,10 @@ ItineraryItem _item(int pos, String name, String city, int day) =>
 Trip _monthCrossingTrip() => Trip(
       id: 't1',
       title: 'Kraków',
-      startDate: '2026-08-29',
-      endDate: '2026-09-02',
-      createdAt: '2026-08-01',
-      updatedAt: '2026-08-01',
+      startDate: '2037-08-29',
+      endDate: '2037-09-02',
+      createdAt: '2037-08-01',
+      updatedAt: '2037-08-01',
       items: [
         _item(0, 'Rynek Główny', 'Kraków', 1),
         _item(1, 'Wawel', 'Kraków', 2),
@@ -159,8 +159,8 @@ void main() {
       Trip(
         id: 't1',
         title: 'Someday',
-        createdAt: '2026-08-01',
-        updatedAt: '2026-08-01',
+        createdAt: '2037-08-01',
+        updatedAt: '2037-08-01',
         items: [
           _item(0, 'Rynek Główny', 'Kraków', 1),
           _item(1, 'Wawel', 'Kraków', 2),

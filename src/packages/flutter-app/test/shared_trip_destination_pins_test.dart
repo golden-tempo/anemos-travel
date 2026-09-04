@@ -49,10 +49,10 @@ SharedTrip _shared(List<ItineraryItem> items) => SharedTrip(
       trip: Trip(
         id: 't1',
         title: 'Grand tour',
-        createdAt: '2026-06-01',
-        updatedAt: '2026-06-01',
-        startDate: '2026-09-01',
-        endDate: '2026-09-03',
+        createdAt: '2037-06-01',
+        updatedAt: '2037-06-01',
+        startDate: '2037-09-01',
+        endDate: '2037-09-03',
         items: items,
       ),
     );
