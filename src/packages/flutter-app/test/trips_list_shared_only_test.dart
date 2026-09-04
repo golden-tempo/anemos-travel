@@ -28,10 +28,10 @@ class _EmptyTripsApiService extends TripsApiService {
 Trip _sharedTrip() => Trip(
       id: 'shared-1',
       title: 'Athens Together',
-      startDate: '2026-08-01',
-      endDate: '2026-08-05',
-      createdAt: '2026-06-01',
-      updatedAt: '2026-06-01',
+      startDate: '2037-08-01',
+      endDate: '2037-08-05',
+      createdAt: '2037-06-01',
+      updatedAt: '2037-06-01',
     );
 
 Future<void> _pumpList(WidgetTester tester, {required List<Trip> shared}) {
