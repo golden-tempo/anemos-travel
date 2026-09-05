@@ -2339,6 +2339,10 @@
   "chatSend": "Send",
   "chatStopGenerating": "Stop generating",
   "chatAttachImages": "Attach images",
+  "chatShareLocation": "Share my location",
+  "@chatShareLocation": {
+    "description": "Tooltip and a11y label for the chat composer's location button, which sends a seeded what's-near-me message with the traveler's current coordinates (same flow as the Home/Plan nearMeChipLabel chip, mid-conversation)."
+  },
   "chatStopDictating": "Stop dictating",
   "chatDictate": "Dictate",
   "chatDropImages": "Drop images to attach",

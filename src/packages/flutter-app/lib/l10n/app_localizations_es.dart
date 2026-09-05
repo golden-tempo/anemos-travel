@@ -3432,6 +3432,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get chatAttachImages => 'Adjuntar imágenes';
 
   @override
+  String get chatShareLocation => 'Compartir mi ubicación';
+
+  @override
   String get chatStopDictating => 'Dejar de dictar';
 
   @override
