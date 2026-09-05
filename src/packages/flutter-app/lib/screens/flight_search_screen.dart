@@ -225,6 +225,15 @@ class _FlightSearchScreenState extends ConsumerState<FlightSearchScreen> {
     if (isCode) {
       return Airport(iataCode: q.toUpperCase(), name: q.toUpperCase());
     }
+    // A gateway label carries its code in parentheses — "Salzburg (SZG)", the
+    // shape the server's gatewayLabel writes onto airportless cities' legs
+    // (leg_gateways.go calls it load-bearing). Extracting it skips the text
+    // lookup that the surrounding prose would only derail.
+    final inParens = RegExp(r'\(([A-Za-z]{3})\)').firstMatch(q);
+    if (inParens != null) {
+      final code = inParens.group(1)!.toUpperCase();
+      return Airport(iataCode: code, name: code);
+    }
 
     final cleaned = _cleanLabel(q);
     final attempts = <String>[q, if (cleaned != q) cleaned];

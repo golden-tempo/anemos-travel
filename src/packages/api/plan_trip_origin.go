@@ -387,7 +387,7 @@ func relabelHomeLegs(ctx context.Context, q *store.Queries, tid uuid.UUID, depar
 		} else {
 			url, provider = bookingSearchURL("transport", dest, &origin, departDate, nil, 0, 1, row.Provider)
 		}
-		if _, err := q.RelabelHomeBookingTodo(ctx, store.RelabelHomeBookingTodoParams{
+		if _, err := q.RelabelBookingTodo(ctx, store.RelabelBookingTodoParams{
 			ID: row.ID, TripID: row.TripID,
 			OriginLabel: strPtrOrNil(origin), DestinationLabel: strPtrOrNil(dest),
 			Title: title, SearchUrl: strPtrOrNil(url), Provider: strPtrOrNil(provider),

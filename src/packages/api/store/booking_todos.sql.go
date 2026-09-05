@@ -534,7 +534,7 @@ func (q *Queries) MigrateBookingTodoLeg(ctx context.Context, arg MigrateBookingT
 	return i, err
 }
 
-const relabelHomeBookingTodo = `-- name: RelabelHomeBookingTodo :one
+const relabelBookingTodo = `-- name: RelabelBookingTodo :one
 UPDATE booking_todos
 SET origin_label = $1,
     destination_label = $2,
@@ -545,7 +545,7 @@ WHERE id = $6 AND trip_id = $7
 RETURNING id, trip_id, kind, todo_key, title, subtitle, provider, search_url, depart_date, return_date, booked, auto, position, created_at, updated_at, mode, role, origin_label, destination_label, derived_mode, city_label
 `
 
-type RelabelHomeBookingTodoParams struct {
+type RelabelBookingTodoParams struct {
 	OriginLabel      *string   `json:"origin_label"`
 	DestinationLabel *string   `json:"destination_label"`
 	Title            string    `json:"title"`
@@ -555,13 +555,15 @@ type RelabelHomeBookingTodoParams struct {
 	TripID           uuid.UUID `json:"trip_id"`
 }
 
-// Repoints ONE journey-endpoint row at a new airport. Content only: the row
+// Repoints ONE transport row's endpoint labels. Content only: the row
 // keeps its id, so booked, mode, position and any trip_expenses row linked by
 // source_id ride along untouched — which is the entire reason the key stopped
-// containing the airport (00064). todo_key is deliberately absent: the @home
-// identity does not move when the label does.
-func (q *Queries) RelabelHomeBookingTodo(ctx context.Context, arg RelabelHomeBookingTodoParams) (BookingTodo, error) {
-	row := q.db.QueryRow(ctx, relabelHomeBookingTodo,
+// containing the airport (00064). todo_key is deliberately absent: identity
+// (home token or city pair) does not move when the label does. Serves both
+// the journey endpoints (set_trip_origin) and inter-city gateway relabels
+// (set_leg_gateway, 00075).
+func (q *Queries) RelabelBookingTodo(ctx context.Context, arg RelabelBookingTodoParams) (BookingTodo, error) {
+	row := q.db.QueryRow(ctx, relabelBookingTodo,
 		arg.OriginLabel,
 		arg.DestinationLabel,
 		arg.Title,

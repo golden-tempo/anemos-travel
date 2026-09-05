@@ -380,6 +380,16 @@ type TripInvite struct {
 	CreatedAt  time.Time          `json:"created_at"`
 }
 
+type TripLegGateway struct {
+	TripID       uuid.UUID `json:"trip_id"`
+	CityFold     string    `json:"city_fold"`
+	Airport      string    `json:"airport"`
+	AirportLabel *string   `json:"airport_label"`
+	Source       string    `json:"source"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
 type TripRefineSession struct {
 	ID           uuid.UUID `json:"id"`
 	UserID       uuid.UUID `json:"user_id"`

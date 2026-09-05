@@ -226,6 +226,15 @@ var planToolRegistry = []planTool{
 	// takes no cache re-warm. Target-trip resolution shares
 	// resolveDateShiftTrip. Tail-appended per the prompt-cache rule above.
 	{def: shiftDaysFromTool, enabled: authedOnly, run: runShiftDaysFromTool},
+
+	// Record which AIRPORT an airportless city's flights actually use
+	// (specs/leg-gateway-airports, 00075). The sync path auto-detects these;
+	// this tool is the traveler's correction on top — source='traveler'
+	// outranks auto, and the affected flight legs relabel in place. Signed-in
+	// only, like the set_* tools above, keeping the anonymous tools array
+	// byte-identical. Target-trip resolution shares resolveDateShiftTrip.
+	// Tail-appended per the prompt-cache rule above.
+	{def: setLegGatewayTool, enabled: authedOnly, run: runSetLegGatewayTool},
 }
 
 // planToolByName dispatches tool_use blocks; derived from the registry so the
