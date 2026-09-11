@@ -350,6 +350,49 @@ func (q *Queries) GetBookingTodoDeleteState(ctx context.Context, arg GetBookingT
 	return i, err
 }
 
+const getBookingTodoDismissState = `-- name: GetBookingTodoDismissState :one
+SELECT b.title, b.booked,
+       (SELECT count(*)::int FROM booking_options o WHERE o.booking_todo_id = b.id) AS option_count,
+       EXISTS (SELECT 1 FROM trip_expenses e
+               WHERE e.trip_id = b.trip_id
+                 AND e.source_kind = 'booking_todo' AND e.source_id = b.id) AS has_expense
+FROM booking_todos b
+WHERE b.id = $1 AND b.trip_id = $2 AND b.auto = true
+`
+
+type GetBookingTodoDismissStateParams struct {
+	ID     uuid.UUID `json:"id"`
+	TripID uuid.UUID `json:"trip_id"`
+}
+
+type GetBookingTodoDismissStateRow struct {
+	Title       string `json:"title"`
+	Booked      bool   `json:"booked"`
+	OptionCount int32  `json:"option_count"`
+	HasExpense  bool   `json:"has_expense"`
+}
+
+// Pre-dismiss read for the agent's remove_booking_todo guard on AUTO rows —
+// the twin GetBookingTodoDeleteState never runs for a derived leg, so a
+// dismissal (00077) carried no equivalent stakes check at all: the tool would
+// hide a booked, shortlisted or expense-linked leg on the first call, no
+// confirm required, leaving a real reservation's row muted "no booking
+// needed" while its confirmed detail card (BookingDetailRow) still renders
+// in full underneath it. Same three fields, same predicate, MINUS mode (a
+// dismissal never touches it) — scoped auto = true so a manual id reads as
+// "no such row" and falls through to the existing delete lane instead.
+func (q *Queries) GetBookingTodoDismissState(ctx context.Context, arg GetBookingTodoDismissStateParams) (GetBookingTodoDismissStateRow, error) {
+	row := q.db.QueryRow(ctx, getBookingTodoDismissState, arg.ID, arg.TripID)
+	var i GetBookingTodoDismissStateRow
+	err := row.Scan(
+		&i.Title,
+		&i.Booked,
+		&i.OptionCount,
+		&i.HasExpense,
+	)
+	return i, err
+}
+
 const listBookingTodosByTrip = `-- name: ListBookingTodosByTrip :many
 SELECT id, trip_id, kind, todo_key, title, subtitle, provider, search_url, depart_date, return_date, booked, auto, position, created_at, updated_at, mode, role, origin_label, destination_label, derived_mode, city_label, dismissed FROM booking_todos WHERE trip_id = $1 ORDER BY position ASC, created_at ASC
 `

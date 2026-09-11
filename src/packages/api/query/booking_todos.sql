@@ -310,6 +310,24 @@ SELECT b.title, b.booked,
 FROM booking_todos b
 WHERE b.id = $1 AND b.trip_id = $2 AND b.auto = false;
 
+-- name: GetBookingTodoDismissState :one
+-- Pre-dismiss read for the agent's remove_booking_todo guard on AUTO rows —
+-- the twin GetBookingTodoDeleteState never runs for a derived leg, so a
+-- dismissal (00077) carried no equivalent stakes check at all: the tool would
+-- hide a booked, shortlisted or expense-linked leg on the first call, no
+-- confirm required, leaving a real reservation's row muted "no booking
+-- needed" while its confirmed detail card (BookingDetailRow) still renders
+-- in full underneath it. Same three fields, same predicate, MINUS mode (a
+-- dismissal never touches it) — scoped auto = true so a manual id reads as
+-- "no such row" and falls through to the existing delete lane instead.
+SELECT b.title, b.booked,
+       (SELECT count(*)::int FROM booking_options o WHERE o.booking_todo_id = b.id) AS option_count,
+       EXISTS (SELECT 1 FROM trip_expenses e
+               WHERE e.trip_id = b.trip_id
+                 AND e.source_kind = 'booking_todo' AND e.source_id = b.id) AS has_expense
+FROM booking_todos b
+WHERE b.id = $1 AND b.trip_id = $2 AND b.auto = true;
+
 -- name: DeleteCleanAutoBookingTodoByKey :execrows
 -- Clears the way for MigrateBookingTodoLeg: removes the auto row holding the
 -- target key, but only while it is provably disposable — unbooked, no mode

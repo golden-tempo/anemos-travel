@@ -1137,15 +1137,30 @@ func runRemoveBookingTodoTool(s *planSession, input json.RawMessage) (string, bo
 		// it, and the traveler can restore it from the checklist. The
 		// dismissal query is auto-scoped, so a genuinely missing id still
 		// lands on the missing message below.
-		if dismissedRow, derr := store.New(dbPool).SetBookingTodoDismissed(s.ctx, store.SetBookingTodoDismissedParams{
-			ID: todoID, TripID: tid, Dismissed: true,
-		}); derr == nil {
-			touchTripAs(s.ctx, tid, s.uid)
-			sendSSE(s.w, "trip_updated", map[string]string{"trip_id": tid.String()})
-			safeGo("recordEvent", func() { recordEvent(s.uid, "agent_booking_todo_dismissed", &tid, nil) })
-			return fmt.Sprintf("%q is a derived row that tracks the itinerary, so it can't be deleted outright — it is now marked as needing no booking: hidden from the to-book list, skipped by counts and reminders, and the checklist will say so. The traveler can restore it from the checklist's All view if plans change.", dismissedRow.Title), false
+		dismissSt, derr := store.New(dbPool).GetBookingTodoDismissState(s.ctx, store.GetBookingTodoDismissStateParams{ID: todoID, TripID: tid})
+		if derr != nil {
+			return bookingTodoMissingMsg, true
 		}
-		return bookingTodoMissingMsg, true
+		// Same stakes ladder the manual delete lane runs above, so this lane
+		// can no longer hide a booked, shortlisted or expense-linked leg
+		// behind "no booking needed" on the first call — the gap that left a
+		// real reservation's confirmed detail card rendering in full under a
+		// row now muted as needing none.
+		if !in.Confirm {
+			if refusal := bookingTodoDismissRefusal(dismissSt); refusal != "" {
+				return refusal, true
+			}
+		}
+		dismissedRow, derr := store.New(dbPool).SetBookingTodoDismissed(s.ctx, store.SetBookingTodoDismissedParams{
+			ID: todoID, TripID: tid, Dismissed: true,
+		})
+		if derr != nil {
+			return bookingTodoMissingMsg, true
+		}
+		touchTripAs(s.ctx, tid, s.uid)
+		sendSSE(s.w, "trip_updated", map[string]string{"trip_id": tid.String()})
+		safeGo("recordEvent", func() { recordEvent(s.uid, "agent_booking_todo_dismissed", &tid, nil) })
+		return bookingTodoDismissedMsg(dismissedRow.Title, dismissSt), false
 	}
 	if !in.Confirm {
 		if refusal := bookingTodoStateRefusal(st); refusal != "" {
@@ -1192,6 +1207,51 @@ func bookingTodoStateRefusal(st store.GetBookingTodoDeleteStateRow) string {
 	}
 	return fmt.Sprintf("Not removing %q: %s. Nothing was removed. If the traveler has confirmed the booking is cancelled (or was never made), call remove_booking_todo again with confirm: true.",
 		st.Title, strings.Join(stakes, "; "))
+}
+
+// bookingTodoDismissRefusal is the dismiss-lane twin of
+// bookingTodoStateRefusal, run before an AUTO row is marked "no booking
+// needed" instead of before it is deleted. Same idiom, different stakes: a
+// dismissal doesn't destroy the shortlist or unlink the expense the way a
+// delete would — it hides the row those things are attached to, silently, no
+// confirm required, which is exactly how a real reservation ended up muted
+// "no booking needed" on the checklist while its confirmed detail card kept
+// rendering underneath in full.
+func bookingTodoDismissRefusal(st store.GetBookingTodoDismissStateRow) string {
+	var stakes []string
+	if st.Booked {
+		stakes = append(stakes, "it is marked booked — tagging it \"no booking needed\" would sit that label directly beside a real reservation, which the traveler is likely to read as the booking having been cancelled or never made")
+	}
+	if st.OptionCount > 0 {
+		stakes = append(stakes, fmt.Sprintf("it has a saved booking shortlist (%d option%s) that stays attached but would disappear from view along with the row", st.OptionCount, pluralS(st.OptionCount)))
+	}
+	if st.HasExpense {
+		stakes = append(stakes, "it is linked to a budget expense that would keep counting toward the trip's spend with no visible row left to explain it")
+	}
+	if len(stakes) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Not marking %q as no booking needed: %s. Nothing changed. If the traveler has confirmed no booking is needed after all, call remove_booking_todo again with confirm: true.",
+		st.Title, strings.Join(stakes, "; "))
+}
+
+// bookingTodoDismissedMsg narrates a confirmed dismissal the same way
+// bookingTodoRemovedMsg narrates a confirmed delete: it names the row and,
+// when the row carried the stakes bookingTodoDismissRefusal would have
+// raised, spells out what a reader must not conclude from the "no booking
+// needed" tag alone.
+func bookingTodoDismissedMsg(title string, st store.GetBookingTodoDismissStateRow) string {
+	msg := fmt.Sprintf("%q is a derived row that tracks the itinerary, so it can't be deleted outright — it is now marked as needing no booking: hidden from the to-book list, skipped by counts and reminders, and the checklist will say so.", title)
+	if st.Booked {
+		msg += " It was marked booked, so any confirmed reservation details for it are unaffected and still show in full — the tag only hides the checklist row, not the booking."
+	}
+	if st.OptionCount > 0 {
+		msg += fmt.Sprintf(" Its saved booking shortlist (%d option%s) stays attached, just hidden along with the row.", st.OptionCount, pluralS(st.OptionCount))
+	}
+	if st.HasExpense {
+		msg += " Its linked budget expense keeps counting toward the trip's spend."
+	}
+	return msg + " The traveler can restore it from the checklist's All view if plans change."
 }
 
 // bookingTodoRemovedMsg names the deleted row and — for a confirmed

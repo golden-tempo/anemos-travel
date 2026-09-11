@@ -541,6 +541,111 @@ func TestRemoveBookingTodoToolConfirmDeletesStateRow(t *testing.T) {
 	}
 }
 
+// #592: the dismiss lane (00077) an AUTO row falls into carried none of the
+// stakes ladder the manual delete lane above already runs -- a booked,
+// shortlisted or expense-linked leg was hidden behind "no booking needed" on
+// the first call, leaving its confirmed detail card rendering in full under a
+// row now muted as needing none. The tool must refuse exactly like the
+// manual path, naming the reservation risk and the confirm call.
+func TestRemoveBookingTodoToolRefusesBookedAutoRow(t *testing.T) {
+	resetDB(t)
+	owner, _ := createTestUser(t, "agent@example.com")
+	trip := createTestTrip(t, owner.ID, 1)
+	autoID := seedAutoTodo(t, trip.ID)
+	if _, err := dbPool.Exec(context.Background(),
+		`UPDATE booking_todos SET booked = true WHERE id = $1`, autoID); err != nil {
+		t.Fatalf("mark booked: %v", err)
+	}
+
+	s, rec := testPlanSession(true, owner.ID)
+	msg, isErr := runRemoveBookingTodoTool(s,
+		json.RawMessage(`{"trip_id":"`+trip.ID.String()+`","todo_id":"`+autoID.String()+`"}`))
+	if !isErr {
+		t.Fatalf("booked auto row dismissed without confirm: %q", msg)
+	}
+	for _, want := range []string{
+		`"Stay in Testville"`, // names the row
+		"booked",
+		"no booking needed",
+		"confirm: true", // names the call that works
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("dismiss refusal missing %q:\n%s", want, msg)
+		}
+	}
+	if strings.Contains(rec.Body.String(), "trip_updated") {
+		t.Fatal("refusal emitted trip_updated")
+	}
+	var dismissed bool
+	if err := dbPool.QueryRow(context.Background(),
+		`SELECT dismissed FROM booking_todos WHERE id = $1`, autoID).Scan(&dismissed); err != nil || dismissed {
+		t.Fatalf("refusal dismissed the row anyway (dismissed=%v, err=%v)", dismissed, err)
+	}
+
+	// confirm: true proceeds, and the result says the confirmed booking
+	// (if any) is unaffected -- the tag hides the checklist row, not the
+	// reservation.
+	rec.Body.Reset()
+	msg, isErr = runRemoveBookingTodoTool(s,
+		json.RawMessage(`{"trip_id":"`+trip.ID.String()+`","todo_id":"`+autoID.String()+`","confirm":true}`))
+	if isErr {
+		t.Fatalf("confirmed dismiss refused: %q", msg)
+	}
+	for _, want := range []string{"booked", "unaffected", "needing no booking", "restore"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("confirmed dismiss missing %q:\n%s", want, msg)
+		}
+	}
+	if !strings.Contains(rec.Body.String(), "trip_updated") {
+		t.Fatal("confirmed dismiss did not emit trip_updated")
+	}
+	if err := dbPool.QueryRow(context.Background(),
+		`SELECT dismissed FROM booking_todos WHERE id = $1`, autoID).Scan(&dismissed); err != nil || !dismissed {
+		t.Fatalf("confirmed dismiss did not stick (dismissed=%v, err=%v)", dismissed, err)
+	}
+}
+
+// The dismiss lane's stakes ladder covers the same three kinds of state the
+// manual delete lane guards -- a saved shortlist and a linked expense also
+// survive a dismissal, just hidden with the row rather than destroyed.
+func TestRemoveBookingTodoToolRefusesOptionAndExpenseAutoRows(t *testing.T) {
+	resetDB(t)
+	owner, _ := createTestUser(t, "agent@example.com")
+	trip := createTestTrip(t, owner.ID, 1)
+	s, rec := testPlanSession(true, owner.ID)
+
+	optTodo := seedAutoTodo(t, trip.ID)
+	seedTodoOption(t, trip.ID, optTodo, "Loft near Old Town")
+	seedTodoOption(t, trip.ID, optTodo, "B&B by the port")
+
+	rec.Body.Reset()
+	msg, isErr := runRemoveBookingTodoTool(s,
+		json.RawMessage(`{"trip_id":"`+trip.ID.String()+`","todo_id":"`+optTodo.String()+`"}`))
+	if !isErr {
+		t.Fatalf("shortlist auto row dismissed without confirm: %q", msg)
+	}
+	for _, want := range []string{"shortlist", "2 options", "confirm: true"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("shortlist dismiss refusal missing %q:\n%s", want, msg)
+		}
+	}
+
+	rec.Body.Reset()
+	msg, isErr = runRemoveBookingTodoTool(s,
+		json.RawMessage(`{"trip_id":"`+trip.ID.String()+`","todo_id":"`+optTodo.String()+`","confirm":true}`))
+	if isErr {
+		t.Fatalf("confirmed shortlist dismiss refused: %q", msg)
+	}
+	var optCount int
+	if err := dbPool.QueryRow(context.Background(),
+		`SELECT count(*) FROM booking_options WHERE booking_todo_id = $1`, optTodo).Scan(&optCount); err != nil || optCount != 2 {
+		t.Fatalf("dismiss destroyed the shortlist (n=%d, err=%v)", optCount, err)
+	}
+	if !strings.Contains(rec.Body.String(), "trip_updated") {
+		t.Fatal("confirmed dismiss did not emit trip_updated")
+	}
+}
+
 // boundPlanSession is testPlanSession bound to a trip the caller owns — the
 // setup the three trip-acting tools require.
 func boundPlanSession(uid, tripID uuid.UUID) (*planSession, *httptest.ResponseRecorder) {
