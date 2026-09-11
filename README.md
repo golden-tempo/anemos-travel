@@ -57,6 +57,23 @@ GOOGLE_PLACES_API_KEY=your_google_places_api_key_here
 
 **Note:** The API will work without this key, but location search features will be disabled.
 
+## Local Development
+
+To install dependencies and start the application locally (without Docker):
+
+```bash
+# Install Go module deps + Flutter packages
+make setup
+
+# Run the API locally on http://localhost:8080
+make api-run
+
+# In another terminal, run the Flutter app against the local API
+make flutter-run
+```
+
+See `make help` for the full list of available commands (tests, formatting, Docker stacks, etc.).
+
 ## Installation & Running
 
 ### Quick Start with Makefile (Recommended)
