@@ -8,8 +8,8 @@ import '../theme/spacing.dart';
 /// crossed south-west to north-east by a straight azure route line (#236684):
 /// instrument outside, journey inside. Source SVGs live in docs/branding/;
 /// PNGs are rendered by scripts/brand-render.sh. (The old horse mark retired
-/// with the Golden Tempo name; the agent persona "Ferdinand" keeps the equine
-/// nod.)
+/// with the Golden Tempo name; the chat agent persona is "Ana", short for
+/// Anemos.)
 ///
 /// It replaced the bare Waypoint Thread rose (kept as
 /// `docs/branding/mark-thread-backup.svg`), and the reason is arithmetic
