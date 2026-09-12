@@ -1752,6 +1752,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get tripDetailShowNavBar => 'Mostrar navegación';
 
   @override
+  String get tripDetailHideNavBar => 'Ocultar navegación';
+
+  @override
   String get tripShareLinkCopied =>
       'Enlace para compartir copiado al portapapeles';
 

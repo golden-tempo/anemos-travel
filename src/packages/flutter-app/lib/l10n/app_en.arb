@@ -1056,6 +1056,10 @@
   "@tripDetailShowNavBar": {
     "description": "Label (and tooltip) on the small button trip detail shows in place of the persistent Home/Plan/Trips bar at narrow widths, once it has hidden the bar to free a row for the itinerary (issue #594). Tapping it brings the bar back for the rest of this visit."
   },
+  "tripDetailHideNavBar": "Hide navigation",
+  "@tripDetailHideNavBar": {
+    "description": "Label (and tooltip) on the small button trip detail shows directly above the persistent Home/Plan/Trips bar at narrow widths, once the traveler has tapped tripDetailShowNavBar to bring the bar back (issue #610). Tapping it hides the bar again, freeing the row back for the itinerary."
+  },
   "tripShareLinkCopied": "Share link copied to clipboard",
   "tripSharingTurnedOff": "Sharing turned off — links no longer work (existing co-planners and followers keep access)",
   "tripCoPlanInviteMessage": "Co-plan with me: {summary}",
