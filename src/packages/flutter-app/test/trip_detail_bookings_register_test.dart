@@ -295,4 +295,41 @@ void main() {
       expect(find.text('Reservations'), findsNothing);
     });
   });
+
+  group('residual auto todos get a Remove action (#619)', () {
+    // A leftover auto row whose leg no longer names either trip city — the
+    // "Salzburg → Gothenburg" flight from the bug report. It claims nothing
+    // in `_groupedBookings`, so it renders in "Other bookings" same as a
+    // custom row, but stays `auto: true`: nothing ever demoted it because it
+    // carries no booked flag, mode, option or expense to preserve.
+    Trip staleAutoTrip() => _trip(todos: [
+          _todo('stay', 'stay:paris', 'Stay in Paris'),
+          _todo('stay', 'stay:rome', 'Stay in Rome'),
+          _todo('transport', 'transport:salzburg>>gothenburg',
+              'Salzburg → Gothenburg'),
+        ]);
+
+    testWidgets(
+        'a stale auto todo in Other bookings offers Remove but not Edit',
+        (tester) async {
+      _useTallViewport(tester);
+      await _pump(tester, staleAutoTrip());
+      await _openBookingsTab(tester);
+
+      final card =
+          find.widgetWithText(BookingTodoCard, 'Salzburg → Gothenburg');
+      expect(card, findsOneWidget);
+
+      final kebab =
+          find.descendant(of: card, matching: find.byIcon(Icons.more_vert));
+      expect(kebab, findsOneWidget);
+      await tester.tap(kebab);
+      await tester.pumpAndSettle();
+      // Edit stays withheld — an auto row's fields are not the traveler's to
+      // rewrite — but Remove is the one way left to clear a dead leftover
+      // the server will never re-derive back into a city slot.
+      expect(find.text('Edit'), findsNothing);
+      expect(find.text('Remove'), findsOneWidget);
+    });
+  });
 }
