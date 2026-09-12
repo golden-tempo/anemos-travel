@@ -380,9 +380,28 @@ jobs:
     # A docs/specs-only merge to main has nothing new to build or ship —
     # skipping here also skips `deploy` below, since it requires this job's
     # result to be 'success' rather than 'skipped'.
+    #
+    # `!cancelled()` plus the explicit per-need checks below are load-bearing,
+    # not decoration: `needs: [changes, go, flutter, migrations]` without them
+    # falls back to GitHub Actions' own default gate, which skips a job the
+    # instant ANY of its needs is 'skipped' — not just 'failure' — regardless
+    # of what this `if` says. `go` and `migrations` skip themselves ON
+    # PURPOSE for a flutter-only change (`changes.outputs.backend == 'false'`
+    # above), so that default gate skipped this job (and so `deploy`, which
+    # needs THIS job's result) for every frontend-only merge to main — no
+    # image ever got pushed and production silently stopped redeploying
+    # frontend fixes. Caught only because #619's fix landed, merged clean,
+    # and still wasn't live: production's /app/version.json still named the
+    # pre-merge commit. `flutter` has no such carve-out (it never skips
+    # itself while `code == 'true'`, which is this job's own gate), so it
+    # stays a plain success check.
     if: >-
+      !cancelled() &&
       github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-      (needs.changes.result != 'success' || needs.changes.outputs.code == 'true')
+      (needs.changes.result != 'success' || needs.changes.outputs.code == 'true') &&
+      needs.flutter.result == 'success' &&
+      (needs.go.result == 'success' || needs.go.result == 'skipped') &&
+      (needs.migrations.result == 'success' || needs.migrations.result == 'skipped')
     needs: [changes, go, flutter, migrations]
     permissions:
       contents: read
