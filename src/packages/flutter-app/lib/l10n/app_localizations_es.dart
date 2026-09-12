@@ -1749,6 +1749,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get tripAskAI => 'Pregunta a la IA sobre este viaje';
 
   @override
+  String get tripDetailShowNavBar => 'Mostrar navegación';
+
+  @override
   String get tripShareLinkCopied =>
       'Enlace para compartir copiado al portapapeles';
 

@@ -1735,6 +1735,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tripAskAI => 'Ask AI about this trip';
 
   @override
+  String get tripDetailShowNavBar => 'Show navigation';
+
+  @override
   String get tripShareLinkCopied => 'Share link copied to clipboard';
 
   @override

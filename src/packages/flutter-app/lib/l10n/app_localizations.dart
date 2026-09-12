@@ -3104,6 +3104,12 @@ abstract class AppLocalizations {
   /// **'Ask AI about this trip'**
   String get tripAskAI;
 
+  /// Label (and tooltip) on the small button trip detail shows in place of the persistent Home/Plan/Trips bar at narrow widths, once it has hidden the bar to free a row for the itinerary (issue #594). Tapping it brings the bar back for the rest of this visit.
+  ///
+  /// In en, this message translates to:
+  /// **'Show navigation'**
+  String get tripDetailShowNavBar;
+
   /// No description provided for @tripShareLinkCopied.
   ///
   /// In en, this message translates to:
