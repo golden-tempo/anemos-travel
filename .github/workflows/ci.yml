@@ -23,6 +23,70 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Docs/specs (prose under specs/**, docs/**, and any *.md) have nothing for
+  # CI to build, test, or ship. Every other job below skips itself when this
+  # says so, so a spec-only PR goes green in seconds instead of spinning up
+  # Postgres and a Flutter toolchain, and a spec-only merge to main doesn't
+  # rebuild/push images or redeploy. Fails CLOSED: if this job itself errors
+  # (or is skipped, as on workflow_dispatch's deliberate `code=false`), every
+  # downstream `if` below falls back to running — a broken detector should
+  # never silently skip real validation.
+  changes:
+    name: Docs/specs-only change detection
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Only docs/specs touched?
+        id: filter
+        run: |
+          case "${{ github.event_name }}" in
+            workflow_dispatch)
+              # A manual deploy/rollback of an already-built, already-tested
+              # image tag — there's no new diff to inspect, and validation /
+              # build were never meant to run on this trigger (see the
+              # workflow_dispatch comment above: "only deploy runs").
+              echo "code=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+            pull_request)
+              base="${{ github.event.pull_request.base.sha }}"
+              head="${{ github.event.pull_request.head.sha }}"
+              ;;
+            *)
+              base="${{ github.event.before }}"
+              head="${{ github.sha }}"
+              ;;
+          esac
+
+          if [ -z "$base" ] || ! git cat-file -e "$base" 2>/dev/null; then
+            echo "::notice::no usable base commit ('$base') to diff against — treating as a code change"
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          files=$(git diff --name-only "$base" "$head")
+          if [ -z "$files" ]; then
+            echo "no files changed — treating as a code change"
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "changed files:"
+          printf '%s\n' "$files"
+
+          non_docs=$(printf '%s\n' "$files" | grep -vE '^(specs|docs)/|\.md$' || true)
+          if [ -z "$non_docs" ]; then
+            echo "docs/specs-only change — validation, build and deploy can be skipped"
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+
   # Raising the service worker's manifest cache name spends a ONE-SHOT eviction:
   # activate() takes its no-prior-manifest branch and calls
   # caches.delete(CACHE_NAME) exactly once per client, unrepeatably. Spent while
@@ -42,7 +106,8 @@ jobs:
   sw-manifest-bump-guard:
     name: SW manifest bump requires a clean edge
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true')
     steps:
       - uses: actions/checkout@v4
 
@@ -74,6 +139,8 @@ jobs:
   go:
     name: Go (fmt, vet, test, sqlc drift)
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.result != 'success' || needs.changes.outputs.code == 'true'
     defaults:
       run:
         working-directory: src/packages/api
@@ -129,6 +196,8 @@ jobs:
   flutter:
     name: Flutter (analyze, test, build web)
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.result != 'success' || needs.changes.outputs.code == 'true'
     defaults:
       run:
         working-directory: src/packages/flutter-app
@@ -185,6 +254,8 @@ jobs:
   migrations:
     name: Migrations apply from zero
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.result != 'success' || needs.changes.outputs.code == 'true'
     defaults:
       run:
         working-directory: src/packages/api
@@ -284,8 +355,13 @@ jobs:
     runs-on: ubuntu-latest
     # The gateway image includes a full Flutter web build (~several minutes).
     timeout-minutes: 30
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [go, flutter, migrations]
+    # A docs/specs-only merge to main has nothing new to build or ship —
+    # skipping here also skips `deploy` below, since it requires this job's
+    # result to be 'success' rather than 'skipped'.
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      (needs.changes.result != 'success' || needs.changes.outputs.code == 'true')
+    needs: [changes, go, flutter, migrations]
     permissions:
       contents: read
       packages: write
