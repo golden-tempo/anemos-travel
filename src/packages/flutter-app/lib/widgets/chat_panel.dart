@@ -454,6 +454,45 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
     return true;
   }
 
+  /// The composer field's `onSubmitted` — the platform's one signal that
+  /// Enter (or its web/mobile equivalent) was pressed, however it got there.
+  /// Enter alone sends; Shift+Enter and Option(Alt)+Enter write a newline
+  /// instead, matching ChatGPT and Claude.
+  ///
+  /// This has to live here rather than on a raw [KeyEvent]: the field
+  /// declares [TextInputAction.send], so the platform never inserts a
+  /// newline of its own for *any* Enter combination — `onSubmitted` firing
+  /// is the only notice this gets, for every modifier alike.
+  ///
+  /// [TextInputAction.send] also unfocuses the field before `onSubmitted`
+  /// runs (see [EditableTextState._finalizeEditing]) — fine for an actual
+  /// send, but not for a keystroke that only added a line break, so the
+  /// newline branch reclaims focus rather than leaving the composer for the
+  /// traveler to tap back into mid-message.
+  void _onComposerSubmit() {
+    final keys = HardwareKeyboard.instance;
+    if (keys.isShiftPressed || keys.isAltPressed) {
+      _insertNewline();
+      _inputFocus.requestFocus();
+      return;
+    }
+    _send();
+  }
+
+  /// Writes a newline over whatever the caret's selection currently spans —
+  /// a real replace, not an append, so a highlighted word is swapped for the
+  /// line break the same way typing any other character would.
+  void _insertNewline() {
+    final selection = _controller.selection;
+    if (!selection.isValid) return;
+    final text = _controller.text;
+    final newText = text.replaceRange(selection.start, selection.end, '\n');
+    _controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: selection.start + 1),
+    );
+  }
+
   /// Up/Down in the composer recall history, shell-style — but only from the
   /// edge of the text, so a multi-line draft still moves the caret by line the
   /// way every other text field does. Declining (`ignored`) is what leaves
@@ -648,6 +687,7 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
             hint: widget.inputHint ?? context.l10n.chatInputHint,
             shortHint: widget.shortInputHint ?? context.l10n.chatInputHintShort,
             onSend: _send,
+            onSubmit: _onComposerSubmit,
             onStop: _stop,
             hasDraftAttachments: _pending.isNotEmpty || _processingCount > 0,
             onAttach: _pickImages,
@@ -2083,6 +2123,11 @@ class _InputBar extends StatelessWidget {
   final String shortHint;
 
   final VoidCallback onSend;
+
+  /// The field's own `onSubmitted` — distinct from [onSend] because Enter's
+  /// modifier decides send-vs-newline (see [_ChatPanelState._onComposerSubmit])
+  /// while the send button's tap always sends outright.
+  final VoidCallback onSubmit;
   final VoidCallback onStop;
   final bool hasDraftAttachments;
   final VoidCallback onAttach;
@@ -2103,6 +2148,7 @@ class _InputBar extends StatelessWidget {
     required this.hint,
     required this.shortHint,
     required this.onSend,
+    required this.onSubmit,
     required this.onStop,
     required this.hasDraftAttachments,
     required this.onAttach,
@@ -2191,7 +2237,7 @@ class _InputBar extends StatelessWidget {
                   focusNode: focusNode,
                   maxLines: null,
                   textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => onSend(),
+                  onSubmitted: (_) => onSubmit(),
                   decoration: InputDecoration(
                     hintText: _hintFor(
                       context,
