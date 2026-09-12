@@ -418,10 +418,10 @@ var suggestStaysTool = anthropic.ToolParam{
 	Description: anthropic.String("Give the traveler links to browse accommodations on Airbnb and Booking.com for a destination. Call this when they want lodging suggestions."),
 	InputSchema: anthropic.ToolInputSchemaParam{
 		Properties: map[string]any{
-			"destination": map[string]any{"type": "string", "description": "City or area, e.g. 'Paris'"},
+			"destination": map[string]any{"type": "string", "description": "As specific as the conversation supports — a neighborhood or district when one has been named or discussed (e.g. 'Le Marais, Paris'), otherwise the city, e.g. 'Paris'"},
 			"check_in":    map[string]any{"type": "string", "description": "Optional YYYY-MM-DD"},
 			"check_out":   map[string]any{"type": "string", "description": "Optional YYYY-MM-DD"},
-			"guests":      map[string]any{"type": "integer", "description": "Optional number of guests"},
+			"guests":      map[string]any{"type": "integer", "description": "Optional number of guests — omit for a solo traveler; the link defaults to 1"},
 		},
 		Required: []string{"destination"},
 	},
