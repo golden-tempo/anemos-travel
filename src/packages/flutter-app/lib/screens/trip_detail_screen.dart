@@ -3995,15 +3995,16 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
       // the rail breakpoint, per its own doc), inside the shell (standalone
       // pushes — this screen's own widget tests, a future non-shell entry
       // point — have no such bar to fight over), and the Trips tab's
-      // foreground content. `_navBarRevealed` is the escape hatch: once the
-      // traveler taps [_BottomNavRevealBar], the bar stays back for the rest
-      // of this visit (issue #594).
-      final shellShowsBottomBar =
-          MediaQuery.sizeOf(context).width < kRailBreakpoint;
-      final showNavBar = !shellShowsBottomBar ||
-          !ShellScope.of(context) ||
-          ref.watch(navIndexProvider) != AppTab.trips.index ||
-          _navBarRevealed;
+      // foreground content.
+      final onNarrowTripsForeground =
+          MediaQuery.sizeOf(context).width < kRailBreakpoint &&
+              ShellScope.of(context) &&
+              ref.watch(navIndexProvider) == AppTab.trips.index;
+      // `_navBarRevealed` is the escape hatch, and — issue #610 — a two-way
+      // one: tapping [_BottomNavToggleBar] flips it either way, so the bar
+      // can be brought back AND put away again for the rest of this visit,
+      // rather than the one-way door #594 shipped.
+      final showNavBar = !onNarrowTripsForeground || _navBarRevealed;
       _syncBottomNavVisible(showNavBar);
       // Where back goes once the panel is out of the way. Null is both "opened
       // from the trips list" and every other entry point, and means the
@@ -4937,15 +4938,28 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                         ],
                       );
                     }),
-      // The persistent Home/Plan/Trips bar's stand-in while it is hidden
-      // (see [_syncBottomNavVisible] above and [bottomNavVisibleProvider] —
-      // issue #594): tapping it is the only way back to the tabs on a phone
-      // once the bar is gone, so this is exactly as narrow a gate as the one
-      // that hid the bar in the first place, not just `!_narrow`.
-      bottomNavigationBar: showNavBar
+      // The persistent Home/Plan/Trips bar's stand-in, gated on exactly
+      // [onNarrowTripsForeground] — the same narrow test that hid the bar in
+      // the first place, not just `!_narrow` (see [_syncBottomNavVisible]
+      // above and [bottomNavVisibleProvider] — issue #594):
+      //   - hidden ([_navBarRevealed] false): tapping it is the only way back
+      //     to the tabs on a phone once the bar is gone.
+      //   - revealed ([_navBarRevealed] true): a slim collapse strip sits
+      //     directly above the now-visible tab bar so the traveler can put it
+      //     away again — issue #610, the one-way door #594 shipped.
+      bottomNavigationBar: !onNarrowTripsForeground
           ? null
-          : _BottomNavRevealBar(
-              onTap: () => setState(() => _navBarRevealed = true)),
+          : (_navBarRevealed
+              ? _BottomNavToggleBar(
+                  icon: Icons.keyboard_arrow_down,
+                  tooltip: l10n.tripDetailHideNavBar,
+                  onTap: () => setState(() => _navBarRevealed = false),
+                )
+              : _BottomNavToggleBar(
+                  icon: Icons.keyboard_arrow_up,
+                  tooltip: l10n.tripDetailShowNavBar,
+                  onTap: () => setState(() => _navBarRevealed = true),
+                )),
         ),
       );
     });
@@ -5088,27 +5102,34 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   }
 }
 
-/// Stands in for the persistent Home/Plan/Trips bar while [TripDetailScreen]
-/// has hidden it to free a full row for the itinerary on a phone (issue
-/// #594). A slim strip rather than a floating pill: it reads as chrome that
-/// belongs at the screen's edge — where the bar it replaces always was —
+/// Toggles the persistent Home/Plan/Trips bar for [TripDetailScreen] on a
+/// phone: an up-chevron strip stands in for the bar while it is hidden, and a
+/// down-chevron strip sits above it once revealed, so the traveler can put it
+/// away again (issue #610 — the one-way door issue #594 shipped). A slim
+/// strip rather than a floating pill either way: it reads as chrome that
+/// belongs at the screen's edge — where the bar it toggles always was —
 /// rather than as one more control competing with the chat FAB for the same
 /// corner.
-class _BottomNavRevealBar extends StatelessWidget {
+class _BottomNavToggleBar extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
   final VoidCallback onTap;
 
-  const _BottomNavRevealBar({required this.onTap});
+  const _BottomNavToggleBar({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surfaceContainer,
       child: SafeArea(
         top: false,
         child: Tooltip(
-          message: l10n.tripDetailShowNavBar,
+          message: tooltip,
           child: InkWell(
             onTap: onTap,
             child: SizedBox(
@@ -5116,10 +5137,9 @@ class _BottomNavRevealBar extends StatelessWidget {
               child: Center(
                 child: Semantics(
                   button: true,
-                  label: l10n.tripDetailShowNavBar,
+                  label: tooltip,
                   child: ExcludeSemantics(
-                    child: Icon(Icons.keyboard_arrow_up,
-                        color: scheme.onSurfaceVariant),
+                    child: Icon(icon, color: scheme.onSurfaceVariant),
                   ),
                 ),
               ),

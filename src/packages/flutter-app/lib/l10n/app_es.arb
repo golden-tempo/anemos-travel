@@ -523,6 +523,7 @@
   "tripRefineWithAI": "Refinar con IA",
   "tripAskAI": "Pregunta a la IA sobre este viaje",
   "tripDetailShowNavBar": "Mostrar navegación",
+  "tripDetailHideNavBar": "Ocultar navegación",
   "tripShareLinkCopied": "Enlace para compartir copiado al portapapeles",
   "tripSharingTurnedOff": "Uso compartido desactivado — los enlaces ya no funcionan (los coplanificadores y seguidores actuales conservan el acceso)",
   "tripCoPlanInviteMessage": "Planifica conmigo: {summary}",

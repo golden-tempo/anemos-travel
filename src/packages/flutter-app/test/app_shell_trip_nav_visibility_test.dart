@@ -20,7 +20,8 @@ import 'support/url_sync_fakes.dart';
 /// (issue #594). It now hides while that screen is the Trips tab's
 /// foreground content on a phone, replaced by a small button that brings it
 /// back — see [bottomNavVisibleProvider] and TripDetailScreen's
-/// `_syncBottomNavVisible`.
+/// `_syncBottomNavVisible`. Revealing it is a two-way door (issue #610): a
+/// second small button sits above the revealed bar to put it away again.
 void main() {
   const phone = Size(390, 844);
 
@@ -85,6 +86,26 @@ void main() {
     // The reveal control stood in for the bar; once the bar is back, its
     // job is done.
     expect(find.byTooltip('Show navigation'), findsNothing);
+  });
+
+  testWidgets(
+      'the revealed bar can be put away again, and the reveal button comes '
+      'back', (tester) async {
+    await pumpApp(tester);
+
+    await openTrip(tester);
+    await tester.tap(find.byTooltip('Show navigation'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsOneWidget);
+
+    final collapse = find.byTooltip('Hide navigation');
+    expect(collapse, findsOneWidget);
+
+    await tester.tap(collapse);
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byTooltip('Hide navigation'), findsNothing);
+    expect(find.byTooltip('Show navigation'), findsOneWidget);
   });
 
   testWidgets('backing out of the trip restores the bar without a tap',

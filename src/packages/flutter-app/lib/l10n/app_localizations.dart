@@ -3110,6 +3110,12 @@ abstract class AppLocalizations {
   /// **'Show navigation'**
   String get tripDetailShowNavBar;
 
+  /// Label (and tooltip) on the small button trip detail shows directly above the persistent Home/Plan/Trips bar at narrow widths, once the traveler has tapped tripDetailShowNavBar to bring the bar back (issue #610). Tapping it hides the bar again, freeing the row back for the itinerary.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide navigation'**
+  String get tripDetailHideNavBar;
+
   /// No description provided for @tripShareLinkCopied.
   ///
   /// In en, this message translates to:

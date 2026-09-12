@@ -1738,6 +1738,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tripDetailShowNavBar => 'Show navigation';
 
   @override
+  String get tripDetailHideNavBar => 'Hide navigation';
+
+  @override
   String get tripShareLinkCopied => 'Share link copied to clipboard';
 
   @override
