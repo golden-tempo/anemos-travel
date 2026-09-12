@@ -2171,19 +2171,17 @@ class _InputBar extends StatelessWidget {
               AppSpacing.sm, AppSpacing.sm, AppSpacing.sm, AppSpacing.lg),
       child: Row(
         children: [
-          IconButton(
-            tooltip: context.l10n.chatAttachImages,
-            onPressed: onAttach,
-            icon: const Icon(Icons.attach_file),
-          ),
-          _NearMeButton(
-            locating: locatingNearMe,
-            onPressed: onShareLocation,
+          _ComposerActionsButton(
+            onAttach: onAttach,
+            onShareLocation: onShareLocation,
+            locatingNearMe: locatingNearMe,
           ),
           Expanded(
             // The LayoutBuilder is here, inside the Expanded, because this is
             // the only place the field's REAL width is known: it already
-            // accounts for the mic having collapsed (see [_hintFor]).
+            // accounts for the mic having collapsed (see [_hintFor]) — and
+            // now for the attach/location pair folding into one button (see
+            // [_ComposerActionsButton]).
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final textWidth = constraints.maxWidth - AppSpacing.lg * 2;
@@ -2252,31 +2250,84 @@ class _InputBar extends StatelessWidget {
   }
 }
 
-/// The composer's "share my location" button — [NearMeChip]'s flow moved
-/// mid-conversation. Same icon, same progress pattern as the chip: while a
-/// lookup is in flight the icon becomes a small spinner and the button
-/// disables, so a second tap mid-locate is a no-op.
-class _NearMeButton extends StatelessWidget {
-  final bool locating;
-  final VoidCallback onPressed;
+/// Attach and "share my location" ([NearMeChip]'s flow moved mid-conversation)
+/// folded into one menu button — this used to be two [IconButton]s sitting
+/// beside the field, and on a phone their combined ~96px (plus the mic and
+/// send buttons on the other side) was most of the composer's width, leaving
+/// the actual text field a sliver. Both actions are reached often enough to
+/// matter but not every turn, so one entry point holding both reads as
+/// "more", not as something hidden.
+///
+/// Same progress pattern the standalone location button had: while a lookup
+/// is in flight the trigger's icon becomes a small spinner and disables, so
+/// a second tap can't open the menu and start a second lookup.
+class _ComposerActionsButton extends StatelessWidget {
+  final VoidCallback onAttach;
+  final VoidCallback onShareLocation;
+  final bool locatingNearMe;
 
-  const _NearMeButton({required this.locating, required this.onPressed});
+  const _ComposerActionsButton({
+    required this.onAttach,
+    required this.onShareLocation,
+    required this.locatingNearMe,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: context.l10n.chatShareLocation,
-      onPressed: locating ? null : onPressed,
-      icon: locating
+    final theme = Theme.of(context);
+    return PopupMenuButton<String>(
+      tooltip: context.l10n.chatMoreActions,
+      enabled: !locatingNearMe,
+      onSelected: (value) {
+        switch (value) {
+          case 'attach':
+            onAttach();
+          case 'location':
+            onShareLocation();
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem<String>(
+          value: 'attach',
+          child: _composerActionRow(
+            theme,
+            Icons.attach_file,
+            context.l10n.chatAttachImages,
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'location',
+          child: _composerActionRow(
+            theme,
+            Icons.my_location,
+            context.l10n.chatShareLocation,
+          ),
+        ),
+      ],
+      icon: locatingNearMe
           ? const SizedBox(
               width: 18,
               height: 18,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : const Icon(Icons.my_location),
+          : const Icon(Icons.add),
     );
   }
 }
+
+/// One row of [_ComposerActionsButton]'s menu: a leading icon at the same
+/// size/tone the composer's other buttons use, then the label. `Expanded` +
+/// ellipsis keeps a long translation inside the menu's width instead of
+/// overflowing the row.
+Widget _composerActionRow(ThemeData theme, IconData icon, String label) => Row(
+      children: [
+        Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+      ],
+    );
 
 /// The dictation mic (specs/voice-dictation). Rebuilds only itself on
 /// dictation state changes; absent entirely when no capture path exists.

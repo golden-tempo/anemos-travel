@@ -164,8 +164,12 @@ Future<void> _remount(WidgetTester tester, {int index = 0}) async {
   await tester.pumpAndSettle();
 }
 
+/// Attach and "share my location" are folded behind the composer's '+' menu
+/// (#596) — opening it is now step one of reaching either.
 Future<void> _attach(WidgetTester tester, _Harness harness) async {
   harness.nextPick = [(_tinyPng, 'image/png')];
+  await tester.tap(find.byIcon(Icons.add));
+  await tester.pumpAndSettle();
   await tester.tap(find.byIcon(Icons.attach_file));
   await tester.pumpAndSettle();
 }

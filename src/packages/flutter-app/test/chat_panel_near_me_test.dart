@@ -22,10 +22,15 @@ import 'package:travel_route_planner/widgets/trip_refine_panel.dart';
 
 import 'support/l10n_test_app.dart';
 
-/// The chat composer's location button: Home's near-me flow, available
+/// The chat composer's location action: Home's near-me flow, available
 /// mid-conversation on every ChatPanel host (the Plan tab and the trip-detail
 /// refine dock build the same composer, so the ChatPanel fixture below IS
 /// both; the docked trip chat gets its own host-level proof at the bottom).
+///
+/// The action lives behind the composer's '+' menu, folded together with
+/// "attach images" (#596) so the text field keeps most of the composer's
+/// width on a phone — reaching it is a tap to open the menu, then a tap on
+/// the "Share my location" item.
 ///
 /// Geolocation enters through the injected [ChatPanel.getPosition] seam —
 /// the real lookup is a conditional import whose VM resolution always
@@ -114,13 +119,38 @@ class _Harness {
   }
 }
 
-final _locationButton = find.byTooltip('Share my location');
+/// The composer's merged attach/location trigger — a single '+' button
+/// (spinner while a location lookup is in flight; see
+/// [_ComposerActionsButton]) rather than a location-specific button.
+final _composerMenuTrigger = find.byType(PopupMenuButton<String>);
+
+/// Opens the composer's '+' menu and taps its "Share my location" item —
+/// the two-step path the merged trigger replaced a single direct tap with.
+///
+/// Pumps the menu's own close transition by a fixed duration rather than
+/// `pumpAndSettle`: a lookup left pending (as the spin test below does)
+/// leaves the trigger with an indefinite spinner, which `pumpAndSettle`
+/// would hang waiting to settle.
+Future<void> _tapShareLocation(WidgetTester tester) async {
+  await tester.tap(_composerMenuTrigger);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Share my location'));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+}
 
 void main() {
-  testWidgets('the composer has a location button beside the paperclip',
+  testWidgets(
+      "the composer's + menu holds both attach and share-location options",
       (tester) async {
     await _Harness.build(tester);
-    expect(_locationButton, findsOneWidget);
+    expect(_composerMenuTrigger, findsOneWidget);
+
+    await tester.tap(_composerMenuTrigger);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Attach images'), findsOneWidget);
+    expect(find.text('Share my location'), findsOneWidget);
     expect(find.byIcon(Icons.my_location), findsOneWidget);
   });
 
@@ -131,7 +161,7 @@ void main() {
     harness.nextPosition =
         () async => const GeoResult.ok(50.0875, 14.4207, 30.0);
 
-    await tester.tap(_locationButton);
+    await _tapShareLocation(tester);
     await tester.pumpAndSettle();
 
     // The wire payload: full coordinates in the content (search_nearby reads
@@ -149,7 +179,7 @@ void main() {
       'which sends an unlabeled natural-language message', (tester) async {
     final harness = await _Harness.build(tester); // default: denied
 
-    await tester.tap(_locationButton);
+    await _tapShareLocation(tester);
     await tester.pumpAndSettle();
     expect(find.text('Where are you?'), findsOneWidget);
 
@@ -166,7 +196,8 @@ void main() {
     expect(find.textContaining('Malá Strana'), findsOneWidget);
   });
 
-  testWidgets('while locating the button spins and a second tap is a no-op',
+  testWidgets(
+      'while locating the trigger spins and a second tap opens no menu',
       (tester) async {
     final harness = await _Harness.build(tester);
     final pending = Completer<GeoResult>();
@@ -176,25 +207,28 @@ void main() {
       return pending.future;
     };
 
-    await tester.tap(_locationButton);
-    await tester.pump(); // in-flight: spinner instead of the icon
+    await _tapShareLocation(tester);
+    // The menu already closed on selection; the lookup itself is in flight,
+    // shown as a spinner on the trigger that started it.
 
     expect(
       find.descendant(
-        of: _locationButton,
+        of: _composerMenuTrigger,
         matching: find.byType(CircularProgressIndicator),
       ),
       findsOneWidget,
     );
-    expect(find.byIcon(Icons.my_location), findsNothing);
-    // Disabled, so the tap below cannot start a second lookup. (byTooltip
-    // resolves to the Tooltip; the IconButton is its ancestor.)
-    final button = tester.widget<IconButton>(
-        find.ancestor(of: _locationButton, matching: find.byType(IconButton)));
-    expect(button.onPressed, isNull);
+    expect(find.byIcon(Icons.add), findsNothing);
+    expect(
+      tester.widget<PopupMenuButton<String>>(_composerMenuTrigger).enabled,
+      isFalse,
+    );
 
-    await tester.tap(_locationButton);
+    // Disabled: the tap below cannot reopen the menu, so neither item is
+    // reachable and a second lookup cannot start.
+    await tester.tap(_composerMenuTrigger);
     await tester.pump();
+    expect(find.text('Share my location'), findsNothing);
     expect(lookups, 1, reason: 'the mid-locate tap must not re-enter');
 
     pending.complete(const GeoResult.ok(50.0875, 14.4207, 30.0));
@@ -256,14 +290,16 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('the docked refine composer has the location button',
+    testWidgets("the docked refine composer has the '+' menu trigger",
         (tester) async {
       await openDockedChat(tester);
-      expect(
-        find.descendant(
-            of: find.byType(TripRefinePanel), matching: _locationButton),
-        findsOneWidget,
-      );
+      final trigger = find.descendant(
+          of: find.byType(TripRefinePanel), matching: _composerMenuTrigger);
+      expect(trigger, findsOneWidget);
+
+      await tester.tap(trigger);
+      await tester.pumpAndSettle();
+      expect(find.text('Share my location'), findsOneWidget);
     });
 
     testWidgets(

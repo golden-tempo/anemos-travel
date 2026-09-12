@@ -118,9 +118,13 @@ class _Harness {
   }
 }
 
+/// Attach and "share my location" are folded behind the composer's '+' menu
+/// (#596) — opening it is now step one of reaching either.
 Future<void> _attach(
     WidgetTester tester, _Harness harness, List<(Uint8List, String)> files) async {
   harness.nextPick = files;
+  await tester.tap(find.byIcon(Icons.add));
+  await tester.pumpAndSettle();
   await tester.tap(find.byIcon(Icons.attach_file));
   await tester.pumpAndSettle();
 }

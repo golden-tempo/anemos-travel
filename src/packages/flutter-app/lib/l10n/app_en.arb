@@ -2352,6 +2352,10 @@
   "chatFollowUpHintShort": "Follow-up…",
   "chatSend": "Send",
   "chatStopGenerating": "Stop generating",
+  "chatMoreActions": "More options",
+  "@chatMoreActions": {
+    "description": "Tooltip and a11y label for the chat composer's '+' button, which opens a menu holding chatAttachImages and chatShareLocation — folded into one button so the text field keeps most of the composer's width on a phone."
+  },
   "chatAttachImages": "Attach images",
   "chatShareLocation": "Share my location",
   "@chatShareLocation": {

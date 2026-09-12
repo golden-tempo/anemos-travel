@@ -199,6 +199,9 @@ void main() {
     final notifier = await _pumpPanel(tester, service);
 
     _nextPick = [(_tinyPng, 'image/png')];
+    // Attach is folded behind the composer's '+' menu (#596).
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.attach_file));
     await tester.pumpAndSettle();
     expect(find.byType(Image), findsOneWidget, reason: 'pending chip');
