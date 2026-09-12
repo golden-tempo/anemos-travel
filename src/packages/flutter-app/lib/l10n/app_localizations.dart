@@ -5948,6 +5948,24 @@ abstract class AppLocalizations {
   /// **'Free (listed)'**
   String get chatCardFreeListed;
 
+  /// Heading of the sheet a chat place card opens on tap, above the Google/Apple Maps choices.
+  ///
+  /// In en, this message translates to:
+  /// **'Get directions'**
+  String get chatCardGetDirections;
+
+  /// No description provided for @chatCardOpenInGoogleMaps.
+  ///
+  /// In en, this message translates to:
+  /// **'Google Maps'**
+  String get chatCardOpenInGoogleMaps;
+
+  /// No description provided for @chatCardOpenInAppleMaps.
+  ///
+  /// In en, this message translates to:
+  /// **'Apple Maps'**
+  String get chatCardOpenInAppleMaps;
+
   /// No description provided for @chatStripHotels.
   ///
   /// In en, this message translates to:

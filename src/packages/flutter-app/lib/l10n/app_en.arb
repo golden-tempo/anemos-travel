@@ -2427,6 +2427,12 @@
   },
   "chatToolFindParking": "Finding parking...",
   "chatCardFreeListed": "Free (listed)",
+  "chatCardGetDirections": "Get directions",
+  "@chatCardGetDirections": {
+    "description": "Heading of the sheet a chat place card opens on tap, above the Google/Apple Maps choices."
+  },
+  "chatCardOpenInGoogleMaps": "Google Maps",
+  "chatCardOpenInAppleMaps": "Apple Maps",
   "chatStripHotels": "{count, plural, =1{{count} stay} other{{count} stays}}",
   "@chatStripHotels": {
     "placeholders": {

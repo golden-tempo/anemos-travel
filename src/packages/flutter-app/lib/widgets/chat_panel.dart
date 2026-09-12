@@ -33,6 +33,7 @@ import '../utils/place_links.dart';
 import '../utils/money_format.dart';
 import '../utils/tracked_launch.dart';
 import 'add_to_trip_sheet.dart';
+import 'maps_link_sheet.dart';
 import 'near_me_locate.dart';
 import 'place_photo_card.dart';
 import 'source_links_card.dart';
@@ -1353,8 +1354,8 @@ class _ResultStrips extends ConsumerWidget {
     }
 
     Future<void> openMaps(String name, String placeId) async {
-      await trackedLaunchUrl(context, googleMapsSearchUrl(name, placeId),
-          provider: 'google_maps', surface: 'chat_place_card');
+      await showMapsLinkSheet(context,
+          name: name, placeId: placeId, surface: 'chat_place_card');
     }
 
     String? photoUrl(String ref) =>

@@ -1,5 +1,5 @@
 /// URL builders for the chat photo cards (places/local picks): the API's
-/// place-photo redirect endpoint and Google Maps deep links.
+/// place-photo redirect endpoint and Google/Apple Maps deep links.
 library;
 
 /// Builds `<apiBase>/places/photo?ref=..&w=..` — the API endpoint that 302s to
@@ -15,3 +15,10 @@ String googleMapsSearchUrl(String name, String placeId) =>
     'https://www.google.com/maps/search/?api=1'
     '&query=${Uri.encodeQueryComponent(name)}'
     '${placeId.isEmpty ? '' : '&query_place_id=${Uri.encodeQueryComponent(placeId)}'}';
+
+/// Apple Maps deep link (the maps.apple.com web scheme, which also opens the
+/// native app on iOS/macOS when installed). Always a name-only query — Apple's
+/// scheme has no equivalent to Google's `place_id`, so unlike
+/// [googleMapsSearchUrl] there is nothing more precise to fall back from.
+String appleMapsSearchUrl(String name) =>
+    'https://maps.apple.com/?q=${Uri.encodeQueryComponent(name)}';

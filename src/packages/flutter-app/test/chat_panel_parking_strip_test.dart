@@ -19,8 +19,8 @@ import 'support/l10n_test_app.dart';
 
 /// The parking photo-card rail (SSE `parking`, specs/find-parking-near-beach):
 /// free-flagged cards show the "Free (listed)" marker (heuristic honesty —
-/// never plain "Free"), taps open Google Maps, and Add-to-trip stays
-/// signed-in-only like the other rails.
+/// never plain "Free"), taps open the Google/Apple Maps sheet, and
+/// Add-to-trip stays signed-in-only like the other rails.
 
 class _StubPlanService extends PlanService {
   _StubPlanService() : super('http://unused');
@@ -176,14 +176,21 @@ void main() {
     expect(find.byIcon(Icons.local_parking), findsNWidgets(3));
   });
 
-  testWidgets('card tap opens Google Maps with the place id', (tester) async {
+  testWidgets('card tap opens the maps sheet; Google Maps carries the place id',
+      (tester) async {
     final launcher = _FakeUrlLauncher();
     UrlLauncherPlatform.instance = launcher;
 
     await _pumpSeeded(
         tester, _stateWith(parkingSpots: const [_freeSpot]));
     await tester.tap(find.text('Free Beach Parking'));
-    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Google Maps'), findsOneWidget);
+    expect(find.text('Apple Maps'), findsOneWidget);
+
+    await tester.tap(find.text('Google Maps'));
+    await tester.pumpAndSettle();
 
     expect(launcher.launched, hasLength(1));
     expect(launcher.launched.single, contains('query=Free+Beach+Parking'));
