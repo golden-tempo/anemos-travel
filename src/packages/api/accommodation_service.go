@@ -66,7 +66,19 @@ func (bookingProvider) SearchURL(q AccommodationQuery) string {
 	}
 	if q.Guests > 0 {
 		params.Set("group_adults", strconv.Itoa(q.Guests))
+		// Booking.com splits a party across multiple rooms once it decides
+		// group_adults won't fit in one — silently changing the per-night
+		// price the traveler sees from what search_hotels/summarizeHotels
+		// just quoted them. Airbnb has no such split (a listing is booked as
+		// one unit for however many guests), so pinning one room is what
+		// parity with the Airbnb link actually requires here.
+		params.Set("no_rooms", "1")
 	}
+	// Same reasoning as the SerpApi hotels fetch's gl/hl pins
+	// (hotel_search_service.go): without this, Booking.com infers the point
+	// of sale from the visitor's IP/locale, and a price can silently drift
+	// from the currency the app just quoted.
+	params.Set("selected_currency", hotelRatesCurrency())
 	if id := os.Getenv("BOOKING_AFFILIATE_ID"); id != "" {
 		params.Set("aid", id)
 	}
