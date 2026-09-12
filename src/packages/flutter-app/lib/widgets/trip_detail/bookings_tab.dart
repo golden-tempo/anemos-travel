@@ -255,7 +255,15 @@ extension on _TripDetailScreenState {
                 ? l10n.tripFindFlights
                 : null,
             onEdit: todo.auto ? null : () => _editTodo(todo),
-            onDelete: todo.auto ? null : () => _deleteTodo(todo),
+            // Unlike the auto rows a city slot renders inline, one that has
+            // fallen out here has no slot left to re-derive it — the next
+            // sync either demotes it to manual (it carries booked/mode/an
+            // option/an expense) or deletes it outright (it doesn't), so an
+            // auto row that still shows up here is always a dead leftover a
+            // traveler cannot otherwise get rid of (#619). The server's own
+            // DELETE endpoint never refused auto rows to begin with — only
+            // the agent tool does — so this only lifts a client-side block.
+            onDelete: () => _deleteTodo(todo),
             dragHandle: canDrag
                 ? ReorderableDragStartListener(
                     index: i,
@@ -921,8 +929,11 @@ extension on _TripDetailScreenState {
   /// lens scopes so a custom booking looks the same whichever scope surfaced
   /// it. Kept as [BookingTodoCard] (not the slim [BookingTodoRow] the city
   /// sections use) because it carries the full edit/delete/move menu, and a
-  /// custom booking is the one kind a traveler can actually rename, re-file,
-  /// or throw away.
+  /// custom booking is the one kind a traveler can actually rename or re-file
+  /// — but any row here, custom or a leftover auto one, can be thrown away
+  /// (#619): once it has fallen out of every city slot there is nothing left
+  /// to re-derive it, and the server's DELETE endpoint never refused auto
+  /// rows to begin with — only the agent tool does.
   Widget _residualTodoCard(BookingTodo todo) {
     final l10n = context.l10n;
     return Padding(
@@ -934,7 +945,7 @@ extension on _TripDetailScreenState {
         openLabelOverride:
             _flightLegs.containsKey(todo.todoKey) ? l10n.tripFindFlights : null,
         onEdit: todo.auto ? null : () => _editTodo(todo),
-        onDelete: todo.auto ? null : () => _deleteTodo(todo),
+        onDelete: () => _deleteTodo(todo),
         // Only the kind the city sections group: offering the move on a
         // custom stay/transport row would write a label nothing renders.
         onMoveTo: !_readOnly && !_isOffline && !todo.auto && todo.kind == 'other'
