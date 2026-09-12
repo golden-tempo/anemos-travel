@@ -136,6 +136,16 @@ emitted.
 The entities this feature introduces, described by meaning — not as
 struct/class definitions.
 
+*(Note 2026-09: this section describes the Phase-1 shape only. Itinerary
+items have since grown several grouping fields — `category`, `time_of_day`,
+`city`, `day_trip_from`, `day` — and hand-editing them is no longer entirely
+out of scope; see `specs/add-to-itinerary`, `specs/itinerary-item-editing`,
+and `specs/set-leg-dates`/`specs/server-leg-dates` for those extensions. A
+consolidated account of the current item shape, the full trip-edit surface
+(AI tools and REST endpoints), and the recurring ways edits to it have gone
+wrong is in `specs/trip-edit-architecture` — start there for the current
+state rather than treating this section as up to date.)*
+
 - **Trip** — represents a travel plan owned by exactly one user. Key fields:
   - *Identifier* — a stable, opaque ID used in all API calls.
   - *Owner* — the identifier of the user who created the Trip; immutable after
