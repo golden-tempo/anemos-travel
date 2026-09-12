@@ -10,6 +10,7 @@
     "description": "Plan trips and build day-by-day itineraries with an AI travel assistant.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
+    "categories": ["travel", "lifestyle"],
     "icons": [
         {
             "src": "icons/Icon-192.png?v=5",
@@ -33,5 +34,29 @@
             "type": "image/png",
             "purpose": "maskable"
         }
-    ]
+    ],
+    "shortcuts": [
+        {
+            "name": "New trip",
+            "short_name": "New trip",
+            "description": "Start planning a new trip with the AI travel assistant.",
+            "url": "/app/plan",
+            "icons": [
+                {
+                    "src": "icons/Icon-192.png?v=5",
+                    "sizes": "192x192",
+                    "type": "image/png"
+                }
+            ]
+        }
+    ],
+    "share_target": {
+        "action": "/app/import",
+        "method": "GET",
+        "params": {
+            "title": "title",
+            "text": "text",
+            "url": "url"
+        }
+    }
 }

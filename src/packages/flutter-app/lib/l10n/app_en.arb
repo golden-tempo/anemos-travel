@@ -1790,6 +1790,10 @@
       }
     }
   },
+  "settingsInstallSection": "Install app",
+  "settingsInstallHelp": "Add Anemos to your device for a faster launch and a standalone window, no browser bar.",
+  "settingsInstallAction": "Install Anemos",
+  "settingsInstallAccepted": "Anemos is installing.",
   "connectAppBarTitle": "Connect app",
   "connectTitle": "Connect {app} to Anemos?",
   "@connectTitle": {
