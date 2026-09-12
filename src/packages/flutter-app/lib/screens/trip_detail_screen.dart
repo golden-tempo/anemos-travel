@@ -42,6 +42,8 @@ import '../providers/budget_provider.dart';
 import '../models/trip_finding.dart';
 import '../models/budget.dart';
 import '../navigation/app_nav.dart';
+import '../navigation/bottom_nav_visibility.dart';
+import '../navigation/shell_scope.dart';
 import '../services/api_client.dart' show isTransientError;
 import '../services/trip_cache.dart';
 import '../services/trips_api_service.dart' show TripEndpointsException;
@@ -269,6 +271,20 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   // the body LayoutBuilder, but that width and this one always agree
   // (Scaffold adds no horizontal chrome), so one flag now carries both.
   bool _narrow = false;
+  // Whether the traveler has tapped the small button that brings the
+  // persistent Home/Plan/Trips bar back after this screen hid it — see
+  // [_syncBottomNavVisible] and issue #594. Lives on the State, so a fresh
+  // visit (a new route, a new State) always starts hidden again; it does not
+  // survive a pop and a later re-push of the same trip.
+  bool _navBarRevealed = false;
+  // Last value written to [bottomNavVisibleProvider], so a build that
+  // recomputes the same answer (most of them — nothing here changes on
+  // every frame) doesn't requeue a redundant post-frame write.
+  bool? _lastReportedNavBarVisible;
+  // Captured in [didChangeDependencies] for [dispose]'s own write to
+  // [bottomNavVisibleProvider] — `ref` itself cannot be trusted there (see
+  // that method).
+  late ProviderContainer _providerContainer;
   // Today mode (specs/today-mode): the itinerary auto-scrolls to today's day
   // header at most once per screen visit, and only from loud load paths.
   final ScrollController _scroll = ScrollController();
@@ -451,6 +467,12 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _providerContainer = ProviderScope.containerOf(context, listen: false);
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _statusPoll?.cancel();
@@ -459,7 +481,53 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     _focusedLegKey.dispose();
     _selectedPosition.dispose();
     _titleCollapsed.dispose();
+    // Hand the persistent bar back unconditionally: this screen is the only
+    // thing that ever hides it, so on the way out there is never a reason it
+    // should stay hidden — whatever the shell shows next gets a normal bar.
+    //
+    // Riverpod refuses a provider write from inside ANY widget life-cycle
+    // method, dispose included ("Tried to modify a provider while the widget
+    // tree was building") — hence the deferral, via the pre-captured
+    // [_providerContainer] rather than [ref]/`this.ref`, which the framework
+    // has already begun tearing down by the time the deferred callback runs.
+    // [scheduleMicrotask], not [Future.new]: the latter schedules its
+    // callback with [Timer.run] under the hood, and flutter_test's own
+    // teardown asserts NO Timer is left pending when a test ends — which one
+    // widget's ordinary dispose easily outlives if nothing after it happens
+    // to pump the event loop.
+    scheduleMicrotask(() {
+      // The ProviderScope this screen lived under can be gone by the time a
+      // deferred callback runs — torn down in the SAME synchronous unmount
+      // pass as this screen itself (sign-out; a widget test's next
+      // `pumpWidget` replacing the whole tree) rather than after it, since
+      // the microtask queue only drains once that pass has finished. There
+      // is nothing left to hand the bar back to at that point, and nothing
+      // this screen can await first — [ProviderContainer] exposes no
+      // "still mounted" check to read instead of catching the failure.
+      try {
+        _providerContainer.read(bottomNavVisibleProvider.notifier).state =
+            true;
+      } on StateError {
+        // Container already disposed — see above.
+      }
+    });
     super.dispose();
+  }
+
+  /// Keeps [bottomNavVisibleProvider] in sync with [visible], skipping the
+  /// write when it would just repeat the last one this screen made.
+  ///
+  /// Deferred a frame: this is called from [build], and Riverpod refuses a
+  /// provider write from inside ANY widget life-cycle method, this screen's
+  /// build included — see [dispose] for the same rule biting a different
+  /// life-cycle.
+  void _syncBottomNavVisible(bool visible) {
+    if (_lastReportedNavBarVisible == visible) return;
+    _lastReportedNavBarVisible = visible;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(bottomNavVisibleProvider.notifier).state = visible;
+    });
   }
 
   // ── The collapsing title ──────────────────────────────────────────────
@@ -3919,6 +3987,24 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
       // agree. Plain assignment: we're in build, and the post-frame Today
       // scroll reads it fresh.
       _narrow = constraints.maxWidth < kRailBreakpoint;
+      // Free the row the persistent Home/Plan/Trips bar occupies for the
+      // itinerary while this screen is what a phone is actually showing:
+      // the shell itself renders that bar rather than a rail (AppShell's own
+      // width check, on the WINDOW — deliberately not [_narrow], which reads
+      // the CONTENT area and can already disagree with the window right at
+      // the rail breakpoint, per its own doc), inside the shell (standalone
+      // pushes — this screen's own widget tests, a future non-shell entry
+      // point — have no such bar to fight over), and the Trips tab's
+      // foreground content. `_navBarRevealed` is the escape hatch: once the
+      // traveler taps [_BottomNavRevealBar], the bar stays back for the rest
+      // of this visit (issue #594).
+      final shellShowsBottomBar =
+          MediaQuery.sizeOf(context).width < kRailBreakpoint;
+      final showNavBar = !shellShowsBottomBar ||
+          !ShellScope.of(context) ||
+          ref.watch(navIndexProvider) != AppTab.trips.index ||
+          _navBarRevealed;
+      _syncBottomNavVisible(showNavBar);
       // Where back goes once the panel is out of the way. Null is both "opened
       // from the trips list" and every other entry point, and means the
       // ordinary pop this screen has always done.
@@ -4851,6 +4937,15 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                         ],
                       );
                     }),
+      // The persistent Home/Plan/Trips bar's stand-in while it is hidden
+      // (see [_syncBottomNavVisible] above and [bottomNavVisibleProvider] —
+      // issue #594): tapping it is the only way back to the tabs on a phone
+      // once the bar is gone, so this is exactly as narrow a gate as the one
+      // that hid the bar in the first place, not just `!_narrow`.
+      bottomNavigationBar: showNavBar
+          ? null
+          : _BottomNavRevealBar(
+              onTap: () => setState(() => _navBarRevealed = true)),
         ),
       );
     });
@@ -4990,6 +5085,49 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     final ok =
         await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
     if (!ok) _showSnack(l10n.tripOpenLinkFailed);
+  }
+}
+
+/// Stands in for the persistent Home/Plan/Trips bar while [TripDetailScreen]
+/// has hidden it to free a full row for the itinerary on a phone (issue
+/// #594). A slim strip rather than a floating pill: it reads as chrome that
+/// belongs at the screen's edge — where the bar it replaces always was —
+/// rather than as one more control competing with the chat FAB for the same
+/// corner.
+class _BottomNavRevealBar extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _BottomNavRevealBar({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainer,
+      child: SafeArea(
+        top: false,
+        child: Tooltip(
+          message: l10n.tripDetailShowNavBar,
+          child: InkWell(
+            onTap: onTap,
+            child: SizedBox(
+              height: 40,
+              child: Center(
+                child: Semantics(
+                  button: true,
+                  label: l10n.tripDetailShowNavBar,
+                  child: ExcludeSemantics(
+                    child: Icon(Icons.keyboard_arrow_up,
+                        color: scheme.onSurfaceVariant),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

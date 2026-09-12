@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/l10n.dart';
 import '../navigation/app_nav.dart';
+import '../navigation/bottom_nav_visibility.dart';
 import '../navigation/shell_scope.dart';
 import '../navigation/url_sync.dart';
 import '../providers/trips_provider.dart';
@@ -191,20 +192,28 @@ class _AppShellState extends ConsumerState<AppShell> {
       );
     }
 
+    // Hidden while the Trips tab's foreground content asks for the room
+    // (TripDetailScreen, via [bottomNavVisibleProvider] — issue #594); that
+    // screen renders its own small button in the bar's place so the tabs
+    // stay reachable. Every other screen leaves this true and sees no
+    // change.
+    final showNavBar = ref.watch(bottomNavVisibleProvider);
     return Scaffold(
       body: content,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: index,
-        onDestinationSelected: onSelect,
-        destinations: [
-          for (final (i, d) in navDestinations.indexed)
-            NavigationDestination(
-              icon: Icon(d.icon),
-              selectedIcon: Icon(d.selectedIcon),
-              label: _destinationLabel(l10n, i),
-            ),
-        ],
-      ),
+      bottomNavigationBar: showNavBar
+          ? NavigationBar(
+              selectedIndex: index,
+              onDestinationSelected: onSelect,
+              destinations: [
+                for (final (i, d) in navDestinations.indexed)
+                  NavigationDestination(
+                    icon: Icon(d.icon),
+                    selectedIcon: Icon(d.selectedIcon),
+                    label: _destinationLabel(l10n, i),
+                  ),
+              ],
+            )
+          : null,
     );
   }
 }
