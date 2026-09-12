@@ -31,17 +31,27 @@ jobs:
   # (or is skipped, as on workflow_dispatch's deliberate `code=false`), every
   # downstream `if` below falls back to running — a broken detector should
   # never silently skip real validation.
+  #
+  # A second, narrower signal (`backend`) lets the Go/sqlc/migrations jobs
+  # skip themselves too, but only for changes that touch nothing outside
+  # src/packages/flutter-app/ (plus docs/specs). The asymmetry is deliberate:
+  # a Flutter-only PR can't have broken the Go API or its migrations, so
+  # there's nothing there to validate. A Go-only PR, though, can still break
+  # the contract the Flutter app depends on (request/response shapes, new
+  # required fields, ...), so `flutter` keeps running off `code`, not
+  # `backend` — it never skips just because the change was backend-only.
   changes:
     name: Docs/specs-only change detection
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      backend: ${{ steps.filter.outputs.backend }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Only docs/specs touched?
+      - name: Only docs/specs touched? Backend touched?
         id: filter
         run: |
           case "${{ github.event_name }}" in
@@ -51,6 +61,7 @@ jobs:
               # build were never meant to run on this trigger (see the
               # workflow_dispatch comment above: "only deploy runs").
               echo "code=false" >> "$GITHUB_OUTPUT"
+              echo "backend=false" >> "$GITHUB_OUTPUT"
               exit 0
               ;;
             pull_request)
@@ -66,6 +77,7 @@ jobs:
           if [ -z "$base" ] || ! git cat-file -e "$base" 2>/dev/null; then
             echo "::notice::no usable base commit ('$base') to diff against — treating as a code change"
             echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "backend=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -73,6 +85,7 @@ jobs:
           if [ -z "$files" ]; then
             echo "no files changed — treating as a code change"
             echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "backend=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -83,8 +96,17 @@ jobs:
           if [ -z "$non_docs" ]; then
             echo "docs/specs-only change — validation, build and deploy can be skipped"
             echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "backend=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "code=true" >> "$GITHUB_OUTPUT"
+
+          non_frontend=$(printf '%s\n' "$non_docs" | grep -vE '^src/packages/flutter-app/' || true)
+          if [ -z "$non_frontend" ]; then
+            echo "flutter-only change — Go/sqlc/migrations checks can be skipped"
+            echo "backend=false" >> "$GITHUB_OUTPUT"
           else
-            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "backend=true" >> "$GITHUB_OUTPUT"
           fi
 
   # Raising the service worker's manifest cache name spends a ONE-SHOT eviction:
@@ -140,7 +162,7 @@ jobs:
     name: Go (fmt, vet, test, sqlc drift)
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.result != 'success' || needs.changes.outputs.code == 'true'
+    if: needs.changes.result != 'success' || needs.changes.outputs.backend == 'true'
     defaults:
       run:
         working-directory: src/packages/api
@@ -255,7 +277,7 @@ jobs:
     name: Migrations apply from zero
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.result != 'success' || needs.changes.outputs.code == 'true'
+    if: needs.changes.result != 'success' || needs.changes.outputs.backend == 'true'
     defaults:
       run:
         working-directory: src/packages/api
