@@ -3583,6 +3583,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatCardFreeListed => 'Free (listed)';
 
   @override
+  String get chatCardGetDirections => 'Get directions';
+
+  @override
+  String get chatCardOpenInGoogleMaps => 'Google Maps';
+
+  @override
+  String get chatCardOpenInAppleMaps => 'Apple Maps';
+
+  @override
   String chatStripHotels(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

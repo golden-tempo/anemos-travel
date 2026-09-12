@@ -23,7 +23,7 @@ import 'support/l10n_test_app.dart';
 
 /// The chat photo-card strips (places / local picks / events): rails replace
 /// the corresponding summary chips, photo failures fall back to the category
-/// icon box, attribution shows, cards act (maps launch, add-to-trip), and the
+/// icon box, attribution shows, cards act (maps sheet, add-to-trip), and the
 /// refine dock at its narrowest lays out without overflow.
 
 class _StubPlanService extends PlanService {
@@ -263,18 +263,42 @@ void main() {
     expect(tooltip.message, 'Eleni · Athens chef');
   });
 
-  testWidgets('card tap opens Google Maps with the place id', (tester) async {
+  testWidgets('card tap opens the maps sheet; Google Maps carries the place id',
+      (tester) async {
     final launcher = _FakeUrlLauncher();
     UrlLauncherPlatform.instance = launcher;
 
     await _pumpSeeded(tester, _stateWith(places: const [_place]));
     await tester.tap(find.text('Bar El Comercio'));
-    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Google Maps'), findsOneWidget);
+    expect(find.text('Apple Maps'), findsOneWidget);
+
+    await tester.tap(find.text('Google Maps'));
+    await tester.pumpAndSettle();
 
     expect(launcher.launched, hasLength(1));
     // Uri.encodeQueryComponent form-encodes spaces as '+'.
     expect(launcher.launched.single, contains('query=Bar+El+Comercio'));
     expect(launcher.launched.single, contains('query_place_id=p1'));
+  });
+
+  testWidgets('maps sheet Apple Maps entry is a name-only query',
+      (tester) async {
+    final launcher = _FakeUrlLauncher();
+    UrlLauncherPlatform.instance = launcher;
+
+    await _pumpSeeded(tester, _stateWith(places: const [_place]));
+    await tester.tap(find.text('Bar El Comercio'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Apple Maps'));
+    await tester.pumpAndSettle();
+
+    expect(launcher.launched, hasLength(1));
+    expect(launcher.launched.single,
+        'https://maps.apple.com/?q=Bar+El+Comercio');
   });
 
   testWidgets('event card tap opens the ticket URL', (tester) async {

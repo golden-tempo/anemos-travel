@@ -3604,6 +3604,15 @@ class AppLocalizationsEs extends AppLocalizations {
   String get chatCardFreeListed => 'Gratis (según el listado)';
 
   @override
+  String get chatCardGetDirections => 'Cómo llegar';
+
+  @override
+  String get chatCardOpenInGoogleMaps => 'Google Maps';
+
+  @override
+  String get chatCardOpenInAppleMaps => 'Apple Maps';
+
+  @override
   String chatStripHotels(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
