@@ -32,8 +32,11 @@ Future<void> showMapsLinkSheet(
       Future<void> open(String url, String provider) async {
         Navigator.pop(sheetContext);
         if (!context.mounted) return;
+        // Same-tab on web: a "get directions" tap is a quick errand, not a
+        // booking handoff, so it shouldn't leave a second (often blank, once
+        // Maps hands off to a native app) tab behind — see trackedLaunchUrl.
         await trackedLaunchUrl(context, url,
-            provider: provider, surface: surface);
+            provider: provider, surface: surface, webOnlyWindowName: '_self');
       }
 
       return SafeArea(

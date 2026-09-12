@@ -13,6 +13,7 @@ import 'package:travel_route_planner/utils/tracked_launch.dart';
 /// Captures launch calls instead of hitting a real platform.
 class _FakeUrlLauncher extends UrlLauncherPlatform {
   final launched = <String>[];
+  final windowNames = <String?>[];
 
   @override
   LinkDelegate? get linkDelegate => null;
@@ -23,6 +24,7 @@ class _FakeUrlLauncher extends UrlLauncherPlatform {
   @override
   Future<bool> launchUrl(String url, LaunchOptions options) async {
     launched.add(url);
+    windowNames.add(options.webOnlyWindowName);
     return true;
   }
 }
@@ -82,7 +84,11 @@ class _RecordingAnalytics implements AnalyticsApiService {
   }
 }
 
-Widget _harness(_RecordingAnalytics analytics, {String url = 'https://duffel.example/offer'}) {
+Widget _harness(
+  _RecordingAnalytics analytics, {
+  String url = 'https://duffel.example/offer',
+  String? webOnlyWindowName,
+}) {
   return ProviderScope(
     overrides: [
       analyticsApiServiceProvider.overrideWithValue(analytics),
@@ -97,6 +103,7 @@ Widget _harness(_RecordingAnalytics analytics, {String url = 'https://duffel.exa
               provider: 'duffel',
               surface: 'flight_card',
               tripId: 'trip-1',
+              webOnlyWindowName: webOnlyWindowName,
             ),
             child: const Text('Book'),
           ),
@@ -123,10 +130,25 @@ void main() {
     await tester.pump();
 
     expect(launcher.launched, ['https://duffel.example/offer']);
+    expect(launcher.windowNames, [null]);
     expect(analytics.calls, hasLength(1));
     expect(analytics.calls.single['provider'], 'duffel');
     expect(analytics.calls.single['surface'], 'flight_card');
     expect(analytics.calls.single['trip_id'], 'trip-1');
+  });
+
+  testWidgets(
+      'webOnlyWindowName is forwarded so callers can request a same-tab '
+      'launch (e.g. maps "get directions", which shouldn\'t leave a second '
+      'tab behind)', (tester) async {
+    final analytics = _RecordingAnalytics();
+    await tester.pumpWidget(_harness(analytics, webOnlyWindowName: '_self'));
+
+    await tester.tap(find.text('Book'));
+    await tester.pump();
+
+    expect(launcher.launched, ['https://duffel.example/offer']);
+    expect(launcher.windowNames, ['_self']);
   });
 
   testWidgets('analytics failure never blocks the launch', (tester) async {
