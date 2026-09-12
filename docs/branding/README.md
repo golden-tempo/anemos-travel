@@ -7,7 +7,7 @@ by a straight azure route line (`#236684`): **instrument outside, journey
 inside**. Meltemi palette. It is an organic vector drawing, not a polygon
 recipe — edit it in a vector tool, not by hand-computing points. The old
 horse-in-horseshoe mark retired with the Golden Tempo name; the chat agent
-persona **Ferdinand** keeps the equine nod.
+persona is **Ana**, short for Anemos.
 
 Both marks come from the same 2026-08 exploration and the bare rose shipped
 first. `mark-thread-backup.svg` is that one — the **Waypoint Thread rose**,
