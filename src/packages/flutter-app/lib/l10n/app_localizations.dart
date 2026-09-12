@@ -5744,6 +5744,12 @@ abstract class AppLocalizations {
   /// **'Stop generating'**
   String get chatStopGenerating;
 
+  /// Tooltip and a11y label for the chat composer's '+' button, which opens a menu holding chatAttachImages and chatShareLocation — folded into one button so the text field keeps most of the composer's width on a phone.
+  ///
+  /// In en, this message translates to:
+  /// **'More options'**
+  String get chatMoreActions;
+
   /// No description provided for @chatAttachImages.
   ///
   /// In en, this message translates to:
