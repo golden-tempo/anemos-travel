@@ -5094,10 +5094,14 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
 
   // Raw launcher for non-booking links only (the per-item "Open in Google
   // Maps" action) — booking handoffs must go through trackedLaunchUrl.
+  // Same-tab on web (see trackedLaunchUrl's [webOnlyWindowName] doc): Maps is
+  // a quick errand, not a checkout to keep the trip open behind, so the tap
+  // shouldn't leave a second, often-blank, tab behind once Maps hands off to
+  // a native app.
   Future<void> _launch(String url) async {
     final l10n = context.l10n;
-    final ok =
-        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    final ok = await launchUrl(Uri.parse(url),
+        mode: LaunchMode.externalApplication, webOnlyWindowName: '_self');
     if (!ok) _showSnack(l10n.tripOpenLinkFailed);
   }
 }
