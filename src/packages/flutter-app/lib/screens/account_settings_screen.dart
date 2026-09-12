@@ -12,6 +12,9 @@ import '../widgets/gradient_app_bar.dart';
 import '../widgets/legal_links.dart';
 import '../widgets/page_container.dart';
 import '../utils/errors.dart';
+import '../utils/install_prompt_stub.dart'
+    if (dart.library.js_interop) '../utils/install_prompt_web.dart';
+import '../utils/install_prompt_types.dart';
 import '../utils/trip_format.dart';
 import '../utils/snack.dart';
 
@@ -50,6 +53,45 @@ class AccountSettingsScreen extends ConsumerStatefulWidget {
 
 class _AccountSettingsScreenState extends ConsumerState<AccountSettingsScreen> {
   bool _busy = false;
+
+  // Custom install prompt (docs/pwa-status.md action item #1). Starts at
+  // whatever the page-level shim already captured — on a fresh boot that's
+  // usually nothing yet, since `beforeinstallprompt` can fire after first
+  // paint — and the listener below picks up the fire (or an install, which
+  // clears it again) without the traveler needing to reopen this screen.
+  bool _installAvailable = isInstallPromptAvailable();
+  void Function()? _removeInstallListener;
+
+  @override
+  void initState() {
+    super.initState();
+    _removeInstallListener = onInstallAvailabilityChanged(() {
+      if (!mounted) return;
+      setState(() => _installAvailable = isInstallPromptAvailable());
+    });
+  }
+
+  @override
+  void dispose() {
+    _removeInstallListener?.call();
+    super.dispose();
+  }
+
+  Future<void> _installApp() async {
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    final outcome = await showInstallPrompt();
+    setState(() => _installAvailable = isInstallPromptAvailable());
+    if (!mounted) return;
+    final message = switch (outcome) {
+      InstallPromptOutcome.accepted => l10n.settingsInstallAccepted,
+      InstallPromptOutcome.dismissed || InstallPromptOutcome.unavailable =>
+        null,
+    };
+    if (message != null) {
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
 
   void _snack(String msg) {
     if (mounted) showSnack(context, msg);
@@ -241,6 +283,29 @@ class _AccountSettingsScreenState extends ConsumerState<AccountSettingsScreen> {
                         description: l10n.settingsConnectedAppsHelp,
                         children: const [_ConnectedAppsList()],
                       ),
+                      // Only rendered once the browser has actually offered
+                      // an install (docs/pwa-status.md action item #1) — on
+                      // native builds, browsers without the capability, or a
+                      // device that already installed the app, this card
+                      // never appears rather than showing a button that does
+                      // nothing.
+                      if (_installAvailable) ...[
+                        const SizedBox(height: AppSpacing.lg),
+                        _SettingsCard(
+                          title: l10n.settingsInstallSection,
+                          children: [
+                            _SettingsRow(
+                              subtitle: l10n.settingsInstallHelp,
+                              control: FilledButton.icon(
+                                icon: const Icon(Icons.install_mobile,
+                                    size: 18),
+                                label: Text(l10n.settingsInstallAction),
+                                onPressed: _installApp,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: AppSpacing.lg),
                       _SettingsCard(
                         title: l10n.appearanceLanguageSectionTitle,

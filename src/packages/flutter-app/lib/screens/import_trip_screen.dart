@@ -9,6 +9,7 @@ import '../navigation/app_nav.dart';
 import '../navigation/app_routes.dart';
 import '../providers/import_trip_provider.dart';
 import '../theme/spacing.dart';
+import '../utils/share_target.dart';
 import '../widgets/gradient_app_bar.dart';
 import '../widgets/page_container.dart';
 import 'trip_detail_screen.dart';
@@ -17,6 +18,11 @@ import 'trip_detail_screen.dart';
 /// (specs/import-trip-from-ai-chat). Also hands out the planning prompt the
 /// user can seed their AI chat with so the conversation ends in an
 /// import-friendly TRIP SUMMARY.
+///
+/// This is also the manifest's `share_target` landing screen
+/// (docs/pwa-status.md action item #4): a URL or selected text shared from
+/// another app arrives as a query string, and prefills the paste box —
+/// see [_ImportTripScreenState.initState].
 class ImportTripScreen extends ConsumerStatefulWidget {
   const ImportTripScreen({super.key});
 
@@ -31,6 +37,13 @@ class _ImportTripScreenState extends ConsumerState<ImportTripScreen> {
   // silent spinner. The timer only flips which stage line is shown.
   Timer? _stageTimer;
   bool _lateStage = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final shared = sharedTextFromCurrentUrl();
+    if (shared != null) _controller.text = shared;
+  }
 
   @override
   void dispose() {

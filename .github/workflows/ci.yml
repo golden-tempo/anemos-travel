@@ -273,6 +273,54 @@ jobs:
           --dart-define=API_BASE_URL=/api/v1
           --dart-define=APP_BASE_PATH=/app/
 
+      # Lighthouse's installability audits (docs/pwa-status.md action item #3)
+      # catch a manifest/service-worker regression before it reaches users —
+      # the same role sw-manifest-bump-guard plays for the cache-eviction
+      # lever. Serves the SAME build/web from the compile check above, under
+      # /app/ (matching --base-href, which the app assumes) behind a bare
+      # static server — no backend needed, since these audits only inspect
+      # the manifest and the registered service worker, never an API
+      # response. Pinned to lighthouse@11: 12+ removed the PWA category and
+      # its installability audits outright (not hidden behind a flag), so an
+      # unpinned `npx lighthouse` would silently check nothing and this step
+      # would pass even with a broken manifest.
+      - name: PWA installability check (Lighthouse)
+        if: github.event_name == 'pull_request'
+        run: |
+          rm -rf /tmp/lh-site && mkdir -p /tmp/lh-site
+          ln -s "$PWD/build/web" /tmp/lh-site/app
+          python3 -m http.server 8099 --directory /tmp/lh-site &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for _ in $(seq 1 20); do
+            curl -sf http://localhost:8099/app/manifest.json > /dev/null && break
+            sleep 0.5
+          done
+
+          npx --yes lighthouse@11 "http://localhost:8099/app/" \
+            --output=json --output-path=/tmp/lighthouse.json \
+            --chrome-flags="--headless=new --no-sandbox --disable-gpu" \
+            --only-categories=pwa \
+            --quiet
+
+          result=$(jq -r '
+            . as $root
+            | $root.categories.pwa.score as $score
+            | [
+                $root.categories.pwa.auditRefs[]
+                | select(.weight > 0) | .id as $id
+                | select($root.audits[$id].score != 1) | $id
+              ] as $failing
+            | "\($score)|\($failing | join(","))"
+          ' /tmp/lighthouse.json)
+          score="${result%%|*}"
+          failing="${result#*|}"
+          echo "PWA category score: $score"
+          if [ -n "$failing" ]; then
+            echo "::error::Failing PWA audits: $failing"
+            exit 1
+          fi
+
   migrations:
     name: Migrations apply from zero
     runs-on: ubuntu-latest

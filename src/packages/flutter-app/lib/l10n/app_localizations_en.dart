@@ -2586,6 +2586,19 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get settingsInstallSection => 'Install app';
+
+  @override
+  String get settingsInstallHelp =>
+      'Add Anemos to your device for a faster launch and a standalone window, no browser bar.';
+
+  @override
+  String get settingsInstallAction => 'Install Anemos';
+
+  @override
+  String get settingsInstallAccepted => 'Anemos is installing.';
+
+  @override
   String get connectAppBarTitle => 'Connect app';
 
   @override

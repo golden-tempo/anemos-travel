@@ -4334,6 +4334,30 @@ abstract class AppLocalizations {
   /// **'{app} disconnected'**
   String settingsRevokedToast(String app);
 
+  /// No description provided for @settingsInstallSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Install app'**
+  String get settingsInstallSection;
+
+  /// No description provided for @settingsInstallHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Anemos to your device for a faster launch and a standalone window, no browser bar.'**
+  String get settingsInstallHelp;
+
+  /// No description provided for @settingsInstallAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Install Anemos'**
+  String get settingsInstallAction;
+
+  /// No description provided for @settingsInstallAccepted.
+  ///
+  /// In en, this message translates to:
+  /// **'Anemos is installing.'**
+  String get settingsInstallAccepted;
+
   /// No description provided for @connectAppBarTitle.
   ///
   /// In en, this message translates to:

@@ -27,6 +27,46 @@
     }
   </script>
 
+  <!-- Custom install prompt (docs/pwa-status.md action item #1). Chrome/Edge
+       fire `beforeinstallprompt` at most once per page load, and only if
+       something calls preventDefault() and stashes the event for later —
+       otherwise the browser shows its own install affordance immediately and
+       the event is gone by the time any Dart code could listen for it. This
+       runs before the Flutter engine so the very first fire is never missed;
+       lib/utils/install_prompt_web.dart reads `__anemosInstallAvailable` and
+       calls `__anemosInstallPrompt` to drive the in-app "Install Anemos" row
+       (account_settings_screen.dart). -->
+  <script>
+    (function () {
+      var deferred = null;
+      window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        deferred = e;
+        window.dispatchEvent(new Event('anemos-install-available'));
+      });
+      // Fires on install regardless of whether it went through our prompt or
+      // the browser's own menu affordance — either way there is nothing left
+      // to prompt.
+      window.addEventListener('appinstalled', function () {
+        deferred = null;
+        window.dispatchEvent(new Event('anemos-install-consumed'));
+      });
+      window.__anemosInstallAvailable = function () {
+        return deferred !== null;
+      };
+      window.__anemosInstallPrompt = function () {
+        if (!deferred) return Promise.resolve('unavailable');
+        var e = deferred;
+        deferred = null;
+        return e.prompt().then(function () {
+          return e.userChoice;
+        }).then(function (choice) {
+          return choice.outcome; // 'accepted' | 'dismissed'
+        });
+      };
+    })();
+  </script>
+
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
 

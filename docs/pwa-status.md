@@ -1,4 +1,9 @@
-# PWA status (2026-09-12)
+# PWA status (2026-09-12, updated same day — #629)
+
+> **Update:** action items #1–#4 below have shipped (this same PR wave); #5
+> is scheduled as `specs/web-push-notifications`. The "What's missing" list
+> below is left as written for the record of what the investigation found —
+> see "Action items" for current status.
 
 Investigation for #627 — "since it's built with Flutter, I'm assuming there's
 a chance it has a service worker." It does, and it goes further than that: the
@@ -104,19 +109,32 @@ itself.
 
 ## Action items, roughly in effort order
 
-1. **Custom install prompt** — capture `beforeinstallprompt`, add an
-   "Install Anemos" entry to the account/settings menu. Small, self-contained,
-   `web/index.html`-only.
-2. **Manifest metadata** — add `screenshots`, `categories`, and a `shortcuts`
-   entry (e.g. "New trip" → `/app/?new=1` or equivalent). Small, no code
-   changes outside `manifest.json`.
-3. **Lighthouse PWA check in CI** — add a `lighthouse-ci` (or equivalent) job
-   against a built `build/web` bundle, gating on installability + PWA
-   best-practices categories, the same way `sw-manifest-bump-guard` gates the
-   cache-eviction lever. Catches metadata/manifest regressions before deploy.
-4. **`share_target`** in the manifest so the OS share sheet can hand Anemos a
-   URL/text (pairs naturally with the AI-chat trip-import flow).
-5. **Web push notifications** — the largest item. Needs VAPID keys, a
+1. ✅ **Custom install prompt** — captures `beforeinstallprompt` in
+   `web/index.html`, read from Dart via
+   `lib/utils/install_prompt_web.dart`/`install_prompt_stub.dart`; an
+   "Install Anemos" row appears in Account settings only once the browser has
+   actually offered an install.
+2. ✅ **Manifest metadata** — `categories`, and a `shortcuts` entry ("New
+   trip" → `/app/plan`) added to `manifest.json`. `screenshots` deliberately
+   NOT added: they need real, current production UI captures (Chrome's
+   richer install dialog shows them full-size), which isn't something to
+   fabricate from an agent session — a follow-up for whoever owns the visual
+   assets pipeline (see the icons/splash-art tooling this doc already
+   references).
+3. ✅ **Lighthouse PWA check in CI** — a `flutter` job step serves the
+   built `build/web` bundle under `/app/` and runs `lighthouse@11`'s `pwa`
+   category against it (pinned: Lighthouse 12+ removed the PWA category and
+   its installability audits outright), failing the build if any weighted
+   audit (`installable-manifest`, `viewport`, `maskable-icon`,
+   `themed-omnibox`, `splash-screen`) regresses. Catches metadata/manifest
+   regressions before deploy, the same role `sw-manifest-bump-guard` plays
+   for the cache-eviction lever.
+4. ✅ **`share_target`** in the manifest, landing on the existing "Import
+   from AI chat" screen (`/app/import`) — the OS share sheet can hand Anemos
+   a shared URL/text/title, which prefills the paste box
+   (`lib/utils/share_target.dart`).
+5. **Web push notifications** — the largest item, scheduled as
+   `specs/web-push-notifications` rather than built here. Needs VAPID keys, a
    subscription-capture + storage path wired into the existing
    `notifications_writer.go` pipeline, and a *hand-written* service-worker
    layer for `push`/`notificationclick` (Flutter's generated SW is
@@ -124,7 +142,9 @@ itself.
    Dockerfile's sed patches do for existing behavior — this would need either
    a wrapper SW that `importScripts`s the generated one, or a build step that
    appends the extra listeners the same way the Dockerfile already patches
-   other parts of the file).
+   other parts of the file). Backend + per-user consent + a third-party push
+   exchange is enough surface area to want its own spec review before code,
+   rather than riding along in a docs-driven PWA-polish PR.
 
 ## Where the pieces live
 
@@ -135,3 +155,10 @@ itself.
 - CI guard for the one-shot manifest-cache bump: `.github/workflows/ci.yml` (`sw-manifest-bump-guard`)
 - App-level offline trip-data cache: `src/packages/flutter-app/lib/services/trip_cache.dart`, `specs/offline-trips/`
 - iOS native app plan (separate track from the PWA): `specs/ios-app-store/`
+- Custom install prompt: `src/packages/flutter-app/web/index.html`,
+  `src/packages/flutter-app/lib/utils/install_prompt_web.dart`,
+  `src/packages/flutter-app/lib/screens/account_settings_screen.dart`
+- Share-target landing: `src/packages/flutter-app/lib/utils/share_target.dart`,
+  `src/packages/flutter-app/lib/screens/import_trip_screen.dart`
+- Lighthouse installability check: `.github/workflows/ci.yml` (`flutter` job)
+- Web push notifications (scheduled, not yet built): `specs/web-push-notifications/`
