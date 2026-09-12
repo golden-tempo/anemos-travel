@@ -205,6 +205,30 @@ void main() {
   });
 
   testWidgets(
+    'every item sharing one coordinate renders instead of crashing the map '
+    '(#618)',
+    (WidgetTester tester) async {
+      // Gothenburg incident: every place in the leg fell back to the same
+      // city-centre geocode. flutter_map's CameraFit.bounds fits a
+      // ZERO-area box to infinite zoom, and MapCamera's constructor asserts
+      // `zoom.isFinite` — from the framework's own post-frame callback, so
+      // no try/catch in this widget can save it. The single-*item* case
+      // (`fitPoints.length == 1`) already dodged this; two-plus items stuck
+      // on the identical point did not.
+      final stuck = [
+        _item(0, 'Haga District', 57.7014, 11.9631),
+        _item(1, 'Liseberg', 57.7014, 11.9631),
+      ];
+      await tester.pumpWidget(_host(TripMap(items: stuck)));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(_camera(tester).zoom.isFinite, isTrue);
+      expect(find.byType(TileLayer), findsWidgets);
+    },
+  );
+
+  testWidgets(
     'adding a far-away item with unchanged fitSignature re-fits the camera '
     'to contain all points',
     (WidgetTester tester) async {

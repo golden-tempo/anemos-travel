@@ -311,6 +311,22 @@ class _TripMapState extends State<TripMap> {
   static bool _hasCoords(ItineraryItem i) =>
       i.latitude != 0 || i.longitude != 0;
 
+  /// Whether [points] fit to a zero-area box: the lone-point case the
+  /// initial-fit and reset-button branches below already special-case, PLUS
+  /// several points that all landed on the exact same coordinate — a whole
+  /// leg whose places all fell back to one city-centre geocode is a real
+  /// shape, not just a single pin. Both crash the SAME way: flutter_map's
+  /// `CameraFit.bounds` divides the viewport by the (here zero) bounds size,
+  /// so the fitted zoom comes out infinite and its `MapCamera` constructor
+  /// assertion (`zoom.isFinite`) throws — from the framework's OWN
+  /// post-frame callback, outside any try/catch this widget can wrap around
+  /// it, taking the whole map blank (no tiles, no pins) with no error UI.
+  /// [LatLngBounds.fromPoints] needs ≥2 points, so this checks equality
+  /// directly rather than building the bounds just to ask it.
+  static bool _pointsCollapse(List<LatLng> points) => points.every(
+      (p) => p.latitude == points.first.latitude &&
+          p.longitude == points.first.longitude);
+
   /// Whether the route may connect two adjacent mapped stops: same
   /// [ItineraryItem.day], failing OPEN when either day is unset so undated
   /// items keep the pre-day-aware behavior (one continuous walk). The ONE
@@ -406,7 +422,7 @@ class _TripMapState extends State<TripMap> {
     // the reset button, not just the resize branch's own re-runs).
     _lastFittedWidth = _lastMapWidth ?? _lastFittedWidth;
     try {
-      if (points.length == 1) {
+      if (_pointsCollapse(points)) {
         _controller.move(points.first, 13);
       } else {
         _controller.fitCamera(
@@ -817,8 +833,9 @@ class _TripMapState extends State<TripMap> {
                 minZoom: minZoom,
                 interactionOptions: interaction,
               )
-            : fitPoints.length == 1
-                // Single point: bounds collapse, so center with a sensible zoom.
+            : _pointsCollapse(fitPoints)
+                // Bounds collapse to a point (one, or several stacked on the
+                // same coordinate): center with a sensible zoom instead.
                 ? appMapOptions(
                     initialCenter: fitPoints.first,
                     initialZoom: 13,
