@@ -4725,10 +4725,18 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                                         // the Bookings tab under their city
                                         // (specs/booking-city-grouping); the
                                         // itinerary keeps the day plan.
+                                        // unbookedOnly: true (#623) — these
+                                        // rows are a reminder of what's still
+                                        // outstanding, not a permanent record
+                                        // of the trip; once a leg is booked or
+                                        // dismissed it has nothing left to
+                                        // remind the traveler of here (the
+                                        // Bookings tab keeps the full history).
                                         if (gi < grouped.slots.length)
                                           _boxSliver(_bookingRowWidgets(
                                               grouped.slots[gi],
-                                              part: BookingSlotPart.legs)),
+                                              part: BookingSlotPart.legs,
+                                              unbookedOnly: true)),
                                         ..._buildGroupItemSlivers(
                                             group.label,
                                             group.key,
@@ -4751,8 +4759,8 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                                             gi < grouped.slots.length)
                                           _boxSliver(_bookingRowWidgets(
                                               grouped.slots[gi],
-                                              part:
-                                                  BookingSlotPart.departure)),
+                                              part: BookingSlotPart.departure,
+                                              unbookedOnly: true)),
                                       ],
                                     ),
                               ]),

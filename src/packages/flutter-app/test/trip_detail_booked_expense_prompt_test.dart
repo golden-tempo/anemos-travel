@@ -207,6 +207,15 @@ Future<void> _tickRow(WidgetTester tester, String title) async {
   await tester.pumpAndSettle();
 }
 
+/// A row already booked drops out of the itinerary entirely (#623), so
+/// un-ticking one has to happen from the Bookings tab, where a booked row
+/// lives on.
+Future<void> _tickRowInBookingsTab(WidgetTester tester, String title) async {
+  await tester.tap(find.text('Bookings'));
+  await tester.pumpAndSettle();
+  await _tickRow(tester, title);
+}
+
 const _stayTodo = BookingTodo(
     id: 'td-stay', kind: 'stay', todoKey: 'stay:paris', title: 'Stay in Paris');
 
@@ -316,7 +325,7 @@ void main() {
       ],
     );
 
-    await _tickRow(tester, 'Stay in Paris'); // true -> false
+    await _tickRowInBookingsTab(tester, 'Stay in Paris'); // true -> false
 
     expect(find.text('Add to budget?'), findsNothing); // unbook never prompts
     expect(budgetApi.deletedIds, ['e-auto']);
@@ -349,7 +358,7 @@ void main() {
       ],
     );
 
-    await _tickRow(tester, 'Stay in Paris'); // true -> false
+    await _tickRowInBookingsTab(tester, 'Stay in Paris'); // true -> false
 
     expect(budgetApi.deletedIds, isEmpty);
     expect(budgetApi.expenses.map((e) => e.id), ['e-owned']);

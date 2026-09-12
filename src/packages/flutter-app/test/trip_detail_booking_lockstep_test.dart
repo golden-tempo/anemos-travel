@@ -209,6 +209,15 @@ void main() {
     await tester.tap(find.text('Skip'));
     await tester.pumpAndSettle();
 
+    // Now-booked rows drop out of the itinerary entirely (#623) — the
+    // checklist there is a reminder of what's still outstanding, not a
+    // permanent record; the Bookings tab is where a booked stay lives on.
+    expect(find.widgetWithText(BookingTodoRow, 'Stay in Paris'), findsNothing);
+    expect(find.text('Hotel Lutetia'), findsNothing);
+
+    await tester.tap(find.text('Bookings'));
+    await tester.pumpAndSettle();
+
     // Optimistic strike-through on the detail row too (record flipped).
     final detailTitle = tester.widget<Text>(find.text('Hotel Lutetia'));
     expect(detailTitle.style?.decoration, TextDecoration.lineThrough);
