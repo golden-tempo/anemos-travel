@@ -40,9 +40,14 @@ func (airbnbProvider) SearchURL(q AccommodationQuery) string {
 	if q.CheckOut != "" {
 		params.Set("checkout", q.CheckOut)
 	}
-	if q.Guests > 0 {
-		params.Set("adults", strconv.Itoa(q.Guests))
+	// Airbnb's own default when "adults" is absent is inconsistent across
+	// surfaces, so a party size is always sent explicitly — 1 (solo) when the
+	// caller didn't specify one, never left to Airbnb to guess.
+	adults := q.Guests
+	if adults <= 0 {
+		adults = 1
 	}
+	params.Set("adults", strconv.Itoa(adults))
 	// No affiliate param: Airbnb shut down its affiliate program in 2021
 	// (docs/business-model.md) — these links are pure user value, $0 revenue.
 	if enc := params.Encode(); enc != "" {
