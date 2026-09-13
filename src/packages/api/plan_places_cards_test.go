@@ -159,6 +159,43 @@ func fakeSearchBodyWithRatings(ratings []float64) string {
 	return `{"status":"OK","results":[` + strings.Join(results, ",") + `]}`
 }
 
+// TestRankPlacesByRatingTieBreaksByReviewCount covers the addition on top of
+// TestRankPlacesByRating: Google ratings only carry one decimal digit, so
+// equally-rated results are the norm at the top of a search, not an edge
+// case, and a rating-only sort left them in Google's raw (non-quality) order
+// — exactly how a traveler's actual top pick could rating-tie its way behind
+// a card nobody asked about. Reviews-total settles the tie, most-reviewed
+// first; a genuine tie on both keeps Google's original relative order.
+func TestRankPlacesByRatingTieBreaksByReviewCount(t *testing.T) {
+	rating := func(v float64) *float64 { return &v }
+	reviews := func(n int) *int { return &n }
+	in := []PlaceSearchResult{
+		{Name: "Raw-first, thin reviews", Rating: rating(4.9), UserRatingsTotal: reviews(6)},
+		{Name: "Raw-second, well-reviewed", Rating: rating(4.9), UserRatingsTotal: reviews(2400)},
+		{Name: "No review count", Rating: rating(4.9)},
+		{Name: "Lower rating, huge review count", Rating: rating(4.7), UserRatingsTotal: reviews(50000)},
+	}
+	got := rankPlacesByRating(in)
+	var order []string
+	for _, r := range got {
+		order = append(order, r.Name)
+	}
+	want := []string{
+		"Raw-second, well-reviewed",
+		"Raw-first, thin reviews",
+		"No review count",
+		"Lower rating, huge review count",
+	}
+	if len(order) != len(want) {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("order = %v, want %v", order, want)
+		}
+	}
+}
+
 // TestPlanSearchPlacesRanksCardsByRatingSurvivingCap reproduces the reported
 // defect: the traveler's best option (the highest-rated result) sat beyond
 // planPlacesCardCap in Google's raw order and never reached the client's
@@ -221,6 +258,79 @@ func TestPlanSearchPlacesRanksCardsByRatingSurvivingCap(t *testing.T) {
 	}
 	if firstIdx == -1 || otherIdx == -1 || firstIdx > otherIdx {
 		t.Fatalf("tool_result did not rank Place 9 ahead of Place 0: %s", string(bodies[1]))
+	}
+}
+
+// fakeSearchBodyWithRatingsAndReviews is fakeSearchBodyWithRatings plus an
+// explicit user_ratings_total per result, for tie-break scenarios.
+func fakeSearchBodyWithRatingsAndReviews(ratings []float64, reviewCounts []int) string {
+	var results []string
+	for i, rating := range ratings {
+		results = append(results, fmt.Sprintf(
+			`{"place_id":"p%d","name":"Place %d","formatted_address":"Athens %d","geometry":{"location":{"lat":37.9,"lng":23.7}},"types":["restaurant"],"rating":%v,"user_ratings_total":%d,"price_level":2,"photos":[{"photo_reference":"REF-%d","html_attributions":["<a href=\"x\">Snapper %d</a>"]}]}`,
+			i, i, i, rating, reviewCounts[i], i, i))
+	}
+	return `{"status":"OK","results":[` + strings.Join(results, ",") + `]}`
+}
+
+// TestPlanSearchPlacesTiedRatingLeadsWithMoreReviews reproduces the follow-up
+// defect reported in #633: rating alone survived the cap (#631/#632) but two
+// results tied at the SAME rating — the norm at the top of a search, since
+// Google ratings only carry one decimal digit — still left the client's lead
+// card at the mercy of Google's raw (non-quality) order. The place with far
+// more reviews at the same rating is the more trustworthy "top recommendation"
+// and must lead, in both the client's cards and the model's own tool_result.
+func TestPlanSearchPlacesTiedRatingLeadsWithMoreReviews(t *testing.T) {
+	fa := newFakeAnthropic(t,
+		toolTurn("search_places", `{"query":"speakeasy cocktail bar naples italy"}`),
+		textTurn("I'd suggest Place 3 as your first stop."),
+	)
+
+	// All four rate 4.9 (a real tie); Place 3 sits last in Google's raw
+	// order despite having far more reviews than the other three.
+	ratings := []float64{4.9, 4.9, 4.9, 4.9}
+	reviewCounts := []int{40, 12, 5, 900}
+	svc := NewGooglePlacesService()
+	svc.APIKey = "test-key"
+	svc.Client = &http.Client{Transport: &countingTransport{body: fakeSearchBodyWithRatingsAndReviews(ratings, reviewCounts)}}
+	swapPlacesService(t, svc)
+
+	rec := runPlanHandlerFromIP(t, PlanRequest{Messages: []PlanChatMessage{
+		{Role: "user", Content: "best speakeasy cocktail bar in Naples?"},
+	}})
+	events := planEvents(t, rec.Body.String())
+	if errs := eventsOfType(events, "error"); len(errs) != 0 {
+		t.Fatalf("unexpected error events: %v", errs)
+	}
+
+	placesEvents := eventsOfType(events, "places")
+	if len(placesEvents) != 1 {
+		t.Fatalf("places events = %d, want 1", len(placesEvents))
+	}
+	data := eventData(placesEvents[0])
+	cards, ok := data["places"].([]any)
+	if !ok || len(cards) == 0 {
+		t.Fatalf("cards = %T len %d, want > 0", data["places"], len(cards))
+	}
+	first, _ := cards[0].(map[string]any)
+	if first["name"] != "Place 3" {
+		t.Fatalf("first card = %v, want the 900-review Place 3 to lead its rating-tied peers", first["name"])
+	}
+
+	bodies := fa.requestBodies()
+	if len(bodies) != 2 {
+		t.Fatalf("anthropic calls = %d, want 2", len(bodies))
+	}
+	firstIdx := strings.Index(string(bodies[1]), `\"name\":\"Place 3\"`)
+	if firstIdx == -1 {
+		firstIdx = strings.Index(string(bodies[1]), `"name":"Place 3"`)
+	}
+	otherIdx := strings.Index(string(bodies[1]), `\"name\":\"Place 0\"`)
+	if otherIdx == -1 {
+		otherIdx = strings.Index(string(bodies[1]), `"name":"Place 0"`)
+	}
+	if firstIdx == -1 || otherIdx == -1 || firstIdx > otherIdx {
+		t.Fatalf("tool_result did not rank the most-reviewed tied place first: %s", string(bodies[1]))
 	}
 }
 
