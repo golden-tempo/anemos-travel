@@ -674,7 +674,29 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     }
   }
 
+  /// Bumped by every [_load] call and by every optimistic local edit that
+  /// mutates trip state outside of one (delete flows that update
+  /// [_bookingTodos]/[_stays]/[_segments] directly and PATCH/DELETE in the
+  /// background rather than reloading). A [_load] whose fetch was already in
+  /// flight when either of those happens is answering a question that's been
+  /// overtaken by events; [_load] checks this before applying its response,
+  /// so that response can't resurrect something a newer load or a local edit
+  /// already removed (#635 — a deleted "other booking" reappearing when a
+  /// silent background refresh, already in flight before the delete, landed
+  /// after it and clobbered `_bookingTodos` with its pre-delete snapshot).
+  int _loadGeneration = 0;
+
+  /// Marks any [_load] currently in flight as stale, for a caller that just
+  /// applied an optimistic local edit without going through [_load] itself
+  /// (see [_loadGeneration]). Call AFTER the edit is committed server-side —
+  /// the point of this is that nothing fetched before that moment may still
+  /// land on top of it.
+  void _invalidateInFlightLoad() => _loadGeneration++;
+
   Future<void> _load({bool silent = false}) async {
+    // Claimed before anything else so that a call starting from here on
+    // supersedes this one — see _loadGeneration.
+    final int generation = ++_loadGeneration;
     // Silent mode refreshes an already-displayed trip in place — no
     // full-screen spinner, no error page — so the refine panel (and the
     // conversation streaming inside it) stays mounted. First load always
@@ -725,6 +747,14 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     try {
       final trip =
           await ref.read(tripsApiServiceProvider).getTrip(widget.tripId);
+      if (generation != _loadGeneration) {
+        // Superseded while the GET was in flight — a newer _load() call or a
+        // local optimistic edit already reflects state this response
+        // predates. Applying it now would silently undo that (#635); the
+        // load that superseded this one owns the spinner/cache/enhancement
+        // passes below.
+        return;
+      }
       if (mounted) {
         // Transition telemetry (specs/server-leg-dates): daily dogfooding is
         // the parity monitor for the server legs payload vs the local
@@ -827,6 +857,12 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
       // After a cache-first paint the transient branch re-reads the same
       // entry and re-sets identical data, so the only visible change is the
       // offline banner arriving — no content swap, no scroll reset.
+      //
+      // Superseded loads never reach any branch below: whatever overtook
+      // this one (a newer _load() or a local edit) owns reporting the
+      // outcome, and a stale failure here must not flip a now-current screen
+      // into an error or offline state.
+      if (generation != _loadGeneration) return;
       if (mounted && !quiet &&
           (TripCache.isNetworkError(e) || isTransientError(e))) {
         final cached = await ref.read(tripCacheProvider).readTrip(widget.tripId);
@@ -925,8 +961,12 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
   /// several `trip_updated` events in one streaming turn; a bump that lands
   /// mid-fetch queues exactly one more pass so the final state always
   /// reflects the last patch. Concurrent user-driven `_load()` calls
-  /// (add/edit/delete flows) are a pre-existing last-write-wins race and are
-  /// not handled here.
+  /// (add/edit/delete flows) are not coalesced with this loop, but they
+  /// can no longer win a stale race against it: [_load]'s generation guard
+  /// (see [_loadGeneration]) discards whichever of two overlapping fetches
+  /// started first, so a delete's own reload — or its optimistic local edit
+  /// — is never clobbered by a background refresh that was already in
+  /// flight before it (#635).
   Future<void> _refresh() {
     final inFlight = _refreshFuture;
     if (inFlight != null) {

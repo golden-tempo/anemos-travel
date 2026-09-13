@@ -618,6 +618,10 @@ extension on _TripDetailScreenState {
       if (mounted) {
         _rebuild(() => _bookingTodos =
             _bookingTodos.where((t) => t.id != todo.id).toList());
+        // The delete just committed server-side; a background _load() whose
+        // GET was already in flight cannot know about it and must not be
+        // allowed to reintroduce this row when it lands (#635).
+        _invalidateInFlightLoad();
       }
     } catch (e) {
       _showSnack(l10n.tripDeleteFailed(friendlyError(l10n, e)));
