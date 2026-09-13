@@ -1080,6 +1080,30 @@ class AppLocalizationsEs extends AppLocalizations {
   String get bookingsModeOther => 'otro';
 
   @override
+  String get stayAddressPromptTitle =>
+      '¿Añadir la dirección de tu alojamiento?';
+
+  @override
+  String stayAddressPromptBody(String stayTitle) {
+    return 'Añade la dirección de \"$stayTitle\" y la usaremos para sugerir qué hay cerca y calcular el tiempo de viaje hasta tu primera parada cada día.';
+  }
+
+  @override
+  String get bookingsNearby => 'Cerca de aquí';
+
+  @override
+  String get nearbyTitle => 'Cerca de aquí';
+
+  @override
+  String get nearbyEmpty => 'No se encontraron lugares cercanos.';
+
+  @override
+  String get nearbyError => 'No se pudieron cargar los lugares cercanos.';
+
+  @override
+  String get nearbyDirections => 'Cómo llegar';
+
+  @override
   String get budgetTitle => 'Presupuesto';
 
   @override

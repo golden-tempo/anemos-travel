@@ -488,6 +488,22 @@
   "bookingsModeCar": "car",
   "bookingsModeFerry": "ferry",
   "bookingsModeOther": "other",
+  "stayAddressPromptTitle": "Add your stay's address?",
+  "stayAddressPromptBody": "Add the address for \"{stayTitle}\" and we'll use it to suggest what's nearby and to work out travel time to your first stop each day.",
+  "@stayAddressPromptBody": {
+    "description": "Body of the dialog prompting for a stay's address right after it's checked booked (specs/booking-address-prompt).",
+    "placeholders": {
+      "stayTitle": { "type": "String", "example": "Stay in Paris" }
+    }
+  },
+  "bookingsNearby": "Nearby",
+  "@bookingsNearby": {
+    "description": "Overflow-menu action on a confirmed stay's row that opens the Nearby places sheet; only offered once the stay carries coordinates."
+  },
+  "nearbyTitle": "Nearby",
+  "nearbyEmpty": "No nearby places found.",
+  "nearbyError": "Couldn't load nearby places.",
+  "nearbyDirections": "Directions",
   "budgetTitle": "Budget",
   "budgetSummarySpent": "{amount} spent",
   "@budgetSummarySpent": {

@@ -256,6 +256,54 @@ func placesSearchHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// defaultNearbyQuery is what placesNearbyHandler searches for when the
+// caller doesn't name a category — a traveler asking "what's near my stay"
+// wants a mixed sample of dining and things to do, not an empty list because
+// they didn't type a query.
+const defaultNearbyQuery = "restaurants and things to do"
+
+// placesNearbyHandler is SearchPlaces with a location bias (specs/booking-
+// address-prompt): once a confirmed stay carries coordinates — the traveler
+// added its address when checking it booked — this is what the trip page's
+// "Nearby" action calls to suggest real places within a short walk or ride,
+// the same bias search_nearby gives the chat agent for "what's around me".
+func placesNearbyHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	lat, err := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
+	if err != nil {
+		http.Error(w, "Missing or invalid query parameter 'lat'", http.StatusBadRequest)
+		return
+	}
+	lng, err := strconv.ParseFloat(r.URL.Query().Get("lng"), 64)
+	if err != nil {
+		http.Error(w, "Missing or invalid query parameter 'lng'", http.StatusBadRequest)
+		return
+	}
+	latPtr, lngPtr := lat, lng
+	if err := validateCoords(&latPtr, &lngPtr); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		query = defaultNearbyQuery
+	}
+
+	results, err := placesService.SearchPlacesNearby(r.Context(), query, lat, lng)
+	if err != nil {
+		ctxLog(r.Context()).Error("places nearby search failed", "error", err)
+		http.Error(w, "Failed to search nearby places", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"results": results,
+		"status":  "success",
+	})
+}
+
 // placesAutocompleteHandler handles place autocomplete requests
 func placesAutocompleteHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -759,6 +807,7 @@ func buildRouter() *mux.Router {
 	api.HandleFunc("/health", healthHandler).Methods("GET", "HEAD")
 	api.HandleFunc("/optimize-route", optimizeRouteHandler).Methods("POST")
 	api.HandleFunc("/places/search", placesSearchHandler).Methods("GET")
+	api.HandleFunc("/places/nearby", placesNearbyHandler).Methods("GET")
 	api.HandleFunc("/places/autocomplete", placesAutocompleteHandler).Methods("GET")
 	api.HandleFunc("/places/details", placesDetailsHandler).Methods("GET")
 	// Place-photo redirects fan out ~8 per chat recommendation strip, so they
@@ -1094,6 +1143,7 @@ func startServer(router *mux.Router) {
 	log.Printf("  GET /api/v1/health           - Health Check (v1)")
 	log.Printf("  POST /api/v1/optimize-route     - Route Optimization")
 	log.Printf("  GET  /api/v1/places/search      - Search Places")
+	log.Printf("  GET  /api/v1/places/nearby      - Search Places Near Coordinates")
 	log.Printf("  GET  /api/v1/places/autocomplete - Place Autocomplete")
 	log.Printf("  GET  /api/v1/places/details     - Place Details")
 	log.Printf("  GET  /api/v1/places/photo       - Place Photo (302 redirect)")

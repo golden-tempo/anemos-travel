@@ -34,3 +34,18 @@ final placeDetailsProvider =
   final placesService = ref.watch(placesApiServiceProvider);
   return await placesService.getPlaceDetails(placeId);
 });
+
+/// What identifies one "Nearby" lookup (specs/booking-address-prompt): the
+/// stay's coordinates plus the category being searched, so switching
+/// category re-queries instead of reusing another category's cached family
+/// member.
+typedef NearbyQuery = ({double latitude, double longitude, String? query});
+
+// Provider for nearby-place results — a location-biased search, distinct
+// from [placeSearchProvider]'s plain text search.
+final nearbyPlacesProvider =
+    FutureProvider.family<List<dynamic>, NearbyQuery>((ref, q) async {
+  final placesService = ref.watch(placesApiServiceProvider);
+  return await placesService.searchNearby(q.latitude, q.longitude,
+      query: q.query);
+});

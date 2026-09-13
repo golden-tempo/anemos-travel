@@ -163,6 +163,7 @@ Without `GOOGLE_PLACES_API_KEY`, place search endpoints return errors. The `/pla
 |--------|------|---------|
 | POST | `/api/v1/optimize-route` | Nearest Neighbor + 2-Opt; up to 50 locations |
 | GET | `/api/v1/places/search?q=` | Google Places Text Search |
+| GET | `/api/v1/places/nearby?lat=&lng=&q=` | Google Places Text Search biased to a coordinate (specs/booking-address-prompt); `q` defaults to a mixed dining/things-to-do query when omitted — powers the trip page's "Nearby" action on a confirmed stay |
 | GET | `/api/v1/places/autocomplete?input=` | Google Places Autocomplete |
 | GET | `/api/v1/places/details?place_id=` | Google Places Details |
 | GET | `/api/v1/places/photo?ref=&w=` | Place Photo redirect: 302 to the googleusercontent image; only serves refs the server itself recently emitted (anti-abuse gate), `w` clamped to 200/400/800; own rate bucket |
