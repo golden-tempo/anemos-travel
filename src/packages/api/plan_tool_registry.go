@@ -594,6 +594,16 @@ func placeRatingSortKey(rating *float64) float64 {
 	return *rating
 }
 
+// placeReviewCountSortKey mirrors placeRatingSortKey for UserRatingsTotal: a
+// missing count sorts as -1, below every real review count (including 0 —
+// Google does return a rated place with zero counted reviews on occasion).
+func placeReviewCountSortKey(total *int) int {
+	if total == nil {
+		return -1
+	}
+	return *total
+}
+
 // rankPlacesByRating stably reorders search_places/search_nearby results by
 // rating, descending, so a highly-rated place a traveler would actually want
 // survives planPlacesCardCap instead of one that merely ranked higher in
@@ -604,10 +614,25 @@ func placeRatingSortKey(rating *float64) float64 {
 // traveler is most likely to hear about first is the one most likely to be
 // the tile they actually see first, instead of the one a text search engine
 // happened to rank first.
+//
+// Google ratings only carry one decimal digit, so the top tier of any search
+// is routinely a tie — several 4.8s and 4.9s with nothing but Google's raw
+// order (not quality) separating them. A rating-only sort leaves that raw
+// order untouched right where it matters most, which is exactly how a
+// traveler's actual top pick can rating-tie its way behind a card the
+// assistant never mentioned. UserRatingsTotal breaks that tie: "4.9 from
+// 2,400 reviews" is a far more trustworthy leader than "4.9 from 6" (the same
+// distinction PlaceSearchResult.UserRatingsTotal exists for on SearchLodging),
+// so it sorts first among equally-rated places, descending, before finally
+// falling back to Google's original relative order for a genuine tie on both.
 func rankPlacesByRating(results []PlaceSearchResult) []PlaceSearchResult {
 	ranked := append([]PlaceSearchResult(nil), results...)
 	sort.SliceStable(ranked, func(i, j int) bool {
-		return placeRatingSortKey(ranked[i].Rating) > placeRatingSortKey(ranked[j].Rating)
+		ri, rj := placeRatingSortKey(ranked[i].Rating), placeRatingSortKey(ranked[j].Rating)
+		if ri != rj {
+			return ri > rj
+		}
+		return placeReviewCountSortKey(ranked[i].UserRatingsTotal) > placeReviewCountSortKey(ranked[j].UserRatingsTotal)
 	})
 	return ranked
 }
