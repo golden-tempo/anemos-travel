@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -582,6 +583,35 @@ type placeCard struct {
 	FreeListed bool `json:"free_listed,omitempty"`
 }
 
+// placeRatingSortKey gives a *float64 rating a comparable value for
+// rankPlacesByRating: unrated places sort as -1, below every real Google
+// rating (0-5), so they fall to the back instead of splitting rated results
+// by whatever position Google happened to return them in.
+func placeRatingSortKey(rating *float64) float64 {
+	if rating == nil {
+		return -1
+	}
+	return *rating
+}
+
+// rankPlacesByRating stably reorders search_places/search_nearby results by
+// rating, descending, so a highly-rated place a traveler would actually want
+// survives planPlacesCardCap instead of one that merely ranked higher in
+// Google's raw relevance order. Both the model's tool_result and the client's
+// `places` cards read this same ranked slice (same shape as
+// rankParkingResults in parking_service.go) — the assistant sees the best
+// options first when it writes its recommendation, and the card the
+// traveler is most likely to hear about first is the one most likely to be
+// the tile they actually see first, instead of the one a text search engine
+// happened to rank first.
+func rankPlacesByRating(results []PlaceSearchResult) []PlaceSearchResult {
+	ranked := append([]PlaceSearchResult(nil), results...)
+	sort.SliceStable(ranked, func(i, j int) bool {
+		return placeRatingSortKey(ranked[i].Rating) > placeRatingSortKey(ranked[j].Rating)
+	})
+	return ranked
+}
+
 // placeCards converts up to max results into cards and registers each emitted
 // photo ref with the /places/photo known-ref gate — registration at emit time
 // means the gate covers exactly what a client was shown, including
@@ -619,8 +649,10 @@ func runSearchPlacesTool(s *planSession, input json.RawMessage) (string, bool) {
 	if err != nil {
 		return fmt.Sprintf("Error searching places: %v", err), true
 	}
-	// Photo cards for the chat window; the model's tool_result below is
-	// unchanged (photo fields are json:"-" on PlaceSearchResult).
+	results = rankPlacesByRating(results)
+	// Photo cards for the chat window; the model's tool_result below carries
+	// the same rating-ranked order (only the photo fields differ — they are
+	// json:"-" on PlaceSearchResult).
 	if len(results) > 0 {
 		sendSSE(s.w, "places", map[string]any{
 			"query":  in.Query,
