@@ -110,6 +110,120 @@ func TestPlanSearchPlacesEmitsCappedPlacesCards(t *testing.T) {
 	}
 }
 
+// TestRankPlacesByRating covers the pure sort: descending by rating, unrated
+// places pushed to the back, ties (including nil-vs-nil) keeping their
+// original relative order — the same contract rankParkingResults documents
+// for parking, applied here to search_places/search_nearby results.
+func TestRankPlacesByRating(t *testing.T) {
+	rating := func(v float64) *float64 { return &v }
+	in := []PlaceSearchResult{
+		{Name: "Mid", Rating: rating(4.0)},
+		{Name: "Unrated A"},
+		{Name: "Top", Rating: rating(4.9)},
+		{Name: "Tie A", Rating: rating(4.5)},
+		{Name: "Tie B", Rating: rating(4.5)},
+		{Name: "Unrated B"},
+	}
+	got := rankPlacesByRating(in)
+	var order []string
+	for _, r := range got {
+		order = append(order, r.Name)
+	}
+	want := []string{"Top", "Tie A", "Tie B", "Mid", "Unrated A", "Unrated B"}
+	if len(order) != len(want) {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("order = %v, want %v", order, want)
+		}
+	}
+	// The input slice itself is untouched — callers that hold onto the
+	// original (rankParkingResults' merge step, tests) must not see it
+	// reordered out from under them.
+	if in[0].Name != "Mid" {
+		t.Fatalf("rankPlacesByRating mutated its input: in[0] = %v", in[0].Name)
+	}
+}
+
+// fakeSearchBodyWithRatings builds a Text Search response where each result's
+// rating is given explicitly by index, so a test can put the "best" place
+// wherever Google's raw relevance order would bury it.
+func fakeSearchBodyWithRatings(ratings []float64) string {
+	var results []string
+	for i, rating := range ratings {
+		results = append(results, fmt.Sprintf(
+			`{"place_id":"p%d","name":"Place %d","formatted_address":"Athens %d","geometry":{"location":{"lat":37.9,"lng":23.7}},"types":["restaurant"],"rating":%v,"price_level":2,"photos":[{"photo_reference":"REF-%d","html_attributions":["<a href=\"x\">Snapper %d</a>"]}]}`,
+			i, i, i, rating, i, i))
+	}
+	return `{"status":"OK","results":[` + strings.Join(results, ",") + `]}`
+}
+
+// TestPlanSearchPlacesRanksCardsByRatingSurvivingCap reproduces the reported
+// defect: the traveler's best option (the highest-rated result) sat beyond
+// planPlacesCardCap in Google's raw order and never reached the client's
+// tiles at all, even though the model itself could see and recommend it from
+// the uncapped tool_result. Ranking by rating before slicing means the best
+// place always survives the cap, and leads the strip.
+func TestPlanSearchPlacesRanksCardsByRatingSurvivingCap(t *testing.T) {
+	fa := newFakeAnthropic(t,
+		toolTurn("search_places", `{"query":"coffee shop gothenburg"}`),
+		textTurn("I'd lean Place 9 if you want a spot to sit and wind down."),
+	)
+
+	// 10 results, Google-relevance-ordered; the best-rated one (4.9) sits at
+	// index 9 — past the 8-card cap — while the first 8 are all mediocre.
+	ratings := []float64{3.9, 4.0, 4.1, 4.0, 3.8, 4.2, 4.0, 4.1, 3.7, 4.9}
+	svc := NewGooglePlacesService()
+	svc.APIKey = "test-key"
+	svc.Client = &http.Client{Transport: &countingTransport{body: fakeSearchBodyWithRatings(ratings)}}
+	swapPlacesService(t, svc)
+
+	rec := runPlanHandlerFromIP(t, PlanRequest{Messages: []PlanChatMessage{
+		{Role: "user", Content: "best quiet coffee shop near me in Gothenburg?"},
+	}})
+	events := planEvents(t, rec.Body.String())
+	if errs := eventsOfType(events, "error"); len(errs) != 0 {
+		t.Fatalf("unexpected error events: %v", errs)
+	}
+
+	placesEvents := eventsOfType(events, "places")
+	if len(placesEvents) != 1 {
+		t.Fatalf("places events = %d, want 1", len(placesEvents))
+	}
+	data := eventData(placesEvents[0])
+	cards, ok := data["places"].([]any)
+	if !ok || len(cards) != planPlacesCardCap {
+		t.Fatalf("cards = %T len %d, want %d (capped)", data["places"], len(cards), planPlacesCardCap)
+	}
+	first, _ := cards[0].(map[string]any)
+	if first["name"] != "Place 9" {
+		t.Fatalf("first card = %v, want the 4.9-rated Place 9 to lead despite its raw position", first["name"])
+	}
+	if first["rating"] != 4.9 {
+		t.Fatalf("first card rating = %v, want 4.9", first["rating"])
+	}
+
+	// The model's own tool_result carries the same ranked order, so its
+	// recommendation is drawn from a list that already leads with the best
+	// option — not just the client's cards.
+	bodies := fa.requestBodies()
+	if len(bodies) != 2 {
+		t.Fatalf("anthropic calls = %d, want 2", len(bodies))
+	}
+	firstIdx := strings.Index(string(bodies[1]), `\"name\":\"Place 9\"`)
+	if firstIdx == -1 {
+		firstIdx = strings.Index(string(bodies[1]), `"name":"Place 9"`)
+	}
+	otherIdx := strings.Index(string(bodies[1]), `"name":"Place 0"`)
+	if otherIdx == -1 {
+		otherIdx = strings.Index(string(bodies[1]), `\"name\":\"Place 0\"`)
+	}
+	if firstIdx == -1 || otherIdx == -1 || firstIdx > otherIdx {
+		t.Fatalf("tool_result did not rank Place 9 ahead of Place 0: %s", string(bodies[1]))
+	}
+}
+
 func TestPlanSearchPlacesEmptyResultsNoPlacesEvent(t *testing.T) {
 	newFakeAnthropic(t,
 		toolTurn("search_places", `{"query":"nothing here"}`),
