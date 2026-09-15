@@ -138,9 +138,90 @@ class ChatPanel extends ConsumerStatefulWidget {
   ConsumerState<ChatPanel> createState() => _ChatPanelState();
 }
 
+/// A [ScrollController] whose position pins itself to the maximum scroll
+/// extent as content grows, entirely inside layout — see
+/// [_StickyBottomScrollPosition] for why that is the point.
+class _StickyBottomScrollController extends ScrollController {
+  /// Autoscroll follows the stream only while the traveler is at the bottom;
+  /// scrolling up to re-read pauses it until they return to the bottom (or
+  /// send/queue a new turn, which always resumes it).
+  bool followBottom = true;
+
+  @override
+  ScrollPosition createScrollPosition(
+    ScrollPhysics physics,
+    ScrollContext context,
+    ScrollPosition? oldPosition,
+  ) {
+    return _StickyBottomScrollPosition(
+      physics: physics,
+      context: context,
+      initialPixels: initialScrollOffset,
+      keepScrollOffset: keepScrollOffset,
+      oldPosition: oldPosition,
+      debugLabel: debugLabel,
+      controller: this,
+    );
+  }
+}
+
+/// Keeps [pixels] pinned to `maxScrollExtent` while
+/// [_StickyBottomScrollController.followBottom] is set, by correcting the
+/// offset as part of the SAME layout pass that grew the content rather than
+/// jumping a frame later.
+///
+/// The chat used to react to new content (streamed tokens, tool chips,
+/// recommendation strips) with `ScrollController.jumpTo` in a
+/// post-frame callback. That frame had already been painted at the OLD
+/// scroll offset by the time the callback ran — the engine composites a
+/// frame the instant layout+paint finish, well before post-frame callbacks
+/// execute — so anything landing below the old fold was genuinely visible
+/// for one frame before the jump snapped it into place. Correcting the
+/// offset here instead, through the layout-time hooks Flutter's own
+/// `ScrollPosition` exposes for exactly this ("stick to an edge") case,
+/// means the corrected offset is what gets laid out and painted the first
+/// time — no earlier frame to flicker through.
+class _StickyBottomScrollPosition extends ScrollPositionWithSingleContext {
+  _StickyBottomScrollPosition({
+    required super.physics,
+    required super.context,
+    super.initialPixels,
+    super.keepScrollOffset,
+    super.oldPosition,
+    super.debugLabel,
+    required this.controller,
+  });
+
+  final _StickyBottomScrollController controller;
+
+  @override
+  bool applyContentDimensions(double minScrollExtent, double maxScrollExtent) {
+    // The very first layout a freshly-mounted list gets (e.g. a resumed
+    // chat's full history appearing at once) never reaches
+    // correctForNewDimensions below — haveDimensions is what gates that call,
+    // and it flips true only once this returns. Without this branch a
+    // preloaded history would open scrolled to its top instead of its most
+    // recent message.
+    if (controller.followBottom && !haveDimensions) {
+      correctPixels(maxScrollExtent);
+    }
+    return super.applyContentDimensions(minScrollExtent, maxScrollExtent);
+  }
+
+  @override
+  bool correctForNewDimensions(
+      ScrollMetrics oldPosition, ScrollMetrics newPosition) {
+    if (controller.followBottom) {
+      correctPixels(newPosition.maxScrollExtent);
+      return false;
+    }
+    return super.correctForNewDimensions(oldPosition, newPosition);
+  }
+}
+
 class _ChatPanelState extends ConsumerState<ChatPanel> {
   final _controller = TextEditingController();
-  final _scrollController = ScrollController();
+  final _scrollController = _StickyBottomScrollController();
   final _inputFocus = FocusNode();
 
   /// Removes the web paste listener (no-op off web).
@@ -149,14 +230,6 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
   /// Voice dictation for this composer (specs/voice-dictation): writes
   /// transcripts into [_controller]; the user reviews and sends normally.
   late final DictationController _dictation;
-
-  /// Autoscroll follows the stream only while the user is at the bottom;
-  /// scrolling up to re-read pauses it until they return to the bottom.
-  bool _stickToBottom = true;
-
-  /// At most one bottom-jump pending per frame, no matter how many state
-  /// changes request one.
-  bool _scrollScheduled = false;
 
   /// Images attached but not yet sent (specs/chat-image-attachments), shown as
   /// removable chips above the input bar.
@@ -274,9 +347,8 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
 
   /// The attachment half. Separate from [_saveDraft] because the two are
   /// edited by different gestures and the list write copies.
-  void _saveDraftAttachments() => ref
-      .read(chatDraftProvider(_draftKey).notifier)
-      .setAttachments(_pending);
+  void _saveDraftAttachments() =>
+      ref.read(chatDraftProvider(_draftKey).notifier).setAttachments(_pending);
 
   void _onDictationChanged() {
     final error = _dictation.consumeError();
@@ -305,27 +377,30 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
     super.dispose();
   }
 
-  void _scrollToBottom() {
-    if (_scrollScheduled) return;
-    _scrollScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollScheduled = false;
-      if (_stickToBottom && _scrollController.hasClients) {
-        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-      }
-    });
-  }
+  /// How close to the bottom edge a completed scroll must land to resume
+  /// autoscroll — a few pixels of slop for the physics settling just short
+  /// of `maxScrollExtent`, never a mid-gesture proximity guess.
+  static const double _kBottomEdgeSlop = 4;
 
-  // Only UserScrollNotification flips the flag off — the programmatic jumpTo
-  // emits only ScrollUpdateNotifications, so it can't disarm itself.
+  // A drag delivers ONE UserScrollNotification when it starts (direction
+  // flips from idle) and then a ScrollUpdateNotification per pointer move —
+  // many, while the gesture is still in the traveler's hand. Resuming
+  // autoscroll off of *those* (as this once did, at a generous 50px band)
+  // meant a slow drag away from the bottom re-armed itself on its own first
+  // few small moves, before it had gone far enough to look intentional: the
+  // next streamed token would then jump the transcript straight back down,
+  // so a deliberate scroll-up read as if it never happened. Waiting for
+  // ScrollEndNotification — the gesture settling, not merely moving — checks
+  // the final resting position exactly once per scroll instead of racing the
+  // stream on every intermediate frame.
   bool _onScrollNotification(ScrollNotification notification) {
     if (notification is UserScrollNotification &&
         notification.direction == ScrollDirection.forward) {
-      _stickToBottom = false;
-    } else if (notification is ScrollUpdateNotification) {
+      _scrollController.followBottom = false;
+    } else if (notification is ScrollEndNotification) {
       final position = notification.metrics;
-      if (position.pixels >= position.maxScrollExtent - 50) {
-        _stickToBottom = true;
+      if (position.pixels >= position.maxScrollExtent - _kBottomEdgeSlop) {
+        _scrollController.followBottom = true;
       }
     }
     return false;
@@ -345,8 +420,11 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
     // attachment bytes.
     ref.read(chatDraftProvider(_draftKey).notifier).clear();
     ref.read(widget.notifier).sendMessage(text, attachments: attachments);
-    _stickToBottom = true;
-    _scrollToBottom();
+    // The message about to land grows the transcript on the very next
+    // layout, and _StickyBottomScrollPosition follows it there — no explicit
+    // jump needed, just re-arming autoscroll for whoever sent while scrolled
+    // up reading back.
+    _scrollController.followBottom = true;
   }
 
   /// Sends the machine-built location message from the composer's location
@@ -355,8 +433,7 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
   /// [_send]'s snap-to-bottom so the context chip lands in view.
   void _sendNearMe(String text, {String? displayLabel}) {
     ref.read(widget.notifier).sendMessage(text, displayLabel: displayLabel);
-    _stickToBottom = true;
-    _scrollToBottom();
+    _scrollController.followBottom = true;
   }
 
   /// The composer location button's tap: the same shared flow [NearMeChip]
@@ -638,22 +715,13 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
       );
     });
 
-    ref.listen(widget.state.select((s) => s.streamingText),
-        (_, __) => _scrollToBottom());
-    ref.listen(widget.state.select((s) => s.messages.length),
-        (_, __) => _scrollToBottom());
-    ref.listen(widget.state.select((s) => s.queuedMessages.length),
-        (_, __) => _scrollToBottom());
-    // Working indicators (tool chips, typing dots, summarizing chip) grow the
-    // tail below the last text — without a scroll they can appear out of view
-    // and the turn looks stalled. _scrollToBottom itself keeps respecting the
-    // user's upward-scroll disarm.
-    ref.listen(widget.state.select((s) => s.activeTools.length),
-        (_, __) => _scrollToBottom());
-    ref.listen(
-        widget.state.select((s) => s.isThinking), (_, __) => _scrollToBottom());
-    ref.listen(widget.state.select((s) => s.isCompacting),
-        (_, __) => _scrollToBottom());
+    // Streamed tokens, a newly-committed message, a queued follow-up, tool
+    // chips, the typing dots, the compacting chip — every one of these grows
+    // the tail. None of them need a listener that reaches for the scroll
+    // controller anymore: _StickyBottomScrollPosition (see above) follows
+    // that growth itself, inside the layout pass that produced it, which is
+    // also what keeps the follow from fighting an upward scroll the way a
+    // reactive post-frame jump did (see _onScrollNotification).
 
     // LayoutBuilder (house rule: widths computed from the panel's own
     // constraints): the bubble cap must track the surface the panel actually
@@ -700,9 +768,8 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
       );
 
       final Widget panel;
-      final emptyBlock = isEmpty
-          ? widget.emptyStateBuilder?.call(context, constraints)
-          : null;
+      final emptyBlock =
+          isEmpty ? widget.emptyStateBuilder?.call(context, constraints) : null;
       if (emptyBlock != null) {
         // The Plan tab before a word is typed. The gate is HEIGHT — the
         // thing that runs out — never width, and the height asked for is the
