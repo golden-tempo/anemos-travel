@@ -221,6 +221,19 @@ func TestSystemPromptEnglishUnchanged(t *testing.T) {
 		if !strings.Contains(prompt, "never quote, estimate, or imply a price") {
 			t.Errorf("Accept-Language %q: prompt lost the unchecked-hotel-price boundary", header)
 		}
+		// Issue #641: a nearby, same-city move ("move today's museum to
+		// tomorrow") is move_itinerary_item and needs no whole-trip date
+		// recalculation — and whatever day/date arithmetic the model does to
+		// get there must stay out of the reply. Without this pin the fix
+		// regresses to the traveler-facing symptom the issue reported: "day 1
+		// was August 24, we're now on day 22" narrated in chat for a two-day
+		// move.
+		if !strings.Contains(prompt, "needs no whole-trip date recalculation") {
+			t.Errorf("Accept-Language %q: prompt lost the same-city-move instruction", header)
+		}
+		if !strings.Contains(prompt, "never walk the traveler through the day-number-to-calendar-date arithmetic") {
+			t.Errorf("Accept-Language %q: prompt lost the hide-the-day-math instruction", header)
+		}
 		// These requests are anonymous and not trip-bound, so the prompt is
 		// exactly basePrompt — it must still end on basePrompt's final
 		// sentence, proving nothing was appended.
