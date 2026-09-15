@@ -204,13 +204,6 @@ extension on _TripDetailScreenState {
     final todayDay =
         tripDayOn(_trip?.startDate, _trip?.endDate, DateTime.now());
     final slivers = <Widget>[];
-    // Running month for the narrow day labels: the month is spelled out when
-    // it is the first dated day of this group and whenever it CHANGES, and
-    // dropped in between. So a city reads "Sat, Aug 29 · Sun 30 · Mon 31 ·
-    // Tue, Sep 1 · Wed 2" — the way a person writes a list of dates. Dropping
-    // it unconditionally would leave "Sun 31 / Tue 2" genuinely ambiguous
-    // across a month rollover, which is exactly where a traveler is checking.
-    int? lastMonth;
 
     // Open days interleave with the planned ones in day order. They are
     // disjoint from the item days by construction (both come from one
@@ -241,9 +234,6 @@ extension on _TripDetailScreenState {
         flushEmptiesBefore(day);
         final dayKey = '$groupKey#$day';
         final collapsed = _collapsedDays.contains(dayKey);
-        final month = tripStart?.add(Duration(days: day - 1)).month;
-        final showMonth = month == null || month != lastMonth;
-        lastMonth = month;
         // The day's hotel anchor hops and its dominant travel mode feed the
         // header (total + icon) and the hop-label threshold below. The total
         // includes the anchor legs: getting there and back is the day's
@@ -280,7 +270,6 @@ extension on _TripDetailScreenState {
                 : null,
             headerKey: _dayHeaderKeys.putIfAbsent(dayKey, GlobalKey.new),
             isToday: day == todayDay,
-            showMonth: showMonth,
             dominantMode: dominantMode);
         // Tonight caption (specs/happening-now): a non-pinned content row —
         // it scrolls and collapses with the section, never joining the
@@ -1392,24 +1381,18 @@ extension on _TripDetailScreenState {
   /// translucent color) for the same reason. [headerKey] gives the Today
   /// scroller a stable handle on the header's render box.
   ///
-  /// [showMonth] is the caller's answer to "would dropping the month here lose
-  /// anything" — see the running-month rule in [_buildGroupItemSlivers]. It
-  /// only bites on narrow; a desktop row has the width to spell every date.
   /// What a day row is called: the calendar date (day N = trip start + N-1)
   /// when the trip has a start, else "Day N". ONE definition — the day header
   /// and the empty-day placeholder below it must never disagree about which
-  /// date day N is, and they sit next to each other in the same list.
-  ///
-  /// The running-month rule lives HERE rather than at the header's call site so
-  /// the placeholder cannot drift from it: both rows ask the same function what
-  /// day N is called. Empty rows keep the default (month spelled out) because
-  /// they are emitted by flushEmptiesBefore, which does not carry the loop's
-  /// month state — a format difference on narrow, never a date difference.
-  String _dayHeaderLabel(int day, DateTime? tripStart,
-      {bool showMonth = true}) {
+  /// date day N is, and they sit next to each other in the same list. The
+  /// month is always spelled out (issue #642): a row that drops it whenever
+  /// the month "hasn't changed" reads as inconsistent next to the rows that
+  /// keep it, and a traveler scanning a single day shouldn't have to infer
+  /// the month from an earlier row.
+  String _dayHeaderLabel(int day, DateTime? tripStart) {
     final date = tripStart?.add(Duration(days: day - 1));
     if (date == null) return context.l10n.tripDayN(day);
-    return _narrow && !showMonth ? weekdayDay(date) : _fmtDayHeader(date);
+    return _fmtDayHeader(date);
   }
 
 
@@ -1423,10 +1406,9 @@ extension on _TripDetailScreenState {
       VoidCallback? onRefine,
       {Key? headerKey,
       bool isToday = false,
-      bool showMonth = true,
       String? dominantMode}) {
     final l10n = context.l10n;
-    final label = _dayHeaderLabel(day, tripStart, showMonth: showMonth);
+    final label = _dayHeaderLabel(day, tripStart);
     final muted = theme.colorScheme.onSurfaceVariant;
     final header = HoverReveal(
       builder: (context, revealed) => Material(
