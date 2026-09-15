@@ -41,6 +41,46 @@ class PlacesApiService {
     }
   }
 
+  /// Search for real places near a coordinate — the trip page's "Nearby"
+  /// action on a confirmed stay (specs/booking-address-prompt), the same
+  /// location-biased Text Search the chat agent's search_nearby tool uses.
+  /// [query] defaults server-side to a mixed dining/things-to-do search when
+  /// omitted.
+  Future<List<PlaceSearchResult>> searchNearby(
+    double latitude,
+    double longitude, {
+    String? query,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/places/nearby').replace(
+        queryParameters: {
+          'lat': '$latitude',
+          'lng': '$longitude',
+          if (query != null && query.isNotEmpty) 'q': query,
+        },
+      );
+
+      final response = await httpClient.get(uri);
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = json.decode(response.body);
+
+        if (data['status'] == 'success' && data['results'] != null) {
+          final List<dynamic> resultsJson = data['results'];
+          return resultsJson
+              .map((json) => PlaceSearchResult.fromJson(json))
+              .toList();
+        } else {
+          throw Exception('API returned error: ${data['status']}');
+        }
+      } else {
+        throw Exception('HTTP ${response.statusCode}: ${response.body}');
+      }
+    } catch (e) {
+      throw Exception('Failed to search nearby places: $e');
+    }
+  }
+
   /// Get autocomplete suggestions for place input
   Future<List<PlaceAutocompleteResult>> getAutocomplete(String input) async {
     try {

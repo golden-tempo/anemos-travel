@@ -71,11 +71,23 @@ extension on _TripDetailScreenState {
     // accepted it — a rolled-back optimistic flip must not move the card.
     if (mounted) _invalidateReview();
 
+    // Address prompt rides the same only-after-accept gate, and goes FIRST:
+    // it can hand back a newly created/updated accommodation that the budget
+    // prompt below should treat as this row's stay (a fresh todo-only "stay"
+    // row has none yet).
+    if (!mounted) return;
+    Accommodation? stayForBudget = stay;
+    if (booked) {
+      stayForBudget =
+          await _maybePromptStayAddress(todo: todo, stay: stay) ?? stay;
+    }
+
     // Budget autopopulate rides the flip only AFTER the server accepted it
     // (a rolled-back optimistic flip must never create or delete money).
     if (!mounted) return;
     if (booked) {
-      await _maybePromptBudgetExpense(todo: todo, stay: stay, segment: segment);
+      await _maybePromptBudgetExpense(
+          todo: todo, stay: stayForBudget, segment: segment);
     } else {
       await _removeLinkedAutoExpense([
         if (todo != null) todo.id,
@@ -85,6 +97,77 @@ extension on _TripDetailScreenState {
     }
   }
 
+  /// Stay-address prompt (specs/booking-address-prompt): right after a
+  /// stay-kind row flips to booked, offer to add the address if it doesn't
+  /// have one yet — the moment the traveler actually knows it. That address
+  /// (with coordinates, when a place was picked) is what lets the itinerary's
+  /// hotel-anchor travel times and the "Nearby" action work for this stay;
+  /// both stay silent without one. Skippable, and only for a stay ([segment]
+  /// carries no address of its own).
+  ///
+  /// Returns the accommodation the flip should now be considered matched
+  /// to — [stay] patched with its new address, or a freshly created one for
+  /// a todo-only row — so the caller's own downstream logic (the budget
+  /// prompt) sees it. Null when nothing changed (skipped, already had an
+  /// address, or not a stay).
+  Future<Accommodation?> _maybePromptStayAddress(
+      {BookingTodo? todo, Accommodation? stay}) async {
+    if (!mounted || _readOnly || _isOffline) return null;
+    final isStay = stay != null || todo?.kind == 'stay';
+    if (!isStay) return null;
+    if (stay != null && (stay.address?.trim().isNotEmpty ?? false)) {
+      return null;
+    }
+    final l10n = context.l10n;
+    final title = stay?.name ?? todo?.title ?? l10n.bookingsAddAStay;
+    final draft = await showStayAddressPrompt(context, stayTitle: title);
+    if (draft == null || !mounted) return null;
+    try {
+      if (stay != null) {
+        final updated = await ref.read(accommodationsApiServiceProvider).update(
+          widget.tripId,
+          stay.id,
+          {
+            'address': draft.address,
+            if (draft.latitude != null && draft.longitude != null) ...{
+              'latitude': draft.latitude,
+              'longitude': draft.longitude,
+            },
+          },
+        );
+        // Reload rather than patch _stays in place: this is what re-derives
+        // the itinerary's hotel-anchor travel times (_computeTravelTimes)
+        // and the map pin from the address just saved (the same refresh
+        // _addDetailsFromTodo already relies on for a fresh confirmed row).
+        await _load();
+        return updated;
+      }
+      // Todo-only stay row: no confirmed record yet, so create one. Its
+      // name carries the todo's title (which names the city, e.g. "Stay in
+      // Lisbon") so the itinerary derivation's name/address fallback match
+      // (trip_detail_derivation.dart) claims it for this slot on the next
+      // render, exactly like a manually-added "Add details…" stay would.
+      final created = await ref.read(accommodationsApiServiceProvider).add(
+        widget.tripId,
+        {
+          'name': title,
+          'address': draft.address,
+          if (draft.latitude != null && draft.longitude != null) ...{
+            'latitude': draft.latitude,
+            'longitude': draft.longitude,
+          },
+          if (todo?.departDate != null) 'check_in': todo!.departDate,
+          if (todo?.returnDate != null) 'check_out': todo!.returnDate,
+        },
+      );
+      await _load();
+      return created;
+    } catch (e) {
+      if (!mounted) return null;
+      _showSnack(l10n.tripUpdateFailed(friendlyError(l10n, e)));
+      return null;
+    }
+  }
 
   /// Booked-flip budget autopopulate (specs/budget-v2): right after a
   /// false→true flip lands, offer to record the price — the moment the
@@ -802,6 +885,10 @@ extension on _TripDetailScreenState {
         stay: stay,
         onEdit: editable ? () => _editStay(stay) : null,
         onDelete: editable ? () => _deleteStay(stay) : null,
+        onNearby: TripMap.stayHasCoords(stay)
+            ? () => showNearbyPlacesSheet(context,
+                latitude: stay.latitude!, longitude: stay.longitude!)
+            : null,
         showCheckbox: detailOnly,
         onBookedChanged:
             detailOnly && !_readOnly ? (v) => _setRowBooked(v, stay: stay) : null,

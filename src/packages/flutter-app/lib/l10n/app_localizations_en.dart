@@ -1069,6 +1069,29 @@ class AppLocalizationsEn extends AppLocalizations {
   String get bookingsModeOther => 'other';
 
   @override
+  String get stayAddressPromptTitle => 'Add your stay\'s address?';
+
+  @override
+  String stayAddressPromptBody(String stayTitle) {
+    return 'Add the address for \"$stayTitle\" and we\'ll use it to suggest what\'s nearby and to work out travel time to your first stop each day.';
+  }
+
+  @override
+  String get bookingsNearby => 'Nearby';
+
+  @override
+  String get nearbyTitle => 'Nearby';
+
+  @override
+  String get nearbyEmpty => 'No nearby places found.';
+
+  @override
+  String get nearbyError => 'Couldn\'t load nearby places.';
+
+  @override
+  String get nearbyDirections => 'Directions';
+
+  @override
   String get budgetTitle => 'Budget';
 
   @override

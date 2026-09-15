@@ -26,6 +26,12 @@ class BookingDetailRow extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
+  /// "Nearby" overflow entry (specs/booking-address-prompt): stays only, and
+  /// only once the stay carries coordinates — a real place to search around,
+  /// not a guess. Folded into the same kebab as edit/delete rather than its
+  /// own icon, so a stay with no address change gains no trailing weight.
+  final VoidCallback? onNearby;
+
   /// Detail-only mode: no todo row above, so this row shows its own compact
   /// "Booked" checkbox bound to the record's flag. Null hides it (matched
   /// rows — the todo row's checkbox is the single writer for both flags).
@@ -45,6 +51,7 @@ class BookingDetailRow extends StatelessWidget {
     required Accommodation this.stay,
     this.onEdit,
     this.onDelete,
+    this.onNearby,
     this.onBookedChanged,
     this.showCheckbox = false,
     this.appleCalendarEnabled = false,
@@ -59,7 +66,8 @@ class BookingDetailRow extends StatelessWidget {
     this.onBookedChanged,
     this.showCheckbox = false,
     this.appleCalendarEnabled = false,
-  }) : stay = null;
+  })  : stay = null,
+        onNearby = null;
 
   static IconData _modeIcon(String mode) => switch (mode) {
         'flight' => Icons.flight_takeoff,
@@ -212,13 +220,22 @@ class BookingDetailRow extends StatelessWidget {
           // saved detail (the CHILD of the row above) carried more trailing
           // weight than its own parent, and destructive delete sat one pixel
           // from a routine edit at the end of a 16px-icon run.
-          if (onEdit != null || onDelete != null)
+          if (onEdit != null || onDelete != null || onNearby != null)
             PopupMenuButton<String>(
               icon: Icon(Icons.more_vert, size: 18, color: muted),
               tooltip: l10n.bookingRowOptions,
-              onSelected: (v) =>
-                  v == 'edit' ? onEdit?.call() : onDelete?.call(),
+              onSelected: (v) => switch (v) {
+                'edit' => onEdit?.call(),
+                'delete' => onDelete?.call(),
+                'nearby' => onNearby?.call(),
+                _ => null,
+              },
               itemBuilder: (_) => [
+                if (onNearby != null)
+                  PopupMenuItem(
+                    value: 'nearby',
+                    child: Text(l10n.bookingsNearby),
+                  ),
                 if (onEdit != null)
                   PopupMenuItem(
                     value: 'edit',

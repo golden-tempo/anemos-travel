@@ -138,4 +138,66 @@ void main() {
     expect(find.text('Edit stay'), findsOneWidget);
     expect(find.text('Remove stay'), findsNothing);
   });
+
+  // "Nearby" (specs/booking-address-prompt): folded into the same kebab as
+  // edit/delete, never its own icon — a stay with no address change gains
+  // no trailing weight.
+  group('onNearby', () {
+    testWidgets('opens the kebab alone when it is the only callback offered',
+        (tester) async {
+      var tapped = 0;
+      await _pump(
+        tester,
+        BookingDetailRow.stay(
+            tripId: 't1', stay: _stay, onNearby: () => tapped++),
+      );
+
+      expect(find.byIcon(Icons.more_vert), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      expect(find.text('Nearby'), findsOneWidget);
+
+      await tester.tap(find.text('Nearby'));
+      await tester.pumpAndSettle();
+      expect(tapped, 1);
+    });
+
+    testWidgets('sits alongside edit/delete without replacing them',
+        (tester) async {
+      var edited = 0, deleted = 0, nearby = 0;
+      await _pump(
+        tester,
+        BookingDetailRow.stay(
+          tripId: 't1',
+          stay: _stay,
+          onEdit: () => edited++,
+          onDelete: () => deleted++,
+          onNearby: () => nearby++,
+        ),
+      );
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      expect(find.text('Nearby'), findsOneWidget);
+      expect(find.text('Edit stay'), findsOneWidget);
+      expect(find.text('Remove stay'), findsOneWidget);
+
+      await tester.tap(find.text('Edit stay'));
+      await tester.pumpAndSettle();
+      expect((edited, deleted, nearby), (1, 0, 0));
+    });
+
+    testWidgets('a transport row never offers Nearby (no such constructor '
+        'param)', (tester) async {
+      await _pump(
+        tester,
+        BookingDetailRow.segment(
+            tripId: 't1', segment: _segment, onEdit: () {}),
+      );
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      expect(find.text('Nearby'), findsNothing);
+    });
+  });
 }

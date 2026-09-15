@@ -2054,6 +2054,48 @@ abstract class AppLocalizations {
   /// **'other'**
   String get bookingsModeOther;
 
+  /// No description provided for @stayAddressPromptTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Add your stay\'s address?'**
+  String get stayAddressPromptTitle;
+
+  /// Body of the dialog prompting for a stay's address right after it's checked booked (specs/booking-address-prompt).
+  ///
+  /// In en, this message translates to:
+  /// **'Add the address for \"{stayTitle}\" and we\'ll use it to suggest what\'s nearby and to work out travel time to your first stop each day.'**
+  String stayAddressPromptBody(String stayTitle);
+
+  /// Overflow-menu action on a confirmed stay's row that opens the Nearby places sheet; only offered once the stay carries coordinates.
+  ///
+  /// In en, this message translates to:
+  /// **'Nearby'**
+  String get bookingsNearby;
+
+  /// No description provided for @nearbyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Nearby'**
+  String get nearbyTitle;
+
+  /// No description provided for @nearbyEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No nearby places found.'**
+  String get nearbyEmpty;
+
+  /// No description provided for @nearbyError.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t load nearby places.'**
+  String get nearbyError;
+
+  /// No description provided for @nearbyDirections.
+  ///
+  /// In en, this message translates to:
+  /// **'Directions'**
+  String get nearbyDirections;
+
   /// No description provided for @budgetTitle.
   ///
   /// In en, this message translates to:
