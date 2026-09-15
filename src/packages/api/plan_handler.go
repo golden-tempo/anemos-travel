@@ -802,6 +802,21 @@ func planHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// The turn's full reply is known now — reorder any `places` strip this
+	// turn emitted to lead with whichever cards the assistant actually named
+	// in its own text, in the order it named them, instead of the
+	// rating/review-count proxy search_places sent mid-turn before the model
+	// had written a word of its recommendation (issues #631, #633, #648). A
+	// second `places` frame is a no-op for the client when nothing changed
+	// (last-write-wins, same as flights/events) — only send one when the
+	// order actually moved.
+	if reordered := reorderPlacesByMentionOrder(session.lastPlacesCards, turnText.String()); !placeCardsSameOrder(reordered, session.lastPlacesCards) {
+		sendSSE(w, "places", map[string]any{
+			"query":  session.lastPlacesQuery,
+			"places": reordered,
+		})
+	}
+
 	// The model finished the turn (the loop's one success exit): the terminal
 	// frame with stop_reason "end_turn" is what authorizes the client to
 	// commit the streamed text as a finished reply rather than guessing from

@@ -73,6 +73,17 @@ type planSession struct {
 	// model quotes must cover the bags this traveler actually brings, and a
 	// default the model can forget is not a default (specs/traveler-baggage).
 	bagPref *string
+	// lastPlacesQuery/lastPlacesCards hold the most recent `places` SSE
+	// payload emitted this turn by search_places/search_nearby. The tool
+	// runs — and its cards are sent — mid-turn, before the model has written
+	// the text that actually names which of those places it recommends and
+	// in what order; the handler re-reads these once the turn's full reply
+	// is known and reorders the strip to lead with whichever cards the
+	// assistant actually named, in the order it named them (issues #631,
+	// #633, #648 — rating/review-count proxies for "the model's pick" kept
+	// drifting from what the model actually wrote).
+	lastPlacesQuery string
+	lastPlacesCards []placeCard
 }
 
 // planTool is one registry entry.
@@ -664,6 +675,75 @@ func placeCards(results []PlaceSearchResult, max int) []placeCard {
 	return cards
 }
 
+// placeMentionIndex returns the position of card's name in text (lowercased,
+// substring match), or -1 when the name never appears — the model recommends
+// in prose ("I'd start with the Acropolis Museum..."), so the place it leads
+// with is whichever name shows up earliest in what it actually wrote, not
+// whichever card rating/review-count heuristics guessed was "best" before the
+// model had said a word.
+func placeMentionIndex(lowerText, name string) int {
+	if name == "" {
+		return -1
+	}
+	return strings.Index(lowerText, strings.ToLower(name))
+}
+
+// reorderPlacesByMentionOrder re-leads cards with whichever ones the
+// assistant's own turn text names, in the order it names them, leaving
+// unmentioned cards after them in their original (rating-ranked) order. This
+// is a stable sort — ties (two unmentioned cards, or two cards absent from
+// the text) keep their existing relative order — so it never reshuffles a
+// strip the model didn't actually talk about.
+//
+// It runs once the whole turn's text is known (plan_handler.go, after the
+// model's stream ends), never at tool-call time: search_places fires mid-turn,
+// before the model has decided — let alone written — which of its own
+// results it will actually recommend (issues #631, #633, #648).
+func reorderPlacesByMentionOrder(cards []placeCard, turnText string) []placeCard {
+	if len(cards) == 0 || turnText == "" {
+		return cards
+	}
+	lowerText := strings.ToLower(turnText)
+	type scored struct {
+		card placeCard
+		pos  int
+	}
+	scoredCards := make([]scored, len(cards))
+	for i, c := range cards {
+		scoredCards[i] = scored{card: c, pos: placeMentionIndex(lowerText, c.Name)}
+	}
+	sort.SliceStable(scoredCards, func(i, j int) bool {
+		pi, pj := scoredCards[i].pos, scoredCards[j].pos
+		if pi == -1 || pj == -1 {
+			// -1 (unmentioned) never outranks a real position; two -1s (or a
+			// genuine tie) fall through to the stable sort's original order.
+			return pi != -1 && pj == -1
+		}
+		return pi < pj
+	})
+	reordered := make([]placeCard, len(scoredCards))
+	for i, s := range scoredCards {
+		reordered[i] = s.card
+	}
+	return reordered
+}
+
+// placeCardsSameOrder reports whether two card slices list the same places in
+// the same order (by place ID) — the handler's signal for whether a
+// reorder actually changed anything and a corrective `places` SSE frame is
+// worth sending.
+func placeCardsSameOrder(a, b []placeCard) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].PlaceID != b[i].PlaceID {
+			return false
+		}
+	}
+	return true
+}
+
 func runSearchPlacesTool(s *planSession, input json.RawMessage) (string, bool) {
 	var in struct {
 		Query string `json:"query"`
@@ -679,10 +759,16 @@ func runSearchPlacesTool(s *planSession, input json.RawMessage) (string, bool) {
 	// the same rating-ranked order (only the photo fields differ — they are
 	// json:"-" on PlaceSearchResult).
 	if len(results) > 0 {
+		cards := placeCards(results, planPlacesCardCap)
 		sendSSE(s.w, "places", map[string]any{
 			"query":  in.Query,
-			"places": placeCards(results, planPlacesCardCap),
+			"places": cards,
 		})
+		// Remembered so the handler can re-lead the strip with whatever the
+		// model actually recommends once its text for the turn is known —
+		// see planSession.lastPlacesCards.
+		s.lastPlacesQuery = in.Query
+		s.lastPlacesCards = cards
 	}
 	b, _ := json.Marshal(results)
 	return string(b), false
@@ -711,10 +797,13 @@ func runSearchNearbyTool(s *planSession, input json.RawMessage) (string, bool) {
 	// Same `places` SSE side event as search_places, so the client photo strip
 	// renders nearby results with zero changes.
 	if len(results) > 0 {
+		cards := placeCards(results, planPlacesCardCap)
 		sendSSE(s.w, "places", map[string]any{
 			"query":  in.Query,
-			"places": placeCards(results, planPlacesCardCap),
+			"places": cards,
 		})
+		s.lastPlacesQuery = in.Query
+		s.lastPlacesCards = cards
 	}
 	b, _ := json.Marshal(results)
 	return string(b), false
