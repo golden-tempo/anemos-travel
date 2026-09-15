@@ -218,7 +218,7 @@ var addTransportSegmentTool = anthropic.ToolParam{
 
 var moveItineraryItemTool = anthropic.ToolParam{
 	Name:        "move_itinerary_item",
-	Description: anthropic.String("Reschedule a single already-saved itinerary place to a different day (and optionally a different time of day) on the trip open in this conversation — use it to fix an over-packed-day or 'may be closed' review finding (copy the item_id and target day from the [fix: ...] hint). This moves ONE place; to rebuild a whole day use update_itinerary_section instead. Only works when a saved trip is open in this conversation."),
+	Description: anthropic.String("Reschedule a single already-saved itinerary place to a different day (and optionally a different time of day) on the trip open in this conversation — use it to fix an over-packed-day or 'may be closed' review finding (copy the item_id and target day from the [fix: ...] hint), or a simple request like 'move today's museum to tomorrow' or 'swap what's on Tuesday and Wednesday'. This moves ONE place; to rebuild a whole day use update_itinerary_section instead. Only works when a saved trip is open in this conversation. A move within a few days of each other, inside the same city, changes no city's dates and needs no leg-date recomputation — one call per place (two calls to swap two places) is enough. Turn 'today'/'tomorrow'/a weekday into a day number using the 'Today is day N' fact in the CURRENT TRIP STATE block, silently — never show that day-number-to-calendar-date arithmetic in your reply; just confirm what moved, in the traveler's own words when they used one ('Moved it to tomorrow.')."),
 	InputSchema: anthropic.ToolInputSchemaParam{
 		Properties: map[string]any{
 			"item_id":     map[string]any{"type": "string", "description": "The itinerary item's id (the item_id from a review finding, or from get_trip)"},
@@ -765,6 +765,14 @@ func runGetTripTool(ctx context.Context, authed bool, uid uuid.UUID, boundTripID
 		if e := dateString(trip.EndDate); e != "" {
 			fmt.Fprintf(&b, " to %s", e)
 		}
+	}
+	// States the answer directly (issue #641) so a nearby, same-city move —
+	// "move today's museum to tomorrow" — never needs the model to derive
+	// "today" from the trip's start date and every city leg's calendar span,
+	// the multi-step arithmetic that was leaking into replies as narrated
+	// day-number math the traveler never asked to see.
+	if day, ok := tripDayNumberOn(trip.StartDate, trip.EndDate, time.Now()); ok {
+		fmt.Fprintf(&b, ". Today is day %d of this trip", day)
 	}
 	if trip.TravelMode != nil && *trip.TravelMode != "" {
 		fmt.Fprintf(&b, ". Travel mode: %s — keep transport suggestions in that mode", *trip.TravelMode)
