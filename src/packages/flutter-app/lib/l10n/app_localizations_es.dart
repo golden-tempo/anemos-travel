@@ -3794,7 +3794,13 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get refineClearChatConfirmBody =>
-      'Se eliminará el chat. Tu viaje y su plan no se ven afectados.';
+      'Se guardará en Chats anteriores. Tu viaje y su plan no se ven afectados.';
+
+  @override
+  String get refinePreviousChats => 'Chats anteriores';
+
+  @override
+  String get refinePreviousChatsEmpty => 'Aún no hay chats anteriores.';
 
   @override
   String get refineResumeLoading => 'Restaurando tu conversación…';

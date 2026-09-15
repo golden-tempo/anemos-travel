@@ -64,3 +64,49 @@ class TripRefineChatDetail {
       _$TripRefineChatDetailFromJson(json);
   Map<String, dynamic> toJson() => _$TripRefineChatDetailToJson(this);
 }
+
+/// One archived conversation in the "Previous chats" menu (#639), as listed
+/// by `GET /trips/{id}/refine-chat/history`.
+///
+/// Unlike [TripRefineChat] this DOES carry an id: a history entry is
+/// individually addressable — it is what
+/// `POST /trips/{id}/refine-chat/history/{id}` resumes — where the trip's
+/// single active conversation never needs one of its own.
+@JsonSerializable()
+class TripRefineChatHistoryEntry {
+  final String id;
+  final String preview;
+  @JsonKey(name: 'message_count')
+  final int messageCount;
+  @JsonKey(name: 'created_at')
+  final String createdAt;
+  @JsonKey(name: 'updated_at')
+  final String updatedAt;
+
+  const TripRefineChatHistoryEntry({
+    required this.id,
+    required this.preview,
+    required this.messageCount,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory TripRefineChatHistoryEntry.fromJson(Map<String, dynamic> json) =>
+      _$TripRefineChatHistoryEntryFromJson(json);
+  Map<String, dynamic> toJson() => _$TripRefineChatHistoryEntryToJson(this);
+}
+
+/// `GET /trips/{id}/refine-chat/history`: up to 5 past conversations, most
+/// recently active first.
+@JsonSerializable(explicitToJson: true)
+class TripRefineChatHistory {
+  @JsonKey(name: 'trip_id')
+  final String tripId;
+  final List<TripRefineChatHistoryEntry> chats;
+
+  const TripRefineChatHistory({required this.tripId, required this.chats});
+
+  factory TripRefineChatHistory.fromJson(Map<String, dynamic> json) =>
+      _$TripRefineChatHistoryFromJson(json);
+  Map<String, dynamic> toJson() => _$TripRefineChatHistoryToJson(this);
+}

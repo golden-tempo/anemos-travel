@@ -89,9 +89,31 @@ class TripsApiService {
   }
 
   /// Discards this traveler's conversation about [tripId] ("New chat").
-  /// Idempotent server-side: succeeds whether or not one existed.
+  /// Idempotent server-side: succeeds whether or not one existed. Since #639
+  /// this ARCHIVES the conversation server-side rather than deleting it — it
+  /// becomes the newest entry in [listTripRefineChatHistory] — but the caller
+  /// only needs the trip stopped advertising it, which this still guarantees.
   Future<void> deleteTripRefineChat(String tripId) async {
     await apiClient.send('DELETE', '/trips/$tripId/refine-chat');
+  }
+
+  /// Up to 5 of this traveler's past conversations about [tripId] (#639's
+  /// "Previous chats" menu), most recently active first.
+  Future<List<TripRefineChatHistoryEntry>> listTripRefineChatHistory(
+      String tripId) async {
+    final res = await apiClient.send('GET', '/trips/$tripId/refine-chat/history');
+    return TripRefineChatHistory.fromJson(jsonDecode(res.body)).chats;
+  }
+
+  /// Brings back one archived conversation as the active one ("Previous
+  /// chats" → tap an entry). The conversation it replaces is not lost — it
+  /// becomes the newest history entry in the same swap — and the response is
+  /// the resumed transcript, in the same shape [getTripRefineChat] returns.
+  Future<TripRefineChatDetail> resumeTripRefineChatHistoryEntry(
+      String tripId, String sessionId) async {
+    final res = await apiClient.send(
+        'POST', '/trips/$tripId/refine-chat/history/$sessionId');
+    return TripRefineChatDetail.fromJson(jsonDecode(res.body));
   }
 
   /// Patches a trip's scalar fields. Every parameter is null-means-omitted, so

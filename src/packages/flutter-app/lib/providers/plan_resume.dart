@@ -77,3 +77,25 @@ Future<void> resumeTripRefineChat({
     messages: planMessagesFrom(detail.messages),
   );
 }
+
+/// Rehydrates one PREVIOUS conversation from the trip's "Previous chats" menu
+/// (#639), making it the active one server-side in the same call
+/// ([TripsApiService.resumeTripRefineChatHistoryEntry]) — so what the panel
+/// shows and what the next turn appends to can never disagree about which
+/// conversation is live.
+///
+/// Rethrows for the same reason [resumeTripRefineChat] does: a caller must
+/// never proceed to send a message onto an empty panel after a failed swap.
+Future<void> resumeTripRefineChatHistoryEntry({
+  required TripsApiService trips,
+  required PlanNotifier plan,
+  required String tripId,
+  required String sessionId,
+}) async {
+  final detail =
+      await trips.resumeTripRefineChatHistoryEntry(tripId, sessionId);
+  plan.resumeConversation(
+    summary: detail.summary,
+    messages: planMessagesFrom(detail.messages),
+  );
+}

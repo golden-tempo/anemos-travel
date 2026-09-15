@@ -41,3 +41,40 @@ Map<String, dynamic> _$TripRefineChatDetailToJson(
       'message_count': instance.messageCount,
       'updated_at': instance.updatedAt,
     };
+
+TripRefineChatHistoryEntry _$TripRefineChatHistoryEntryFromJson(
+        Map<String, dynamic> json) =>
+    TripRefineChatHistoryEntry(
+      id: json['id'] as String,
+      preview: json['preview'] as String,
+      messageCount: (json['message_count'] as num).toInt(),
+      createdAt: json['created_at'] as String,
+      updatedAt: json['updated_at'] as String,
+    );
+
+Map<String, dynamic> _$TripRefineChatHistoryEntryToJson(
+        TripRefineChatHistoryEntry instance) =>
+    <String, dynamic>{
+      'id': instance.id,
+      'preview': instance.preview,
+      'message_count': instance.messageCount,
+      'created_at': instance.createdAt,
+      'updated_at': instance.updatedAt,
+    };
+
+TripRefineChatHistory _$TripRefineChatHistoryFromJson(
+        Map<String, dynamic> json) =>
+    TripRefineChatHistory(
+      tripId: json['trip_id'] as String,
+      chats: (json['chats'] as List<dynamic>)
+          .map((e) =>
+              TripRefineChatHistoryEntry.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+
+Map<String, dynamic> _$TripRefineChatHistoryToJson(
+        TripRefineChatHistory instance) =>
+    <String, dynamic>{
+      'trip_id': instance.tripId,
+      'chats': instance.chats.map((e) => e.toJson()).toList(),
+    };

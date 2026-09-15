@@ -938,6 +938,10 @@ func buildRouter() *mux.Router {
 	// and is per-caller.
 	api.Handle("/trips/{id}/refine-chat", authMiddleware(http.HandlerFunc(getTripRefineChatHandler))).Methods("GET")
 	api.Handle("/trips/{id}/refine-chat", authMiddleware(http.HandlerFunc(deleteTripRefineChatHandler))).Methods("DELETE")
+	// "Previous chats" (#639): up to 5 conversations retired by "New chat",
+	// listed here and resumed (made active again) one at a time.
+	api.Handle("/trips/{id}/refine-chat/history", authMiddleware(http.HandlerFunc(getTripRefineChatHistoryHandler))).Methods("GET")
+	api.Handle("/trips/{id}/refine-chat/history/{sessionId}", authMiddleware(http.HandlerFunc(resumeTripRefineChatHistoryEntryHandler))).Methods("POST")
 	api.Handle("/trips/{id}/share", authMiddleware(http.HandlerFunc(createShareHandler))).Methods("POST")
 	api.Handle("/trips/{id}/share", authMiddleware(http.HandlerFunc(revokeShareHandler))).Methods("DELETE")
 	// Owner-private export: the authed owner/editor mints a short-lived signed
@@ -1161,6 +1165,8 @@ func startServer(router *mux.Router) {
 	log.Printf("  GET  /api/v1/chats              - Resumable plan conversations (auth)")
 	log.Printf("  GET/DELETE /api/v1/chats/{chatId} - Resume / dismiss a conversation (auth)")
 	log.Printf("  GET/DELETE /api/v1/trips/{id}/refine-chat - Resume / clear a trip's own chat (auth)")
+	log.Printf("  GET  /api/v1/trips/{id}/refine-chat/history - Previous chats for a trip (auth)")
+	log.Printf("  POST /api/v1/trips/{id}/refine-chat/history/{sessionId} - Resume a previous chat (auth)")
 	log.Printf("  GET/PATCH/DELETE /api/v1/trips/{id} - Trip detail (auth)")
 	log.Printf("  GET/PUT /api/v1/preferences      - Traveler preferences (auth)")
 	log.Printf("  GET  /api/v1/accommodation-links - Airbnb/Booking browse links")

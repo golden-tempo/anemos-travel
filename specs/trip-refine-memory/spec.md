@@ -137,10 +137,15 @@ A turn bound to a trip is now saved. Free planning chats are unchanged.
 
 ## Out of Scope
 
-- A per-trip chat history or picker — there is one running conversation.
 - Giving the open panel its own URL, so that a refresh reopens it.
 - Any client-side mirror of the transcript for offline use.
 - Reviving the unused "reopen this trip in the Plan tab" path.
+
+> **Superseded:** "a per-trip chat history or picker" was out of scope here —
+> "New chat" discarded the running conversation outright. `specs/trip-chat-history`
+> (#639) replaces that with a small kept history, so "New chat" retires the
+> conversation instead of deleting it. The single-running-conversation
+> invariant this spec describes elsewhere is unchanged.
 
 ## Open Questions
 

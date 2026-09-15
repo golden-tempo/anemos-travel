@@ -112,3 +112,17 @@ String shortDate(String iso) {
   return '${d.year}-${d.month.toString().padLeft(2, '0')}-'
       '${d.day.toString().padLeft(2, '0')}';
 }
+
+/// How long ago an ISO timestamp was, in the app's three granularities.
+/// Shared by the trip-detail header's "last edited" line, its Continue-chat
+/// row, and the "Previous chats" list (#639) — one wording for "how long ago"
+/// across everywhere a trip page reports it.
+String tripRelativeTime(AppLocalizations l10n, String iso) {
+  final t = DateTime.tryParse(iso);
+  if (t == null) return l10n.tripTimeRecently;
+  final d = DateTime.now().difference(t.toLocal());
+  if (d.inMinutes < 1) return l10n.tripTimeJustNow;
+  if (d.inMinutes < 60) return l10n.tripTimeMinutesAgo(d.inMinutes);
+  if (d.inHours < 24) return l10n.tripTimeHoursAgo(d.inHours);
+  return l10n.tripTimeDaysAgo(d.inDays);
+}

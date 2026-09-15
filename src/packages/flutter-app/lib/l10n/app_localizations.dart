@@ -6233,8 +6233,20 @@ abstract class AppLocalizations {
   /// No description provided for @refineClearChatConfirmBody.
   ///
   /// In en, this message translates to:
-  /// **'The chat will be deleted. Your trip and its plan aren\'t affected.'**
+  /// **'It\'ll move to Previous chats. Your trip and its plan aren\'t affected.'**
   String get refineClearChatConfirmBody;
+
+  /// No description provided for @refinePreviousChats.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous chats'**
+  String get refinePreviousChats;
+
+  /// No description provided for @refinePreviousChatsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No previous chats yet.'**
+  String get refinePreviousChatsEmpty;
 
   /// No description provided for @refineResumeLoading.
   ///

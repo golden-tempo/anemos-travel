@@ -402,6 +402,7 @@ type TripRefineSession struct {
 	MessageCount int32     `json:"message_count"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+	IsActive     bool      `json:"is_active"`
 }
 
 type TripSegment struct {
