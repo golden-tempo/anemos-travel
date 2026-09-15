@@ -163,7 +163,8 @@ void main() {
     expect(text.text, 'hello everyone');
   });
 
-  test('permission errors surface a one-shot message', () async {
+  test('permission errors surface a one-shot message when there is no '
+      'fallback to retry', () async {
     final text = TextEditingController();
     final engine = _FakeEngine();
     final dictation = _controller(text, primary: engine);
@@ -176,6 +177,60 @@ void main() {
 
     expect(dictation.consumeError(), DictationError.permissionBlocked);
     expect(dictation.consumeError(), isNull, reason: 'one-shot');
+    expect(dictation.status, DictationStatus.idle);
+  });
+
+  test(
+      'a spurious not-allowed on the live path retries via the fallback '
+      'before treating it as a real denial (mobile/WebKit quirk)', () async {
+    final text = TextEditingController();
+    final primary = _FakeEngine();
+    final fallback = _FakeEngine();
+    final dictation = _controller(text,
+        primary: primary, fallback: fallback, serverAvailable: true);
+    await pumpEventQueue();
+
+    await dictation.toggle();
+    expect(primary.startCalls, 1);
+
+    primary.emit(const DictationEvent('error', errorCode: 'permission'));
+    await pumpEventQueue();
+
+    expect(fallback.startCalls, 1, reason: 'retried on the recorder path');
+    expect(dictation.status, DictationStatus.listening);
+    expect(dictation.available, isTrue);
+    expect(dictation.consumeError(), isNull,
+        reason: 'no error surfaced while the retry is in flight');
+
+    // Later sessions go straight to the fallback.
+    fallback.emit(const DictationEvent('final', text: 'hi'));
+    await fallback.end();
+    await pumpEventQueue();
+    await dictation.toggle();
+    expect(fallback.startCalls, 2);
+    expect(primary.startCalls, 1);
+  });
+
+  test(
+      'permission denied on both the live path and the fallback surfaces the '
+      'permission message and hides the mic', () async {
+    final text = TextEditingController();
+    final primary = _FakeEngine();
+    final fallback = _FakeEngine();
+    final dictation = _controller(text,
+        primary: primary, fallback: fallback, serverAvailable: true);
+    await pumpEventQueue();
+
+    await dictation.toggle();
+    primary.emit(const DictationEvent('error', errorCode: 'permission'));
+    await pumpEventQueue();
+    expect(fallback.startCalls, 1);
+
+    fallback.emit(const DictationEvent('error', errorCode: 'permission'));
+    await fallback.end();
+    await pumpEventQueue();
+
+    expect(dictation.consumeError(), DictationError.permissionBlocked);
     expect(dictation.status, DictationStatus.idle);
   });
 
