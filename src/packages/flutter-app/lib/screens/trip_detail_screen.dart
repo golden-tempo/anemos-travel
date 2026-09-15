@@ -4092,7 +4092,17 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
       // one: tapping [_BottomNavToggleBar] flips it either way, so the bar
       // can be brought back AND put away again for the rest of this visit,
       // rather than the one-way door #594 shipped.
-      final showNavBar = !onNarrowTripsForeground || _navBarRevealed;
+      //
+      // `!_panelOpen` overrides a stale reveal: the refine chat's own
+      // composer sits at the very bottom of the screen while it is open
+      // (issue #651), and a revealed persistent bar would sit right under
+      // it — a multi-line draft grows toward that row and the tab bar ends
+      // up covering the traveler's own typing. The chat panel already gives
+      // its own way back to the tabs (its close button, and Escape/back),
+      // so neither bar needs to show while it's open regardless of whether
+      // this screen's bar was revealed before the chat was opened.
+      final showNavBar =
+          !onNarrowTripsForeground || (_navBarRevealed && !_panelOpen);
       _syncBottomNavVisible(showNavBar);
       // Where back goes once the panel is out of the way. Null is both "opened
       // from the trips list" and every other entry point, and means the
@@ -5045,7 +5055,15 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
       //   - revealed ([_navBarRevealed] true): a slim collapse strip sits
       //     directly above the now-visible tab bar so the traveler can put it
       //     away again — issue #610, the one-way door #594 shipped.
-      bottomNavigationBar: !onNarrowTripsForeground
+      //
+      // Also hidden whenever [_panelOpen] — the refine chat's composer is
+      // the last thing on screen while it's open, and this strip used to sit
+      // right under it regardless: a draft that grew past one or two lines
+      // pushed the composer down into the toggle, which read as the arrow
+      // covering the traveler's own typing (issue #651). The chat has its
+      // own way back to the tabs (its close button; back/Escape), so this
+      // stand-in has nothing left to do until the chat closes.
+      bottomNavigationBar: (!onNarrowTripsForeground || _panelOpen)
           ? null
           : (_navBarRevealed
               ? _BottomNavToggleBar(
