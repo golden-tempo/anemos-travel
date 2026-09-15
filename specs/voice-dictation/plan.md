@@ -23,7 +23,11 @@ Two capture paths behind one Dart abstraction, one insertion contract:
    availability from `GET /api/v1/transcribe/availability` (cached
    FutureProvider). Neither → mic not rendered. Browsers that advertise Web
    Speech but fail at `start()` (Brave) degrade to the recorder path for the
-   session.
+   session — as do browsers where `start()` reports a spurious `not-allowed`
+   without ever prompting (iOS Safari/Chrome and some Android Chrome builds):
+   the controller retries once via the recorder before treating it as a real
+   permission denial, since a genuinely denied prompt fails the same way on
+   both paths.
 
 Transcripts are **appended** into the composer's existing
 `TextEditingController` (base-snapshot + partial overlay, finals commit to the

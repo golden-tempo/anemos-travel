@@ -157,6 +157,18 @@ class DictationController extends ChangeNotifier {
   void _onError(String code) {
     switch (code) {
       case 'permission':
+        // Several mobile/WebKit browsers (iOS Safari and iOS/Android Chrome
+        // among them) report a spurious 'not-allowed' from the live engine
+        // even though the microphone itself works fine — confirmed by the
+        // `record` plugin succeeding on the same device/browser where
+        // `speech_to_text` immediately errors. Retry once via the recorder
+        // fallback before treating this as a real permission denial; if the
+        // fallback also can't get the mic, it really was blocked.
+        if (_engine == primary && fallback != null) {
+          _switchToFallbackAndRetry(
+              giveUpError: DictationError.permissionBlocked);
+          return;
+        }
         _errorMessage = DictationError.permissionBlocked;
       case 'engine-failed':
         // The live engine exists but doesn't work here (Brave-style forks).
@@ -178,7 +190,9 @@ class DictationController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _switchToFallbackAndRetry() async {
+  Future<void> _switchToFallbackAndRetry({
+    DictationError giveUpError = DictationError.unsupportedBrowser,
+  }) async {
     final retry = !_retriedWithFallback;
     _retriedWithFallback = true;
     await _endSession(cancelEngine: true);
@@ -191,7 +205,7 @@ class DictationController extends ChangeNotifier {
       }
     } else {
       _available = false;
-      _errorMessage = DictationError.unsupportedBrowser;
+      _errorMessage = giveUpError;
     }
     notifyListeners();
   }
