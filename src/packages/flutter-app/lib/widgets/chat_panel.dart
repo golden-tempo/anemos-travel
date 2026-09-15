@@ -33,6 +33,7 @@ import '../utils/place_links.dart';
 import '../utils/money_format.dart';
 import '../utils/tracked_launch.dart';
 import 'add_to_trip_sheet.dart';
+import 'chat_recommendation_map.dart';
 import 'maps_link_sheet.dart';
 import 'near_me_locate.dart';
 import 'place_photo_card.dart';
@@ -1408,10 +1409,13 @@ class _SeedContextChip extends StatelessWidget {
 }
 
 /// Horizontal photo-card rails for the recommendation-shaped results (Google
-/// places, local picks, events) — the sources where seeing the place matters.
-/// Replaces those sources' summary chips; link-shaped results (flights,
-/// ferries, event sources) stay chips in [_ResultChips]. Fixed-height rails,
-/// single-slot per-turn state: images can pop in but never reflow the tail.
+/// places, local picks, events, parking, hotels) — the sources where seeing
+/// the place matters. Each rail that carries at least one coordinate pairs
+/// with a small map above it (RecommendationMapStrip, #652): hovering a card
+/// highlights its pin, ChatGPT's map-recommendation pairing. Replaces those
+/// sources' summary chips; link-shaped results (flights, ferries, event
+/// sources) stay chips in [_ResultChips]. Fixed-height rails, single-slot
+/// per-turn state: images can pop in but never reflow the tail.
 class _ResultStrips extends ConsumerWidget {
   final ProviderListenable<PlanState> state;
   final ProviderListenable<PlanNotifier> notifier;
@@ -1471,11 +1475,15 @@ class _ResultStrips extends ConsumerWidget {
     final l10n = context.l10n;
     final strips = <Widget>[
       if (r.places != null && r.places!.isNotEmpty)
-        PlacePhotoStrip(
+        RecommendationMapStrip(
           icon: Icons.place_outlined,
           accent: scheme.primary,
           label: label(l10n.chatStripPlaces(r.places!.length), r.placesQuery),
           onViewTrip: onHeaderTap,
+          points: [
+            for (final place in r.places!.take(_maxCards))
+              recommendationPoint(place.lat, place.lng),
+          ],
           cards: [
             for (final place in r.places!.take(_maxCards))
               PlacePhotoCard(
@@ -1489,12 +1497,16 @@ class _ResultStrips extends ConsumerWidget {
           ],
         ),
       if (r.localRecs != null && r.localRecs!.isNotEmpty)
-        PlacePhotoStrip(
+        RecommendationMapStrip(
           icon: Icons.verified,
           accent: AppColors.toolLocal(scheme.brightness),
           label: label(
               l10n.chatChipLocalPicks(r.localRecs!.length), r.localRecsCity),
           onViewTrip: onHeaderTap,
+          points: [
+            for (final rec in r.localRecs!.take(_maxCards))
+              recommendationPoint(rec.latitude, rec.longitude),
+          ],
           cards: [
             for (final rec in r.localRecs!.take(_maxCards))
               PlacePhotoCard(
@@ -1509,11 +1521,15 @@ class _ResultStrips extends ConsumerWidget {
           ],
         ),
       if (r.events != null && r.events!.isNotEmpty)
-        PlacePhotoStrip(
+        RecommendationMapStrip(
           icon: Icons.local_activity,
           accent: AppColors.toolEvents(scheme.brightness),
           label: label(l10n.chatChipEvents(r.events!.length), r.eventsCity),
           onViewTrip: onHeaderTap,
+          points: [
+            for (final event in r.events!.take(_maxCards))
+              recommendationPoint(event.latitude, event.longitude),
+          ],
           cards: [
             for (final event in r.events!.take(_maxCards))
               PlacePhotoCard(
@@ -1529,12 +1545,16 @@ class _ResultStrips extends ConsumerWidget {
           ],
         ),
       if (r.parkingSpots != null && r.parkingSpots!.isNotEmpty)
-        PlacePhotoStrip(
+        RecommendationMapStrip(
           icon: Icons.local_parking,
           accent: AppColors.toolParking(scheme.brightness),
           label: label(
               l10n.chatStripParking(r.parkingSpots!.length), r.parkingBeach),
           onViewTrip: onHeaderTap,
+          points: [
+            for (final spot in r.parkingSpots!.take(_maxCards))
+              recommendationPoint(spot.lat, spot.lng),
+          ],
           cards: [
             for (final spot in r.parkingSpots!.take(_maxCards))
               PlacePhotoCard(
@@ -1550,7 +1570,7 @@ class _ResultStrips extends ConsumerWidget {
           ],
         ),
       if (r.hotels != null && r.hotels!.stays.isNotEmpty)
-        PlacePhotoStrip(
+        RecommendationMapStrip(
           icon: Icons.hotel,
           accent: AppColors.toolStays(scheme.brightness),
           // The "no live rates" caveat rides the HEADER, not the cards: the
@@ -1564,6 +1584,10 @@ class _ResultStrips extends ConsumerWidget {
             ].join(' · '),
           ),
           onViewTrip: onHeaderTap,
+          points: [
+            for (final stay in r.hotels!.stays.take(_maxCards))
+              recommendationPoint(stay.latitude, stay.longitude),
+          ],
           cards: [
             for (final stay in r.hotels!.stays.take(_maxCards))
               PlacePhotoCard(
