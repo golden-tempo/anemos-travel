@@ -402,7 +402,12 @@ class PlacePhotoStrip extends StatelessWidget {
   final Color accent;
   final String label;
   final VoidCallback? onViewTrip;
-  final List<PlacePhotoCard> cards;
+
+  /// Normally a `List<PlacePhotoCard>` literal, widened to [Widget] so
+  /// [RecommendationMapStrip] can slot each card inside a [MouseRegion]
+  /// (its hover → map-pin-highlight wiring, #652) without this strip
+  /// caring — it only ever indexes and lays the list out.
+  final List<Widget> cards;
 
   /// Label for the trailing header action. Defaults to the chat's
   /// "View in trip"; the trip-detail events rail passes "See all", where the
