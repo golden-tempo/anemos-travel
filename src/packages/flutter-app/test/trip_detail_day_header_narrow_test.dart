@@ -16,9 +16,10 @@ import 'support/l10n_test_app.dart';
 
 /// The day sub-header on a phone: no calendar glyph (the city header's pin
 /// two rows up already anchors the section, and two calendars said less than
-/// one indent column does), and the month spelled out only where dropping it
-/// would lose something — the first dated day of a group, and every month
-/// rollover after it. Desktop keeps the icon and the full date on every row.
+/// one indent column does), and the month spelled out on EVERY row — issue
+/// #642: a header that drops the month whenever it "hasn't changed" reads
+/// as inconsistent next to the ones that keep it. Desktop keeps the icon and
+/// always spelled the full date, so both widths now agree on the label.
 
 class _FakeTripsApiService extends TripsApiService {
   final Trip trip;
@@ -52,9 +53,9 @@ ItineraryItem _item(int pos, String name, String city, int day) =>
       city: city,
     );
 
-/// Kraków Aug 29 → Sep 2: one city whose days cross a month boundary, which
-/// is the case the running-month rule exists for. Days 1..5 of the trip map
-/// to Aug 29, 30, 31, Sep 1, Sep 2.
+/// Kraków Aug 29 → Sep 2: one city whose days cross a month boundary, the
+/// case that used to trip up the now-removed running-month rule. Days 1..5
+/// of the trip map to Aug 29, 30, 31, Sep 1, Sep 2.
 Trip _monthCrossingTrip() => Trip(
       id: 't1',
       title: 'Kraków',
@@ -96,22 +97,22 @@ const _phone = Size(390, 1600);
 const _desktop = Size(800, 1600);
 
 void main() {
-  testWidgets('phone: the month is stated once, then again when it changes',
+  testWidgets('phone: every day header spells out the month',
       (WidgetTester tester) async {
     await _pump(tester, _monthCrossingTrip(), _phone);
 
-    // First dated day of the group keeps the month...
+    // Every dated day states the full weekday + month + day, including the
+    // days that follow the first one inside the same month — no row is
+    // shortened just because an earlier row already said the month.
     expect(find.text('Sat, Aug 29'), findsOneWidget);
-    // ...the days that follow inside the same month drop it...
-    expect(find.text('Sun 30'), findsOneWidget);
-    expect(find.text('Mon 31'), findsOneWidget);
-    expect(find.text('Sun, Aug 30'), findsNothing);
-    expect(find.text('Mon, Aug 31'), findsNothing);
-    // ...and the rollover states it again, because "Mon 31 / Tue 1" is
-    // genuinely ambiguous and that is exactly where a traveler is checking.
+    expect(find.text('Sun, Aug 30'), findsOneWidget);
+    expect(find.text('Mon, Aug 31'), findsOneWidget);
     expect(find.text('Tue, Sep 1'), findsOneWidget);
-    expect(find.text('Wed 2'), findsOneWidget);
-    expect(find.text('Wed, Sep 2'), findsNothing);
+    expect(find.text('Wed, Sep 2'), findsOneWidget);
+    // The old, month-dropping short labels never appear.
+    expect(find.text('Sun 30'), findsNothing);
+    expect(find.text('Mon 31'), findsNothing);
+    expect(find.text('Wed 2'), findsNothing);
   });
 
   testWidgets('phone: the day header drops its calendar glyph',
@@ -122,11 +123,10 @@ void main() {
         reason: 'the pin on the city header above is the section anchor');
   });
 
-  testWidgets('desktop keeps the icon and spells every date',
+  testWidgets('desktop keeps the icon; phone and desktop labels now agree',
       (WidgetTester tester) async {
-    // The wide layout is deliberately untouched by this pass: it has the
-    // width to say the whole thing on every row, and the chip columns that
-    // narrow gives up are worth having there.
+    // The icon is still the one thing narrow gives up (the padding rule
+    // above it); the date label itself is identical at both widths now.
     await _pump(tester, _monthCrossingTrip(), _desktop);
 
     expect(find.byIcon(Icons.today), findsWidgets);
@@ -135,25 +135,12 @@ void main() {
     expect(find.text('Mon, Aug 31'), findsOneWidget);
     expect(find.text('Tue, Sep 1'), findsOneWidget);
     expect(find.text('Wed, Sep 2'), findsOneWidget);
-    expect(find.text('Sun 30'), findsNothing);
-  });
-
-  testWidgets('phone: the short label localizes', (WidgetTester tester) async {
-    // weekdayDay composes DateFormat.E() + DateFormat.d(); both shipped
-    // locales lead with the weekday, so one order serves both. The month-
-    // bearing label comes from DateFormat.MMMEd(), which reads
-    // Intl.defaultLocale (English in the test env) rather than the widget
-    // locale — so only the short half is assertable here.
-    await _pump(tester, _monthCrossingTrip(), _phone,
-        locale: const Locale('es'));
-
-    expect(find.text('Sun 30'), findsOneWidget);
   });
 
   testWidgets('an undated trip still falls back to "Day N"',
       (WidgetTester tester) async {
-    // No start date => no calendar date to shorten; the fallback label is
-    // untouched by the running-month rule.
+    // No start date => no calendar date to spell out; the fallback label is
+    // untouched by the always-show-the-month rule.
     await _pump(
       tester,
       Trip(
