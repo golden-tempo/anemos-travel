@@ -93,11 +93,20 @@ class TripRefinePanel extends ConsumerWidget {
   final VoidCallback onNewChat;
   final VoidCallback? onRetry;
 
+  /// "Previous chats" (#639): opens the picker over this trip's archived
+  /// conversations. Shown alongside [onNewChat] whenever there is a
+  /// conversation on screen to switch away from — the same gate as that
+  /// button, and reachable independently of the panel from the Continue-chat
+  /// row's own menu (`trip_header_card.dart`) whenever an active
+  /// conversation is advertised there.
+  final VoidCallback onShowPreviousChats;
+
   const TripRefinePanel({
     super.key,
     required this.tripId,
     required this.onClose,
     required this.onNewChat,
+    required this.onShowPreviousChats,
     this.phase = RefineChatPhase.ready,
     this.error,
     this.onRetry,
@@ -162,12 +171,22 @@ class TripRefinePanel extends ConsumerWidget {
               // two buttons in [_body] keep [refineNewChat] on purpose — there
               // the transcript is already gone or unreachable, so "clear" would
               // be offering to destroy nothing.
-              if (phase == RefineChatPhase.ready && hasConversation)
+              if (phase == RefineChatPhase.ready && hasConversation) ...[
+                // "Previous chats" (#639): a non-destructive view, so
+                // icon-only + tooltip is fine here in a way it isn't for the
+                // clear button beside it — this one never needs a second
+                // chance to notice it.
+                IconButton(
+                  icon: const Icon(Icons.history, size: 18),
+                  tooltip: l10n.refinePreviousChats,
+                  onPressed: onShowPreviousChats,
+                ),
                 TextButton.icon(
                   icon: const Icon(Icons.delete_outline, size: 18),
                   label: Text(l10n.refineClearChat),
                   onPressed: onNewChat,
                 ),
+              ],
               IconButton(
                 icon: const Icon(Icons.close),
                 tooltip: l10n.commonClose,

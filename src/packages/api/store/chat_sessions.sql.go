@@ -12,6 +12,53 @@ import (
 	"github.com/google/uuid"
 )
 
+const activateTripRefineSessionHistoryEntry = `-- name: ActivateTripRefineSessionHistoryEntry :execrows
+UPDATE trip_refine_sessions SET is_active = true
+WHERE id = $1 AND user_id = $2 AND trip_id = $3 AND NOT is_active
+`
+
+type ActivateTripRefineSessionHistoryEntryParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+	TripID uuid.UUID `json:"trip_id"`
+}
+
+// Half of "resume a previous chat": promotes one archived row back to
+// active. Callers run ArchiveActiveTripRefineSession first (in the same
+// transaction) so the partial unique index never sees two active rows for
+// this (user, trip) at once. Total archived count is unchanged by a
+// resume — one leaves history, the conversation it replaces enters it — so
+// this never needs the 5-cap prune.
+func (q *Queries) ActivateTripRefineSessionHistoryEntry(ctx context.Context, arg ActivateTripRefineSessionHistoryEntryParams) (int64, error) {
+	result, err := q.db.Exec(ctx, activateTripRefineSessionHistoryEntry, arg.ID, arg.UserID, arg.TripID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const archiveActiveTripRefineSession = `-- name: ArchiveActiveTripRefineSession :execrows
+UPDATE trip_refine_sessions SET is_active = false
+WHERE user_id = $1 AND trip_id = $2 AND is_active
+`
+
+type ArchiveActiveTripRefineSessionParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	TripID uuid.UUID `json:"trip_id"`
+}
+
+// "New chat": retire the active conversation into history instead of
+// deleting it (#639). Idempotent — 0 rows affected when there was no active
+// conversation, which deleteTripRefineChatHandler treats the same as 1 (its
+// documented idempotence, unchanged since 00069).
+func (q *Queries) ArchiveActiveTripRefineSession(ctx context.Context, arg ArchiveActiveTripRefineSessionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, archiveActiveTripRefineSession, arg.UserID, arg.TripID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deletePlanChatSession = `-- name: DeletePlanChatSession :execrows
 DELETE FROM plan_chat_sessions
 WHERE user_id = $1 AND chat_id = $2
@@ -45,24 +92,6 @@ func (q *Queries) DeleteStalePlanChatSessions(ctx context.Context) error {
 	return err
 }
 
-const deleteTripRefineSession = `-- name: DeleteTripRefineSession :execrows
-DELETE FROM trip_refine_sessions
-WHERE user_id = $1 AND trip_id = $2
-`
-
-type DeleteTripRefineSessionParams struct {
-	UserID uuid.UUID `json:"user_id"`
-	TripID uuid.UUID `json:"trip_id"`
-}
-
-func (q *Queries) DeleteTripRefineSession(ctx context.Context, arg DeleteTripRefineSessionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteTripRefineSession, arg.UserID, arg.TripID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const getPlanChatSessionByChatID = `-- name: GetPlanChatSessionByChatID :one
 SELECT id, user_id, chat_id, title, preview, summary, messages, message_count, created_at, updated_at FROM plan_chat_sessions
 WHERE user_id = $1 AND chat_id = $2
@@ -92,8 +121,8 @@ func (q *Queries) GetPlanChatSessionByChatID(ctx context.Context, arg GetPlanCha
 }
 
 const getTripRefineSession = `-- name: GetTripRefineSession :one
-SELECT id, user_id, trip_id, preview, summary, messages, message_count, created_at, updated_at FROM trip_refine_sessions
-WHERE user_id = $1 AND trip_id = $2
+SELECT id, user_id, trip_id, preview, summary, messages, message_count, created_at, updated_at, is_active FROM trip_refine_sessions
+WHERE user_id = $1 AND trip_id = $2 AND is_active
 `
 
 type GetTripRefineSessionParams struct {
@@ -101,6 +130,7 @@ type GetTripRefineSessionParams struct {
 	TripID uuid.UUID `json:"trip_id"`
 }
 
+// The active conversation — what opening the chat resumes.
 func (q *Queries) GetTripRefineSession(ctx context.Context, arg GetTripRefineSessionParams) (TripRefineSession, error) {
 	row := q.db.QueryRow(ctx, getTripRefineSession, arg.UserID, arg.TripID)
 	var i TripRefineSession
@@ -114,13 +144,46 @@ func (q *Queries) GetTripRefineSession(ctx context.Context, arg GetTripRefineSes
 		&i.MessageCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsActive,
+	)
+	return i, err
+}
+
+const getTripRefineSessionHistoryEntry = `-- name: GetTripRefineSessionHistoryEntry :one
+SELECT id, user_id, trip_id, preview, summary, messages, message_count, created_at, updated_at, is_active FROM trip_refine_sessions
+WHERE id = $1 AND user_id = $2 AND trip_id = $3 AND NOT is_active
+`
+
+type GetTripRefineSessionHistoryEntryParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+	TripID uuid.UUID `json:"trip_id"`
+}
+
+// One archived conversation's full transcript, scoped to its (user, trip) the
+// same way GetTripRefineSession is, so a history entry can never be read
+// across trips or travelers by guessing its id.
+func (q *Queries) GetTripRefineSessionHistoryEntry(ctx context.Context, arg GetTripRefineSessionHistoryEntryParams) (TripRefineSession, error) {
+	row := q.db.QueryRow(ctx, getTripRefineSessionHistoryEntry, arg.ID, arg.UserID, arg.TripID)
+	var i TripRefineSession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TripID,
+		&i.Preview,
+		&i.Summary,
+		&i.Messages,
+		&i.MessageCount,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsActive,
 	)
 	return i, err
 }
 
 const getTripRefineSessionSummary = `-- name: GetTripRefineSessionSummary :one
 SELECT preview, message_count, updated_at FROM trip_refine_sessions
-WHERE user_id = $1 AND trip_id = $2
+WHERE user_id = $1 AND trip_id = $2 AND is_active
 `
 
 type GetTripRefineSessionSummaryParams struct {
@@ -137,7 +200,8 @@ type GetTripRefineSessionSummaryRow struct {
 // Presence + freshness for GET /trips/{id} (the refine_chat object). Summary
 // columns only: the transcript can run to hundreds of KB and is fetched on
 // demand from GET /trips/{id}/refine-chat, never on every trip page load —
-// the same list/detail split as /chats.
+// the same list/detail split as /chats. Active only — a trip only ever
+// advertises the conversation opening the chat would resume.
 func (q *Queries) GetTripRefineSessionSummary(ctx context.Context, arg GetTripRefineSessionSummaryParams) (GetTripRefineSessionSummaryRow, error) {
 	row := q.db.QueryRow(ctx, getTripRefineSessionSummary, arg.UserID, arg.TripID)
 	var i GetTripRefineSessionSummaryRow
@@ -198,6 +262,79 @@ func (q *Queries) ListResumablePlanChatSessions(ctx context.Context, userID uuid
 	return items, nil
 }
 
+const listTripRefineSessionHistory = `-- name: ListTripRefineSessionHistory :many
+SELECT id, preview, message_count, created_at, updated_at
+FROM trip_refine_sessions
+WHERE user_id = $1 AND trip_id = $2 AND NOT is_active
+ORDER BY updated_at DESC
+LIMIT 5
+`
+
+type ListTripRefineSessionHistoryParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	TripID uuid.UUID `json:"trip_id"`
+}
+
+type ListTripRefineSessionHistoryRow struct {
+	ID           uuid.UUID `json:"id"`
+	Preview      string    `json:"preview"`
+	MessageCount int32     `json:"message_count"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// The "Previous chats" menu: past conversations about this trip, most
+// recently active first. Summary columns only, like the active summary above.
+func (q *Queries) ListTripRefineSessionHistory(ctx context.Context, arg ListTripRefineSessionHistoryParams) ([]ListTripRefineSessionHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listTripRefineSessionHistory, arg.UserID, arg.TripID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTripRefineSessionHistoryRow
+	for rows.Next() {
+		var i ListTripRefineSessionHistoryRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Preview,
+			&i.MessageCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pruneTripRefineSessionHistory = `-- name: PruneTripRefineSessionHistory :exec
+DELETE FROM trip_refine_sessions
+WHERE id IN (
+    SELECT s.id FROM trip_refine_sessions s
+    WHERE s.user_id = $1 AND s.trip_id = $2 AND NOT s.is_active
+    ORDER BY s.updated_at DESC
+    OFFSET 5
+)
+`
+
+type PruneTripRefineSessionHistoryParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	TripID uuid.UUID `json:"trip_id"`
+}
+
+// Keeps at most 5 archived conversations per (user, trip) — "at most five
+// prior conversations ... stored in the database" (#639). Run once per "New
+// chat", right after ArchiveActiveTripRefineSession grows the history by one,
+// so this only ever has to remove at most that one oldest row.
+func (q *Queries) PruneTripRefineSessionHistory(ctx context.Context, arg PruneTripRefineSessionHistoryParams) error {
+	_, err := q.db.Exec(ctx, pruneTripRefineSessionHistory, arg.UserID, arg.TripID)
+	return err
+}
+
 const upsertPlanChatSession = `-- name: UpsertPlanChatSession :exec
 INSERT INTO plan_chat_sessions (
     user_id, chat_id, title, preview, summary, messages, message_count
@@ -240,7 +377,7 @@ const upsertTripRefineSession = `-- name: UpsertTripRefineSession :exec
 INSERT INTO trip_refine_sessions (
     user_id, trip_id, preview, summary, messages, message_count
 ) VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (user_id, trip_id) DO UPDATE SET
+ON CONFLICT (user_id, trip_id) WHERE is_active DO UPDATE SET
     preview = EXCLUDED.preview,
     summary = EXCLUDED.summary,
     messages = EXCLUDED.messages,
@@ -262,6 +399,11 @@ type UpsertTripRefineSessionParams struct {
 // UpsertPlanChatSession. Keyed by (user, trip): the client's per-panel chat_id
 // is meaningless here and is deliberately not stored, which is what makes a
 // refine transcript unaddressable by chat id (specs/trip-refine-memory).
+//
+// Targets the partial unique index on (user_id, trip_id) WHERE is_active
+// (#639/00078): a turn always appends to the ACTIVE conversation, never to an
+// archived one, so continuing to chat can never resurrect a "Previous chat"
+// entry out from under the traveler.
 func (q *Queries) UpsertTripRefineSession(ctx context.Context, arg UpsertTripRefineSessionParams) error {
 	_, err := q.db.Exec(ctx, upsertTripRefineSession,
 		arg.UserID,

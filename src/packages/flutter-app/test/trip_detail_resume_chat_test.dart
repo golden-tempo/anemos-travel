@@ -37,11 +37,23 @@ class _FakeTripsApiService extends TripsApiService {
   /// Gates the fetch so a test can inspect the loading state.
   final Completer<void>? gate;
 
+  /// "Previous chats" fixtures (#639): what the history list answers, and
+  /// what resuming one entry restores.
+  final List<TripRefineChatHistoryEntry> historyEntries;
+  final TripRefineChatDetail? resumedDetail;
+
   int getChatCalls = 0;
   int deleteCalls = 0;
+  int historyCalls = 0;
+  final List<String> resumedSessionIds = [];
 
   _FakeTripsApiService(this.trip,
-      {this.detail, this.failWith, this.gate, this.clearedTrip})
+      {this.detail,
+      this.failWith,
+      this.gate,
+      this.clearedTrip,
+      this.historyEntries = const [],
+      this.resumedDetail})
       : super(ApiClient(baseUrl: 'http://test'));
 
   @override
@@ -60,6 +72,20 @@ class _FakeTripsApiService extends TripsApiService {
   @override
   Future<void> deleteTripRefineChat(String tripId) async {
     deleteCalls++;
+  }
+
+  @override
+  Future<List<TripRefineChatHistoryEntry>> listTripRefineChatHistory(
+      String tripId) async {
+    historyCalls++;
+    return historyEntries;
+  }
+
+  @override
+  Future<TripRefineChatDetail> resumeTripRefineChatHistoryEntry(
+      String tripId, String sessionId) async {
+    resumedSessionIds.add(sessionId);
+    return resumedDetail!;
   }
 }
 
@@ -415,7 +441,117 @@ void main() {
     expect(api.deleteCalls, 0);
     expect(find.text('Continue chat'), findsOneWidget);
   });
+
+  // --- "Previous chats" (#639) ---
+
+  testWidgets(
+      'Previous chats from the Continue-chat row lists archived conversations',
+      (WidgetTester tester) async {
+    final api = _FakeTripsApiService(
+      _trip(chat: _summary()),
+      detail: _detail(),
+      historyEntries: [_historyEntry()],
+    );
+    await tester.pumpWidget(_app(api));
+    await tester.pumpAndSettle();
+
+    await tester.tap(_rowMenu);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Previous chats'));
+    await tester.pumpAndSettle();
+
+    expect(api.historyCalls, 1);
+    expect(find.text('Older ask, newer reply.'), findsOneWidget);
+    // Discarding a conversation never restores it; browsing history is the
+    // same courtesy in reverse — it must not resume the active one either.
+    expect(api.getChatCalls, 0);
+  });
+
+  testWidgets('an empty history says so instead of an empty list',
+      (WidgetTester tester) async {
+    final api = _FakeTripsApiService(_trip(chat: _summary()),
+        detail: _detail(), historyEntries: const []);
+    await tester.pumpWidget(_app(api));
+    await tester.pumpAndSettle();
+
+    await tester.tap(_rowMenu);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Previous chats'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No previous chats yet.'), findsOneWidget);
+  });
+
+  testWidgets(
+      'picking a previous chat resumes it into the panel and refreshes the trip',
+      (WidgetTester tester) async {
+    final api = _FakeTripsApiService(
+      _trip(chat: _summary()),
+      detail: _detail(),
+      historyEntries: [_historyEntry()],
+      resumedDetail: const TripRefineChatDetail(
+        tripId: 't1',
+        summary: '',
+        messages: [
+          ChatSessionMessage(role: 'user', content: 'older ask'),
+          ChatSessionMessage(role: 'assistant', content: 'older reply'),
+        ],
+        messageCount: 2,
+        updatedAt: '2037-07-20T10:00:00Z',
+      ),
+    );
+    await tester.pumpWidget(_app(api));
+    await tester.pumpAndSettle();
+
+    await tester.tap(_rowMenu);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Previous chats'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Older ask, newer reply.'));
+    await tester.pumpAndSettle();
+
+    expect(api.resumedSessionIds, ['hist-1']);
+    // The panel opened onto the RESUMED transcript, not the active one.
+    expect(find.byType(ChatPanel), findsOneWidget);
+    expect(_refineState(tester).messages, hasLength(2));
+    expect(_refineState(tester).messages.first.content, 'older ask');
+    // Resuming a swap changes what the trip advertises — the page re-fetches.
+    expect(api.getChatCalls, 0,
+        reason: 'the resumed transcript came back from the resume call '
+            'itself, not a follow-up GET /refine-chat');
+  });
+
+  testWidgets('Previous chats is also reachable from inside the open panel',
+      (WidgetTester tester) async {
+    final api = _FakeTripsApiService(
+      _trip(chat: _summary()),
+      detail: _detail(),
+      historyEntries: [_historyEntry()],
+    );
+    await tester.pumpWidget(_app(api));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Continue chat'));
+    await tester.pumpAndSettle();
+    expect(_refineState(tester).messages, hasLength(2));
+
+    await tester.tap(find.byTooltip('Previous chats'));
+    await tester.pumpAndSettle();
+
+    expect(api.historyCalls, 1);
+    expect(find.text('Older ask, newer reply.'), findsOneWidget);
+  });
 }
+
+/// One archived conversation fixture for the "Previous chats" tests.
+TripRefineChatHistoryEntry _historyEntry() => const TripRefineChatHistoryEntry(
+      id: 'hist-1',
+      preview: 'Older ask, newer reply.',
+      messageCount: 2,
+      createdAt: '2037-07-20T10:00:00Z',
+      updatedAt: '2037-07-20T10:05:00Z',
+    );
 
 /// The Continue-chat row's own ⋮ — the screen has several
 /// `PopupMenuButton<String>`s, so this is scoped to the row. Scoped by the

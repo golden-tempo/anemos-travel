@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -14,13 +15,14 @@ import (
 // hook for trip-bound turns, the /trips/{id}/refine-chat surface, and the
 // boundary that keeps a refine transcript out of the freeform /chats world.
 
-// refineRow reads one trip refine session straight from the table.
+// refineRow reads the ACTIVE trip refine session straight from the table —
+// what GetTripRefineSession itself would resume.
 func refineRow(t *testing.T, userID, tripID uuid.UUID) (msgs []PlanChatMessage, preview, summary string, count int, found bool) {
 	t.Helper()
 	var raw []byte
 	err := dbPool.QueryRow(context.Background(),
 		`SELECT messages, preview, summary, message_count FROM trip_refine_sessions
-		 WHERE user_id = $1 AND trip_id = $2`, userID, tripID).Scan(&raw, &preview, &summary, &count)
+		 WHERE user_id = $1 AND trip_id = $2 AND is_active`, userID, tripID).Scan(&raw, &preview, &summary, &count)
 	if err != nil {
 		return nil, "", "", 0, false
 	}
@@ -82,8 +84,11 @@ func TestTripBoundPlanTurnPersistsRefineSession(t *testing.T) {
 }
 
 // (b) The append contract: more turns, including a fresh section seed, keep
-// ONE row and grow it. This is what "one running chat per trip" means in
-// storage, and it is enforced by UNIQUE (user_id, trip_id).
+// ONE row and grow it. This is what "one running (active) chat per trip"
+// means in storage, and it is enforced by the partial UNIQUE index on
+// (user_id, trip_id) WHERE is_active (00078) — the ARCHIVED rows a "New chat"
+// leaves behind (TestNewChatArchivesInsteadOfDeleting) are a different,
+// deliberately unbounded-by-this-constraint story.
 func TestTripRefineSessionIsOneRowPerUserPerTrip(t *testing.T) {
 	resetDB(t)
 	user, token := createTestUser(t, "appender@example.com")
@@ -498,4 +503,216 @@ func toJSONString(t *testing.T, v any) string {
 		t.Fatalf("marshal: %v", err)
 	}
 	return string(b)
+}
+
+// --- Trip chat history (#639): "New chat" archives instead of destroying,
+// up to tripRefineHistoryCap past conversations are kept per (user, trip),
+// and any one of them can be brought back as the active conversation. ---
+
+// historyRows lists the caller's archived conversations for one trip in the
+// same shape GET /trips/{id}/refine-chat/history hands back.
+func historyRows(t *testing.T, token, tripID string) []TripRefineChatHistoryEntry {
+	t.Helper()
+	rec := doJSON(t, "GET", "/api/v1/trips/"+tripID+"/refine-chat/history", token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET history = %d: %s", rec.Code, rec.Body.String())
+	}
+	var body TripRefineChatHistoryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode history: %v", err)
+	}
+	return body.Chats
+}
+
+// (m) "New chat" archives the running conversation rather than destroying
+// it: it shows up in history, and the trip stops advertising it as active.
+func TestNewChatArchivesInsteadOfDeleting(t *testing.T) {
+	resetDB(t)
+	user, token := createTestUser(t, "archiver@example.com")
+	trip := createTestTrip(t, user.ID, 1)
+
+	boundTurn(t, token, trip.ID.String(), "first conversation", "First reply.")
+
+	del := doJSON(t, "DELETE", "/api/v1/trips/"+trip.ID.String()+"/refine-chat", token, nil)
+	if del.Code != http.StatusOK {
+		t.Fatalf("DELETE (new chat) = %d: %s", del.Code, del.Body.String())
+	}
+
+	// No longer active: gone from the row GetTripRefineSession would read,
+	// and off the trip's advertised refine_chat.
+	if _, _, _, _, found := refineRow(t, user.ID, trip.ID); found {
+		t.Fatal("the archived conversation is still reported active")
+	}
+	body := decode(t, doJSON(t, "GET", "/api/v1/trips/"+trip.ID.String(), token, nil))
+	if _, ok := body["refine_chat"]; ok {
+		t.Fatal("a trip with only an archived conversation should not advertise one")
+	}
+
+	// But it still exists — as history, not as a deleted row.
+	var rows int
+	if err := dbPool.QueryRow(context.Background(),
+		`SELECT count(*) FROM trip_refine_sessions WHERE user_id = $1 AND trip_id = $2`,
+		user.ID, trip.ID).Scan(&rows); err != nil {
+		t.Fatalf("count query: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("trip_refine_sessions rows = %d, want 1 — archived, not deleted", rows)
+	}
+
+	history := historyRows(t, token, trip.ID.String())
+	if len(history) != 1 {
+		t.Fatalf("history = %+v, want the one archived conversation", history)
+	}
+	if history[0].Preview != "First reply." || history[0].MessageCount != 2 {
+		t.Fatalf("history entry = %+v, want the archived transcript's own preview/count", history[0])
+	}
+	if history[0].ID == "" {
+		t.Fatal("a history entry must carry an id — it is how the traveler picks it")
+	}
+}
+
+// (n) The cap: a 6th "New chat" prunes the oldest archived conversation, so
+// at most tripRefineHistoryCap (5) prior conversations are ever stored.
+func TestNewChatPrunesHistoryPastTheCap(t *testing.T) {
+	resetDB(t)
+	user, token := createTestUser(t, "prune@example.com")
+	trip := createTestTrip(t, user.ID, 1)
+
+	for i := 0; i < tripRefineHistoryCap+1; i++ {
+		boundTurn(t, token, trip.ID.String(),
+			fmt.Sprintf("conversation %d", i), fmt.Sprintf("Reply %d.", i))
+		del := doJSON(t, "DELETE", "/api/v1/trips/"+trip.ID.String()+"/refine-chat", token, nil)
+		if del.Code != http.StatusOK {
+			t.Fatalf("DELETE #%d = %d: %s", i, del.Code, del.Body.String())
+		}
+	}
+
+	var rows int
+	if err := dbPool.QueryRow(context.Background(),
+		`SELECT count(*) FROM trip_refine_sessions WHERE user_id = $1 AND trip_id = $2`,
+		user.ID, trip.ID).Scan(&rows); err != nil {
+		t.Fatalf("count query: %v", err)
+	}
+	if rows != tripRefineHistoryCap {
+		t.Fatalf("stored conversations = %d, want at most %d", rows, tripRefineHistoryCap)
+	}
+
+	history := historyRows(t, token, trip.ID.String())
+	if len(history) != tripRefineHistoryCap {
+		t.Fatalf("history length = %d, want %d", len(history), tripRefineHistoryCap)
+	}
+	// The oldest ("conversation 0") was pruned; the newest survived.
+	previews := make([]string, len(history))
+	for i, h := range history {
+		previews[i] = h.Preview
+	}
+	if strings.Contains(strings.Join(previews, ","), "Reply 0.") {
+		t.Fatalf("the oldest conversation should have been pruned: %v", previews)
+	}
+	last := fmt.Sprintf("Reply %d.", tripRefineHistoryCap)
+	if previews[0] != last {
+		t.Fatalf("newest history entry = %q, want the most recently archived one %q", previews[0], last)
+	}
+}
+
+// (o) Resuming a previous chat makes it active again — the next turn appends
+// to IT, not to the one it replaced — and the replaced one becomes the newest
+// history entry instead of vanishing.
+func TestResumePreviousChatSwapsActiveConversation(t *testing.T) {
+	resetDB(t)
+	user, token := createTestUser(t, "resumer@example.com")
+	trip := createTestTrip(t, user.ID, 1)
+
+	boundTurn(t, token, trip.ID.String(), "older ask", "Older reply.")
+	if del := doJSON(t, "DELETE", "/api/v1/trips/"+trip.ID.String()+"/refine-chat", token, nil); del.Code != http.StatusOK {
+		t.Fatalf("DELETE = %d", del.Code)
+	}
+	boundTurn(t, token, trip.ID.String(), "newer ask", "Newer reply.")
+
+	history := historyRows(t, token, trip.ID.String())
+	if len(history) != 1 || history[0].Preview != "Older reply." {
+		t.Fatalf("history = %+v, want the older conversation only", history)
+	}
+	targetID := history[0].ID
+
+	resumePath := "/api/v1/trips/" + trip.ID.String() + "/refine-chat/history/" + targetID
+	resume := doJSON(t, "POST", resumePath, token, nil)
+	if resume.Code != http.StatusOK {
+		t.Fatalf("POST resume = %d: %s", resume.Code, resume.Body.String())
+	}
+	var detail TripRefineChatResponse
+	if err := json.Unmarshal(resume.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode resume response: %v", err)
+	}
+	if len(detail.Messages) != 2 || detail.Messages[0].Content != "older ask" {
+		t.Fatalf("resumed transcript = %+v, want the older conversation restored", detail.Messages)
+	}
+
+	// The active row is now the older conversation...
+	msgs, preview, _, _, found := refineRow(t, user.ID, trip.ID)
+	if !found || preview != "Older reply." || msgs[0].Content != "older ask" {
+		t.Fatalf("active conversation after resume = %+v/%q, want the older one", msgs, preview)
+	}
+	// ...and the newer one it replaced is now history, not gone.
+	history = historyRows(t, token, trip.ID.String())
+	if len(history) != 1 || history[0].Preview != "Newer reply." {
+		t.Fatalf("history after resume = %+v, want the replaced (newer) conversation", history)
+	}
+
+	// A further turn appends to the RESUMED (older) conversation.
+	newFakeAnthropic(t, textTurn("Another reply."))
+	rec := doJSON(t, "POST", "/api/v1/plan", token, PlanRequest{
+		ChatID: "chat-" + uuid.NewString(),
+		TripID: trip.ID.String(),
+		Messages: []PlanChatMessage{
+			{Role: "user", Content: "older ask"},
+			{Role: "assistant", Content: "Older reply."},
+			{Role: "user", Content: "one more thing"},
+		},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("follow-up /plan = %d: %s", rec.Code, rec.Body.String())
+	}
+	msgs, _, _, count, _ := refineRow(t, user.ID, trip.ID)
+	if count != 4 || msgs[0].Content != "older ask" {
+		t.Fatalf("follow-up landed on the wrong conversation: %+v (count %d)", msgs, count)
+	}
+}
+
+// (p) Access and not-found boundaries on the history surface mirror
+// editableTrip's existing rules: a stranger, a wrong id, and an id belonging
+// to someone else's (or another trip's) conversation are all 404.
+func TestTripRefineChatHistoryAccessAndNotFound(t *testing.T) {
+	resetDB(t)
+	user, token := createTestUser(t, "historyowner@example.com")
+	_, strangerToken := createTestUser(t, "historystranger@example.com")
+	trip := createTestTrip(t, user.ID, 1)
+
+	boundTurn(t, token, trip.ID.String(), "ask", "Reply.")
+	doJSON(t, "DELETE", "/api/v1/trips/"+trip.ID.String()+"/refine-chat", token, nil)
+	history := historyRows(t, token, trip.ID.String())
+	if len(history) != 1 {
+		t.Fatalf("history = %+v, want one entry", history)
+	}
+	entryID := history[0].ID
+
+	if rec := doJSON(t, "GET", "/api/v1/trips/"+trip.ID.String()+"/refine-chat/history", strangerToken, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("stranger GET history = %d, want 404", rec.Code)
+	}
+	resumePath := "/api/v1/trips/" + trip.ID.String() + "/refine-chat/history/" + entryID
+	if rec := doJSON(t, "POST", resumePath, strangerToken, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("stranger POST resume = %d, want 404", rec.Code)
+	}
+	badPath := "/api/v1/trips/" + trip.ID.String() + "/refine-chat/history/" + uuid.NewString()
+	if rec := doJSON(t, "POST", badPath, token, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("resume of a nonexistent entry = %d, want 404", rec.Code)
+	}
+
+	// The conversation just archived above has no active counterpart right
+	// now — confirming that, so a reader trusts the 404 checks above weren't
+	// accidentally exercising a self-resume instead of the id/access checks
+	// they claim to.
+	if _, _, _, _, found := refineRow(t, user.ID, trip.ID); found {
+		t.Fatal("expected no active conversation at this point in the test")
+	}
 }

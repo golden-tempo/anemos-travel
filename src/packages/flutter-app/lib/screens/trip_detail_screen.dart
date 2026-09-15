@@ -92,6 +92,7 @@ import '../widgets/trip_actions_sheet.dart';
 import '../widgets/trip_calendar_sheet.dart';
 import '../widgets/trip_airports_sheet.dart';
 import '../widgets/trip_details_dialog.dart';
+import '../widgets/trip_previous_chats_sheet.dart';
 import '../widgets/trip_refine_panel.dart';
 import '../widgets/wear_pack_sheet.dart';
 import 'flight_search_screen.dart';
@@ -2446,6 +2447,51 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     if (mounted) await _refresh();
   }
 
+  /// "Previous chats" (#639): opens the picker, and on a choice makes that
+  /// archived conversation active again — server-side and in the panel at
+  /// once, via [resumeTripRefineChatHistoryEntry] — then opens the panel onto
+  /// it. The conversation it replaces is not lost; it becomes the newest
+  /// history entry in the same swap.
+  Future<void> _showPreviousChats(Trip trip) async {
+    if (_guardOffline()) return;
+    if (!trip.canEdit) return;
+    final trips = ref.read(tripsApiServiceProvider);
+    final chosenId = await showPreviousChatsSheet(
+      context,
+      loadHistory: () => trips.listTripRefineChatHistory(widget.tripId),
+    );
+    if (chosenId == null || !mounted) return;
+    final notifier = ref.read(tripRefineProvider(widget.tripId).notifier);
+    setState(() {
+      _panelOpen = true;
+      _chatPhase = RefineChatPhase.restoring;
+      _chatError = null;
+      // The swap below IS the restore — nothing left for
+      // _ensureRefineHydrated to do if something else opens the panel again.
+      _chatResumeTried = true;
+    });
+    try {
+      await resumeTripRefineChatHistoryEntry(
+        trips: trips,
+        plan: notifier,
+        tripId: widget.tripId,
+        sessionId: chosenId,
+      );
+      if (!mounted) return;
+      setState(() => _chatPhase = RefineChatPhase.ready);
+      // The trip's advertised refine_chat now describes the swapped-in
+      // conversation (and the one it replaced moved into history) —
+      // re-fetch so the Continue-chat row reflects it on close.
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _chatPhase = RefineChatPhase.failed;
+        _chatError = e;
+      });
+    }
+  }
+
   /// Whether an item falls inside the refinement target (client-side mirror of
   /// the server's section selector, using the same hub grouping as the list).
   bool _inTarget(ItineraryItem it, RefineTarget t) {
@@ -4412,6 +4458,7 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                                     transportHandsOff: _transportHandsOff,
                                     onOpenChat: () => _openChat(trip),
                                     onNewChat: () => _newChat(trip),
+                                    onShowPreviousChats: () => _showPreviousChats(trip),
                                   ),
                                   const SizedBox(height: AppSpacing.lg),
                                 ],
@@ -4882,6 +4929,7 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
                             error: _chatError,
                             onClose: () => setState(() => _panelOpen = false),
                             onNewChat: () => _newChat(trip),
+                            onShowPreviousChats: () => _showPreviousChats(trip),
                             onRetry: _chatPhase == RefineChatPhase.failed
                                 ? () {
                                     _chatResumeTried = false;

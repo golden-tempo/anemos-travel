@@ -68,6 +68,11 @@ class TripHeaderCard extends ConsumerStatefulWidget {
   final VoidCallback onOpenChat;
   final VoidCallback onNewChat;
 
+  /// "Previous chats" (#639): opens the picker over this trip's up-to-5
+  /// archived conversations. Absent the row's menu offers only "Clear chat",
+  /// unchanged.
+  final VoidCallback onShowPreviousChats;
+
   const TripHeaderCard({
     super.key,
     required this.trip,
@@ -88,6 +93,7 @@ class TripHeaderCard extends ConsumerStatefulWidget {
     required this.transportHandsOff,
     required this.onOpenChat,
     required this.onNewChat,
+    required this.onShowPreviousChats,
   });
 
   @override
@@ -310,7 +316,7 @@ class _TripHeaderCardState extends ConsumerState<TripHeaderCard> {
               if (trip.updatedByName != null)
                 Text(
                   l10n.tripUpdatedBy(
-                      trip.updatedByName!, _relativeTime(l10n, trip.updatedAt)),
+                      trip.updatedByName!, tripRelativeTime(l10n, trip.updatedAt)),
                   style: theme.textTheme.bodySmall
                       ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                 ),
@@ -496,9 +502,24 @@ class _TripHeaderCardState extends ConsumerState<TripHeaderCard> {
               // one must never be the near miss of resuming it. It is also the
               // only way to be rid of a saved chat without first opening it and
               // waiting out a full restore just to throw the transcript away.
+              //
+              // "Previous chats" (#639) lives in the same menu: it is the
+              // other thing this row's ⋮ can do besides discard, and it is
+              // never the row's default tap either — that still opens the
+              // ACTIVE conversation, unchanged.
               PopupMenuButton<String>(
-                onSelected: (_) => widget.onNewChat(),
+                onSelected: (value) => value == 'history'
+                    ? widget.onShowPreviousChats()
+                    : widget.onNewChat(),
                 itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'history',
+                    child: ListTile(
+                      leading: const Icon(Icons.history),
+                      title: Text(l10n.refinePreviousChats),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
                   PopupMenuItem(
                     value: 'clear',
                     child: ListTile(
@@ -515,17 +536,6 @@ class _TripHeaderCardState extends ConsumerState<TripHeaderCard> {
       ),
     );
   }
-}
-
-/// How long ago an ISO timestamp was, in the app's three granularities.
-String _relativeTime(AppLocalizations l10n, String iso) {
-  final t = DateTime.tryParse(iso);
-  if (t == null) return l10n.tripTimeRecently;
-  final d = DateTime.now().difference(t.toLocal());
-  if (d.inMinutes < 1) return l10n.tripTimeJustNow;
-  if (d.inMinutes < 60) return l10n.tripTimeMinutesAgo(d.inMinutes);
-  if (d.inHours < 24) return l10n.tripTimeHoursAgo(d.inHours);
-  return l10n.tripTimeDaysAgo(d.inDays);
 }
 
 class _OverviewText extends StatefulWidget {
