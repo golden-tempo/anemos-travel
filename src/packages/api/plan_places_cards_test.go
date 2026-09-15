@@ -261,6 +261,67 @@ func TestPlanSearchPlacesRanksCardsByRatingSurvivingCap(t *testing.T) {
 	}
 }
 
+// TestPlanSearchPlacesReordersCardsToMatchNamedRecommendationOrder reproduces
+// #648: rating (and rating+review-count, #631/#633) are proxies for "what the
+// model will recommend", and both attempts still drifted from what the model
+// actually wrote — the model names specific places, in a specific order, and
+// that is the only order that counts. search_places sends its strip mid-turn,
+// before the model has written a word of its answer, so the initial strip is
+// still rating-ordered; once the turn's full text is known, the handler must
+// send a corrected `places` frame leading with the named places, in the order
+// named, unmentioned cards trailing in their prior relative order.
+func TestPlanSearchPlacesReordersCardsToMatchNamedRecommendationOrder(t *testing.T) {
+	fa := newFakeAnthropic(t,
+		toolTurn("search_places", `{"query":"museums in lisbon"}`),
+		textTurn("Here's my pick: start at Place 0, then head to Place 2, and finish at Place 4 — all worth it even though a couple of nearby spots rate a touch higher."),
+	)
+
+	// Ratings deliberately out of step with the model's own recommendation
+	// order below: a rating-only (or rating+reviews) sort leads with Place 1
+	// (4.9), but the model recommends Place 0, Place 2, Place 4 in that order.
+	ratings := []float64{4.5, 4.9, 4.6, 4.8, 4.7}
+	svc := NewGooglePlacesService()
+	svc.APIKey = "test-key"
+	svc.Client = &http.Client{Transport: &countingTransport{body: fakeSearchBodyWithRatings(ratings)}}
+	swapPlacesService(t, svc)
+
+	rec := runPlanHandlerFromIP(t, PlanRequest{Messages: []PlanChatMessage{
+		{Role: "user", Content: "best museums to visit in Lisbon?"},
+	}})
+	events := planEvents(t, rec.Body.String())
+	if errs := eventsOfType(events, "error"); len(errs) != 0 {
+		t.Fatalf("unexpected error events: %v", errs)
+	}
+	if bodies := fa.requestBodies(); len(bodies) != 2 {
+		t.Fatalf("anthropic calls = %d, want 2", len(bodies))
+	}
+
+	placesEvents := eventsOfType(events, "places")
+	if len(placesEvents) != 2 {
+		t.Fatalf("places events = %d, want 2 (rating-ordered at tool time, then corrected once the reply is known)", len(placesEvents))
+	}
+
+	initialCards, _ := eventData(placesEvents[0])["places"].([]any)
+	if len(initialCards) == 0 {
+		t.Fatalf("initial places event carried no cards")
+	}
+	if first, _ := initialCards[0].(map[string]any); first["name"] != "Place 1" {
+		t.Fatalf("initial first card = %v, want rating-led Place 1 (the pre-reply order)", first["name"])
+	}
+
+	finalCards, _ := eventData(placesEvents[1])["places"].([]any)
+	wantOrder := []string{"Place 0", "Place 2", "Place 4", "Place 1", "Place 3"}
+	if len(finalCards) != len(wantOrder) {
+		t.Fatalf("final cards = %d, want %d", len(finalCards), len(wantOrder))
+	}
+	for i, want := range wantOrder {
+		card, _ := finalCards[i].(map[string]any)
+		if card["name"] != want {
+			t.Fatalf("final card[%d] = %v, want %v (full order %v)", i, card["name"], want, wantOrder)
+		}
+	}
+}
+
 // fakeSearchBodyWithRatingsAndReviews is fakeSearchBodyWithRatings plus an
 // explicit user_ratings_total per result, for tie-break scenarios.
 func fakeSearchBodyWithRatingsAndReviews(ratings []float64, reviewCounts []int) string {
