@@ -165,8 +165,10 @@ Future<void> _pump(
 /// The rail's card list as DATA. The strip is a lazy horizontal ListView, so
 /// asserting on built [PlacePhotoCard] widgets would silently depend on the
 /// test viewport's width.
-List<PlacePhotoCard> _railCards(WidgetTester tester) =>
-    tester.widget<PlacePhotoStrip>(find.byType(PlacePhotoStrip)).cards;
+List<PlacePhotoCard> _railCards(WidgetTester tester) => tester
+    .widget<PlacePhotoStrip>(find.byType(PlacePhotoStrip))
+    .cards
+    .cast<PlacePhotoCard>();
 
 void main() {
   testWidgets('the events section is one fixed-height rail, not a card wall',
