@@ -56,6 +56,40 @@ void main() {
     });
   });
 
+  group('rung 1 — the recorded trip has already finished', () {
+    test('a recorded trip whose dates moved into the past falls to rung 3', () {
+      final trips = [
+        trip('t1',
+            title: 'Euro Trip Part 2', start: '2026-07-01', end: '2026-07-10'),
+        trip('ahead', start: '2026-09-01', end: '2026-09-08'),
+      ];
+
+      final result = continueTripOf(recorded, trips, null, today);
+
+      expect(result?.tripId, 'ahead');
+    });
+
+    test('a recorded trip ending today is still current, not past', () {
+      final trips = [
+        trip('t1', title: 'Ends today', start: '2026-08-10', end: '2026-08-14'),
+      ];
+
+      final result = continueTripOf(recorded, trips, null, today);
+
+      expect(result?.tripId, 't1');
+    });
+
+    test('with nothing else to offer, a finished recorded trip yields null',
+        () {
+      final trips = [
+        trip('t1',
+            title: 'Euro Trip Part 2', start: '2026-07-01', end: '2026-07-10'),
+      ];
+
+      expect(continueTripOf(recorded, trips, null, today), isNull);
+    });
+  });
+
   group('rung 2 — a recorded trip the owned list does not have', () {
     test('an unloaded list keeps the stored snapshot verbatim', () {
       final result = continueTripOf(recorded, const [], null, today);
@@ -159,8 +193,7 @@ void main() {
       expect(continueTripOf(null, [live], live, today), isNull);
     });
 
-    test('a record pointing at the live trip falls through, not to itself',
-        () {
+    test('a record pointing at the live trip falls through, not to itself', () {
       final live = trip('t1', start: '2026-08-13', end: '2026-08-16');
 
       expect(continueTripOf(recorded, [live], live, today), isNull);
