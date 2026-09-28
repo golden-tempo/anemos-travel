@@ -198,17 +198,24 @@ typedef ContinueTrip = ({
 /// with saved trips is never left with nothing to continue.
 ///
 /// Precedence, most specific first:
-///  1. [recorded] found in [trips] — that trip, carrying the **live** title
-///     and dates rather than the stored snapshot, so a rename made anywhere
-///     else can't surface stale text here.
+///  1. [recorded] found in [trips] and not yet past ([tripIsPast]) — that
+///     trip, carrying the **live** title and dates rather than the stored
+///     snapshot, so a rename made anywhere else can't surface stale text
+///     here. Once its last day slips behind [today] it has finished, so it
+///     falls out of this rung entirely — a "continue" card is for a trip
+///     still ahead or in progress, not one to reopen — and rung 3 picks
+///     whatever else qualifies.
 ///  2. [recorded] not found — the snapshot verbatim. Absence is deliberately
 ///     NOT read as "the trip was deleted": [trips] is the OWNED list, so a
 ///     trip shared with this traveler is never in it, and the list is also
 ///     empty before its first load and stale offline. A card pointing at a
 ///     trip deleted on another device is the accepted cost of not dropping
-///     those three.
-///  3. No record at all — the most recently updated trip that hasn't already
-///     happened, newest [Trip.createdAt] breaking an exact tie.
+///     those three. (The stored snapshot carries no dates to test for
+///     past-ness, so it cannot be aged out the way rung 1 is; it clears
+///     itself out naturally once the trips list loads and rung 1 takes over.)
+///  3. No record at all, or the recorded trip is over — the most recently
+///     updated trip that hasn't already happened, newest [Trip.createdAt]
+///     breaking an exact tie.
 ///  4. Nothing left — null. An all-past account gets an honest empty state;
 ///     the section can still fill with resumable chats.
 ///
@@ -228,15 +235,25 @@ ContinueTrip? continueTripOf(
       );
 
   if (recorded != null && recorded.tripId != liveTrip?.id) {
+    Trip? found;
     for (final t in trips) {
-      if (t.id == recorded.tripId) return of(t);
+      if (t.id == recorded.tripId) {
+        found = t;
+        break;
+      }
     }
-    return (
-      tripId: recorded.tripId,
-      title: recorded.title,
-      dateRange: recorded.dateRange,
-      startDate: null,
-    );
+    if (found != null) {
+      if (!tripIsPast(found.startDate, found.endDate, today)) return of(found);
+      // Finished since it was recorded — fall through to rung 3 instead of
+      // reopening a trip that's already over.
+    } else {
+      return (
+        tripId: recorded.tripId,
+        title: recorded.title,
+        dateRange: recorded.dateRange,
+        startDate: null,
+      );
+    }
   }
 
   Trip? best;
