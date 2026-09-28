@@ -1798,6 +1798,10 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     final ferryLegs =
         <String, ({String origin, String destination, String? date})>{};
     var pos = 0;
+    // A stated car/train/bus/ferry trip is read before the ladder below,
+    // because the ladder's last rung has to know about it.
+    final ground = _groundModeOf(trip);
+
     // Where the journey starts and where it ends — SEPARATELY, because a trip
     // can fly out of one airport and come home into another (trips
     // .origin_airport / .return_airport, migration 00064). One explicit ladder,
@@ -1808,6 +1812,13 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     //   -> the saved home airport, a standing guess about how this traveler
     //      usually leaves rather than anything about THIS trip.
     //
+    // The last rung is dropped on a stated ground trip: a saved home
+    // *airport* only says where this traveler flies from, and assuming it is
+    // exactly the "EWR → Montreal" incident migration 00062 fixed for an
+    // explicit PUT — reintroduced here through the implicit fallback instead
+    // of a traveler-typed airport. Mirrors trip_map_screen.dart's
+    // homeOverlayFor, which drops the same rung for the same reason.
+    //
     // Server twin: tripEndpointLabels in booking_todo_identity.go — it relabels
     // these same rows on the trip's endpoints changing, so change one and you
     // change both.
@@ -1816,7 +1827,7 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
       if (code != null && code.isNotEmpty) return code.toUpperCase();
       final stated = trip.origin?.trim();
       if (stated != null && stated.isNotEmpty) return stated;
-      return _homeAirport;
+      return ground == null ? _homeAirport : null;
     }
 
     final departure = endpointLabel(trip.originAirport);
@@ -1824,7 +1835,6 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen>
     final hasDeparture =
         departure != null && departure.isNotEmpty && ranges.isNotEmpty;
     final hasArrival = arrival != null && arrival.isNotEmpty && ranges.isNotEmpty;
-    final ground = _groundModeOf(trip);
 
     // What each leg's mode already resolved to, keyed by leg. A transport
     // row's [BookingTodo.effectiveMode] is the override somebody chose, else

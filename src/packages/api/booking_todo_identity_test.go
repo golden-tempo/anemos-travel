@@ -256,6 +256,20 @@ func TestTripEndpointLabels(t *testing.T) {
 			store.Trip{}, nil, "", ""},
 		{"a lowercase stored code is normalized",
 			store.Trip{OriginAirport: ptr("alb"), ReturnAirport: ptr("alb")}, nil, "ALB", "ALB"},
+		// #657: "I'm driving" with no stated origin still hit the saved
+		// airport rung and produced an "EWR → Montreal" home leg with a
+		// Rome2Rio link to nothing bookable -- the exact incident an
+		// explicit PUT was already refused for (groundTripAirportError).
+		{"a stated ground trip drops the saved-airport rung",
+			store.Trip{TravelMode: ptr("car")}, ptr("EWR"), "", ""},
+		{"a stated ground trip still keeps an explicit airport",
+			store.Trip{TravelMode: ptr("car"), OriginAirport: ptr("ALB")}, ptr("EWR"),
+			"ALB", ""},
+		{"a stated ground trip still keeps a stated origin",
+			store.Trip{TravelMode: ptr("train"), Origin: ptr("Lake George, NY")}, ptr("EWR"),
+			"Lake George, NY", "Lake George, NY"},
+		{"a flight trip keeps the saved-airport rung",
+			store.Trip{TravelMode: ptr("flight")}, ptr("EWR"), "EWR", "EWR"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
