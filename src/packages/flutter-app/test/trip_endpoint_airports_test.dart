@@ -91,7 +91,12 @@ ItineraryItem _item(int pos, String name, String city, {int? day}) =>
     );
 
 void main() {
-  Trip makeTrip({String? origin, String? originAirport, String? returnAirport}) =>
+  Trip makeTrip({
+    String? origin,
+    String? originAirport,
+    String? returnAirport,
+    String? travelMode,
+  }) =>
       Trip(
         id: 't1',
         title: 'Amsterdam',
@@ -102,6 +107,7 @@ void main() {
         origin: origin,
         originAirport: originAirport,
         returnAirport: returnAirport,
+        travelMode: travelMode,
         items: [
           _item(0, 'Rijksmuseum', 'Amsterdam', day: 1),
           _item(1, 'Anne Frank House', 'Amsterdam', day: 4),
@@ -182,6 +188,49 @@ void main() {
     // No airport, so the free text is the label — verbatim, the way the
     // traveler said it.
     final derived = await derive(tester, makeTrip(origin: 'Lake George, NY'));
+
+    expect(legNamed(derived, 'transport:lake george, ny>>amsterdam')['title'],
+        'Lake George, NY → Amsterdam');
+  });
+
+  testWidgets(
+      '#657: a stated ground trip with no origin drops the home-airport leg',
+      (WidgetTester tester) async {
+    // The reported bug: "I'm driving" with no stated origin still fell to
+    // the saved home airport and posted an "EWR → Amsterdam" transport todo
+    // — a leg the trip never described, with a Rome2Rio link to nothing
+    // bookable for a traveler who is just driving their own car. A saved
+    // home *airport* is a flying concept (trip_map_screen.dart's
+    // homeOverlayFor), so the ground trip drops this rung entirely, exactly
+    // like the map already does.
+    final derived = await derive(tester, makeTrip(travelMode: 'car'));
+
+    expect(derived.where((t) => (t['todo_key'] as String).contains('ewr')),
+        isEmpty);
+  });
+
+  testWidgets(
+      "#657: a stated ground trip's own airport still titles its leg",
+      (WidgetTester tester) async {
+    // An airport the trip itself names (set in chat) still wins — only the
+    // saved-preference fallback is a flying-concept guess about a driving
+    // trip.
+    final derived = await derive(
+      tester,
+      makeTrip(travelMode: 'car', originAirport: 'ALB'),
+    );
+
+    expect(legNamed(derived, 'transport:alb>>amsterdam')['title'],
+        'ALB → Amsterdam');
+  });
+
+  testWidgets(
+      "#657: a stated ground trip's own stated origin still titles its leg",
+      (WidgetTester tester) async {
+    final derived = await derive(
+      tester,
+      makeTrip(travelMode: 'train', origin: 'Lake George, NY'),
+    );
 
     expect(legNamed(derived, 'transport:lake george, ny>>amsterdam')['title'],
         'Lake George, NY → Amsterdam');

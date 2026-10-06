@@ -283,12 +283,24 @@ func fillBookingTodoCityLabels(ctx context.Context, q *store.Queries, trip store
 // under its owner. Empty means "nothing to say", and the label the client
 // posted is then left alone.
 //
+// The last rung is dropped on a stated car/train/bus/ferry trip: a saved home
+// *airport* only says how this traveler usually FLIES, not where THIS trip
+// starts, and assuming it anyway is exactly the "EWR → Montreal" incident
+// applyTripEndpoints' groundTripAirportError refuses for an explicit PUT —
+// reintroduced here through the implicit fallback instead of a traveler-typed
+// airport. Mirrors the client's trip_map_screen.dart homeOverlayFor, which
+// drops the same rung for the same reason.
+//
 // origin_airport and return_airport are written together or not at all (CHECK
 // trips_endpoint_airport_pair), so NULL here never has to be read as "same as
 // the other direction" — it means only that this trip never stated an airport.
 func tripEndpointLabels(trip store.Trip, ownerHomeAirport *string) (departure, arrival string) {
 	stated := strings.TrimSpace(strPtrVal(trip.Origin))
 	home := strings.TrimSpace(strPtrVal(ownerHomeAirport))
+	switch strings.TrimSpace(strPtrVal(trip.TravelMode)) {
+	case "car", "train", "bus", "ferry":
+		home = ""
+	}
 	pick := func(airport *string) string {
 		if code := strings.TrimSpace(strPtrVal(airport)); code != "" {
 			return strings.ToUpper(code)
