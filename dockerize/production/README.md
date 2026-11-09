@@ -2,10 +2,12 @@
 
 > **Box died / provider fired us?** [`REHOME.md`](REHOME.md) is the
 > start-to-finish runbook for standing prod up on a fresh VM in ~90 minutes
-> (proven 2026-08-01, Vultr → DigitalOcean).
+> (proven 2026-08-01, Vultr → DigitalOcean). Used again 2026-11-09 after the
+> DigitalOcean droplet was deleted and prod moved back to the Pi.
 
-Runs the prebuilt GHCR images (amd64) on a cloud VPS (**DigitalOcean**,
-Ubuntu LTS — previously Vultr, originally a home Raspberry Pi) reached exclusively through
+Runs the prebuilt GHCR images (amd64 **and arm64**) on a **home Raspberry Pi 4**
+(Debian, arm64 — previously DigitalOcean, before that Vultr, originally this same Pi)
+reached exclusively through
 a **Cloudflare Tunnel**: the `cloudflared` service dials out to the
 Cloudflare edge, so the host publishes no ports and exposes nothing
 directly — even with a public IP, ingress stays tunnel-only. TLS
