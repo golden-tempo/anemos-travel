@@ -95,6 +95,10 @@ jobs:
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
+          # The job never checks out the repo (the probe only needs curl), so
+          # gh has no git remote to infer the repo from and dies with
+          # "fatal: not a git repository". GH_REPO supplies it explicitly.
+          GH_REPO: ${{ github.repository }}
           REASON: ${{ steps.probe.outputs.reason }}
         run: |
           MARKER="[uptime] production unreachable"
@@ -124,6 +128,7 @@ jobs:
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           MARKER="[uptime] production unreachable"
           num=$(gh issue list --state open --search "in:title $MARKER" \
