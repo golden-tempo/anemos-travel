@@ -2402,6 +2402,17 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String tripsListPastShowMore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Show $count more trips',
+      one: 'Show 1 more trip',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get tripsListUpcoming => 'Upcoming';
 
   @override

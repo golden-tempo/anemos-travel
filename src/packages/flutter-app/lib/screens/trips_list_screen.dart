@@ -45,6 +45,13 @@ const kLogTripEmptyStateKey = ValueKey('logTrip.entry.emptyState');
 /// a text finder would answer it differently in Spanish.
 const kTravelAtlasSeeAllKey = ValueKey('travelAtlas.entry.section');
 
+/// How many rows the expanded "Past trips" index shows before it pages
+/// (issue #671): without a cap, an account with years of history turned the
+/// section into an unbounded column that pushed "Your travels" off the first
+/// several screens of scroll. Most-recent-first ([partitionTripsForList]), so
+/// the first page is always the trips someone is likeliest to tap back into.
+const kPastTripsPageSize = 5;
+
 /// The trips list, read as a journal index rather than a dashboard.
 ///
 /// The page runs in narrative order — **what's next, what you're co-planning,
@@ -75,6 +82,12 @@ class _TripsListScreenState extends ConsumerState<TripsListScreen> {
   /// [CollapsibleSection] contract) so it survives silent refreshes and the
   /// offline-banner reparent.
   bool _pastExpanded = false;
+
+  /// How many rows of the expanded "Past trips" index are showing, paged in
+  /// by [kPastTripsPageSize] on each "Show more" tap. Screen state for the
+  /// same reason as [_pastExpanded] — a silent refresh mid-page shouldn't
+  /// snap someone's place back to page one.
+  int _pastVisibleCount = kPastTripsPageSize;
 
   @override
   void initState() {
@@ -369,24 +382,12 @@ class _TripsListScreenState extends ConsumerState<TripsListScreen> {
                         expanded: _pastExpanded,
                         onToggle: () =>
                             setState(() => _pastExpanded = !_pastExpanded),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            for (var i = 0; i < groups.past.length; i++) ...[
-                              // Hairlines between rows, never around them:
-                              // the section card already draws the box, so
-                              // a divider only has to separate siblings —
-                              // and the first row needs none, its header
-                              // is directly above it.
-                              if (i > 0) const Divider(height: 1),
-                              _TripCard(
-                                trip: groups.past[i],
-                                isAdmin: isAdmin,
-                                isPast: true,
-                                flat: true,
-                              ),
-                            ],
-                          ],
+                        child: _PastTripsIndex(
+                          trips: groups.past,
+                          isAdmin: isAdmin,
+                          visibleCount: _pastVisibleCount,
+                          onShowMore: () => setState(() =>
+                              _pastVisibleCount += kPastTripsPageSize),
                         ),
                       ),
                     ),
@@ -515,6 +516,66 @@ class _TripsListScreenState extends ConsumerState<TripsListScreen> {
         ],
       ),
       body: body,
+    );
+  }
+}
+
+/// Body of the expanded "Past trips" row: the first [visibleCount] trips
+/// (most-recent-first, per [partitionTripsForList]), paged in
+/// [kPastTripsPageSize] at a time via [onShowMore] rather than rendered all
+/// at once (issue #671) — a traveler with years of history otherwise turned
+/// this one section into the page's longest scroll, with "Your travels"
+/// pushed somewhere below it.
+///
+/// A button, not an inline scroll region: this card already sits inside the
+/// page's own ListView, and a second same-axis scrollable nested in it would
+/// fight that outer scroll for drag gestures instead of handing off cleanly.
+class _PastTripsIndex extends StatelessWidget {
+  final List<Trip> trips;
+  final bool isAdmin;
+  final int visibleCount;
+  final VoidCallback onShowMore;
+
+  const _PastTripsIndex({
+    required this.trips,
+    required this.isAdmin,
+    required this.visibleCount,
+    required this.onShowMore,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final shown = visibleCount < trips.length
+        ? trips.sublist(0, visibleCount)
+        : trips;
+    final remaining = trips.length - shown.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < shown.length; i++) ...[
+          // Hairlines between rows, never around them: the section card
+          // already draws the box, so a divider only has to separate
+          // siblings — and the first row needs none, its header is
+          // directly above it.
+          if (i > 0) const Divider(height: 1),
+          _TripCard(
+            trip: shown[i],
+            isAdmin: isAdmin,
+            isPast: true,
+            flat: true,
+          ),
+        ],
+        if (remaining > 0) ...[
+          const Divider(height: 1),
+          Center(
+            child: TextButton(
+              onPressed: onShowMore,
+              child: Text(l10n.tripsListPastShowMore(remaining)),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

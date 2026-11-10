@@ -705,6 +705,7 @@
   "tripsListSharedWithYou": "Compartidos contigo",
   "tripsListPastTrips": "Viajes pasados",
   "tripsListPastTripsCount": "{count, plural, one{1 viaje} other{{count} viajes}}",
+  "tripsListPastShowMore": "{count, plural, one{Mostrar 1 viaje más} other{Mostrar {count} viajes más}}",
   "tripsListUpcoming": "Próximos",
   "tripsListNewTrip": "Nuevo viaje",
   "tripsListYourTravels": "Tus viajes",
