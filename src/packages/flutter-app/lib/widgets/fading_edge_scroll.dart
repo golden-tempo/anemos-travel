@@ -11,6 +11,12 @@ import '../theme/spacing.dart';
 /// or one whose content fits, gets no fade there, because a fade means
 /// "there is more this way" and must not say so when there isn't.
 ///
+/// Each edge RAMPS UP over the same distance its own fade spans, rather than
+/// snapping straight to full strength the instant the rail leaves its rest
+/// position. A hard step there reads as a flash — full fade on a one-pixel
+/// nudge, gone again on the way back — so the strength scales with how far
+/// the rail has actually moved off that edge.
+///
 /// Capped at 0.4 a side so the two can never meet and wash out the middle of
 /// a narrow rail.
 @visibleForTesting
@@ -26,9 +32,16 @@ import '../theme/spacing.dart';
   // its fade on a fractional offset.
   const epsilon = 1.0;
   final f = (fadeWidth / viewport).clamp(0.0, 0.4);
+  // The same span the fade itself occupies, so the ramp and the gradient it
+  // feeds agree on how far "fully engaged" is.
+  final rampPixels = f * viewport;
+  double ramp(double distance) =>
+      rampPixels > 0 ? f * (distance / rampPixels).clamp(0.0, 1.0) : 0.0;
+  final leadDistance = pixels - minExtent;
+  final trailDistance = maxExtent - pixels;
   return (
-    pixels > minExtent + epsilon ? f : 0.0,
-    pixels < maxExtent - epsilon ? f : 0.0,
+    leadDistance > epsilon ? ramp(leadDistance) : 0.0,
+    trailDistance > epsilon ? ramp(trailDistance) : 0.0,
   );
 }
 
