@@ -122,6 +122,36 @@ void main() {
     expect(_joinAlign(), findsNothing);
   });
 
+  testWidgets(
+      'the keyboard opening (crossing the join floor) does not close itself '
+      '(issue #659)', (tester) async {
+    // On a phone, tapping the composer to type is exactly what shrinks the
+    // available height below [joinFloor] in the first place — the keyboard
+    // sliding up is what moves the panel from the joined layout into the
+    // floor one. Before the composer carried a stable key, that move
+    // rebuilt its element in a new slot and tore down the TextField's live
+    // input connection, so the keyboard the tap had just opened closed
+    // again a frame later.
+    await _pump(tester, const Size(390, 844),
+        emptyState: const Text('INTRO-BLOCK'), joinFloor: 420);
+    expect(_joinAlign(), findsOneWidget);
+
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    expect(tester.testTextInput.isVisible, isTrue);
+
+    // Shrinks the panel's available height below the join floor — the same
+    // effect Scaffold's resizeToAvoidBottomInset has when the keyboard
+    // slides up over a short field.
+    tester.view.physicalSize = const Size(390, 380);
+    await tester.pump();
+
+    expect(_joinAlign(), findsNothing);
+    expect(find.byType(TextField), findsOneWidget);
+    expect(tester.testTextInput.isVisible, isTrue,
+        reason: 'the keyboard the tap just opened must not close itself');
+  });
+
   testWidgets('a non-empty panel keeps the transcript and the floor composer',
       (tester) async {
     await _pump(
