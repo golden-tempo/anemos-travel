@@ -1,0 +1,135 @@
+# External uptime prober for anemos.travel.
+#
+# Why this exists: production was down from 2026-10-23 to 2026-11-10 and nobody
+# noticed. The app's own health monitor (health_samples / ops_monitor.go) runs
+# ON the production host, so it cannot observe its own death — the sampler died
+# with the box. Anything that watches prod has to run somewhere prod isn't.
+#
+# GitHub's runners are that somewhere: outside the Pi, outside the home network,
+# outside Cloudflare. No account, no API key, no secrets — the probe only reads
+# public endpoints.
+#
+# It does NOT just go red. A red check is an email, and an email is what went
+# unread for five weeks. On failure this opens a GitHub issue (deduped by a
+# marker in the title) and on recovery it closes that issue — so the signal is
+# a thing that sits in your face until prod is actually back.
+#
+# Deliberately NOT labelled `agent-ready`: an issue-to-PR agent cannot fix a
+# dead host, and #660 already proved that lesson once.
+#
+# ⚠ GitHub disables scheduled workflows after 60 days of repo inactivity. On a
+# repo this active that will not bite, but it is the one way this check can
+# quietly stop watching.
+name: Uptime (external prober)
+
+on:
+  schedule:
+    # Every 10 minutes. GitHub's scheduler is best-effort and often runs late
+    # under load; 10 min keeps the queue shallow and the noise low. Detection
+    # latency is minutes, against an outage that previously ran for weeks.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  # Never let a slow run pile up behind the next tick.
+  group: uptime
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    name: Probe anemos.travel
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Probe the public health endpoints
+        id: probe
+        run: |
+          set -uo pipefail
+          BASE="https://anemos.travel"
+          fail_reason=""
+
+          # Three attempts before declaring an outage: a single blip must not
+          # open an issue, or the issue stops meaning anything.
+          for attempt in 1 2 3; do
+            fail_reason=""
+            body=$(curl -sS -m 20 -w '\n%{http_code}' "$BASE/api/v1/health" 2>&1)
+            code=$(printf '%s' "$body" | tail -1)
+            json=$(printf '%s' "$body" | sed '$d')
+
+            if [ "$code" != "200" ]; then
+              # 530 is Cloudflare's "no connector on the tunnel" — the exact
+              # signature of the Oct-23 outage. Name it so the issue is useful.
+              case "$code" in
+                530) fail_reason="HTTP 530 — Cloudflare tunnel has no connector (origin is down or gone)" ;;
+                000) fail_reason="no HTTP response (DNS, TLS, or network failure)" ;;
+                *)   fail_reason="HTTP $code from /api/v1/health" ;;
+              esac
+            else
+              status=$(printf '%s' "$json" | jq -r '.status // "?"' 2>/dev/null)
+              db=$(printf '%s' "$json" | jq -r '.database // "?"' 2>/dev/null)
+              release=$(printf '%s' "$json" | jq -r '.release // "?"' 2>/dev/null)
+              if [ "$status" != "healthy" ] || [ "$db" != "ok" ]; then
+                fail_reason="api reachable but unhealthy — status=$status database=$db"
+              else
+                echo "healthy (release ${release:0:12}, attempt $attempt)"
+                echo "release=$release" >> "$GITHUB_OUTPUT"
+                echo "ok=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+
+            echo "attempt $attempt failed: $fail_reason"
+            [ "$attempt" -lt 3 ] && sleep 20
+          done
+
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+          echo "reason=$fail_reason" >> "$GITHUB_OUTPUT"
+          echo "::error::prod unreachable after 3 attempts: $fail_reason"
+          exit 1
+
+      - name: Open or update the outage issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REASON: ${{ steps.probe.outputs.reason }}
+        run: |
+          MARKER="[uptime] production unreachable"
+          num=$(gh issue list --state open --search "in:title $MARKER" \
+                  --json number,title --jq "[.[] | select(.title | contains(\"$MARKER\"))][0].number // empty")
+          when=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "Still down as of \`$when\` — ${REASON:-unknown}. ([run]($run_url))"
+            echo "updated issue #$num"
+          else
+            gh issue create --title "$MARKER" --body "$(printf '%s\n' \
+              "The external uptime prober could not reach production." \
+              "" \
+              "- **First detected:** \`$when\`" \
+              "- **Reason:** ${REASON:-unknown}" \
+              "- **Probe:** \`GET https://anemos.travel/api/v1/health\`, 3 attempts 20s apart" \
+              "- **Run:** $run_url" \
+              "" \
+              "This issue closes itself when the probe succeeds again." \
+              "" \
+              "If the reason is **HTTP 530**, the Cloudflare tunnel has no connector — the origin is down or gone. Runbook: \`dockerize/production/REHOME.md\`.")"
+            echo "opened a new outage issue"
+          fi
+
+      - name: Close the outage issue on recovery
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MARKER="[uptime] production unreachable"
+          num=$(gh issue list --state open --search "in:title $MARKER" \
+                  --json number,title --jq "[.[] | select(.title | contains(\"$MARKER\"))][0].number // empty")
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "Recovered — probe succeeded at \`$(date -u +'%Y-%m-%dT%H:%M:%SZ')\` (release \`${{ steps.probe.outputs.release }}\`). Closing."
+            gh issue close "$num" --reason completed
+            echo "closed issue #$num"
+          fi
