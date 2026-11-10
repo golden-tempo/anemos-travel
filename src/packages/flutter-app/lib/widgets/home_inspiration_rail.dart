@@ -40,8 +40,11 @@ class HomeInspirationRail extends StatelessWidget {
         RandomSuggestions(
           // The whole pool in a shuffled order (the rail scrolls), not the
           // chip surfaces' 3-draw sample — the count a surface shows is
-          // stated by which picker it reads.
-          picker: suggestionOrderProvider,
+          // stated by which picker it reads. Personalized
+          // (specs/personalized-trip-suggestions): Home knows the signed-in
+          // traveler's trip history, so "Somewhere new" biases toward
+          // countries they haven't actually been to yet.
+          picker: personalizedSuggestionOrderProvider,
           builder: (context, prompts) => SizedBox(
             height: DestinationSuggestionCard.heightFor(
                     _cardWidth, MediaQuery.textScalerOf(context)) +

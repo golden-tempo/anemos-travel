@@ -373,6 +373,63 @@ void main() {
     });
   });
 
+  group('visitedCountryCodes', () {
+    test('collects countries from started trips only', () {
+      final countries = visitedCountryCodes([
+        _trip('past',
+            start: '2026-01-01',
+            end: '2026-01-05',
+            pins: const [
+              CityPin(city: 'Lisbon', lat: 38.7, lng: -9.1, country: 'PT')
+            ]),
+        _trip('future',
+            start: '2026-09-01',
+            end: '2026-09-03',
+            pins: const [
+              CityPin(city: 'Madrid', lat: 40.4, lng: -3.7, country: 'ES')
+            ]),
+      ], _today);
+      expect(countries, {'PT'});
+    });
+
+    test('a trip with no resolved country pins contributes nothing', () {
+      final countries = visitedCountryCodes([
+        _trip('past',
+            start: '2026-01-01',
+            end: '2026-01-05',
+            cities: const ["Grandma's village"]),
+      ], _today);
+      expect(countries, isEmpty);
+    });
+
+    test('a country is deduped across multiple trips and cities', () {
+      final countries = visitedCountryCodes([
+        _trip('a',
+            start: '2026-01-01',
+            end: '2026-01-05',
+            pins: const [
+              CityPin(city: 'Kyoto', lat: 35.0, lng: 135.8, country: 'JP')
+            ]),
+        _trip('b',
+            start: '2026-02-01',
+            end: '2026-02-05',
+            pins: const [
+              CityPin(city: 'Osaka', lat: 34.7, lng: 135.5, country: 'JP')
+            ]),
+      ], _today);
+      expect(countries, {'JP'});
+    });
+
+    test('an undated or still-upcoming trip is never counted', () {
+      final countries = visitedCountryCodes([
+        _trip('draft', pins: const [
+          CityPin(city: 'Tokyo', lat: 35.7, lng: 139.7, country: 'JP')
+        ]),
+      ], _today);
+      expect(countries, isEmpty);
+    });
+  });
+
   // The atlas reads the same payload as the band, through a STRICTER
   // membership rule: tripIsPast, not tripHasStarted. travelStats' partition is
   // right for an aggregate and wrong for a row that names one trip and claims

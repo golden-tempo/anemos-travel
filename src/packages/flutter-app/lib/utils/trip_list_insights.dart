@@ -92,6 +92,29 @@ typedef TravelStats = ({int trips, int travelDays, int cities, int countries});
   );
 }
 
+/// The ISO 3166-1 alpha-2 country codes the traveler has actually traveled
+/// to: every [CityPin.country] carried by a trip that has STARTED
+/// ([tripHasStarted]) — the same traveled rule [travelStats] partitions on,
+/// so this set and that stat's `traveled.countries` count can never disagree.
+///
+/// Feeds the personalized destination rails (specs/personalized-trip-suggestions):
+/// bias, never filter, toward countries NOT in this set. A country with no
+/// resolved pins anywhere (an old server, an offline cache, a trip with no
+/// located destination) simply never joins the set — it is "nothing to
+/// personalize against", not "everywhere is new".
+Set<String> visitedCountryCodes(List<Trip> trips, DateTime today) {
+  final countries = <String>{};
+  for (final t in trips) {
+    if (!tripHasStarted(t.startDate, t.endDate, today)) continue;
+    for (final p in t.cityPins ?? const <CityPin>[]) {
+      final country = p.country;
+      if (country == null || country.isEmpty) continue;
+      countries.add(country);
+    }
+  }
+  return countries;
+}
+
 /// One dot on the footprint map: a located hub city, and whether the traveler
 /// has actually been there.
 typedef FootprintPin = ({String city, double lat, double lng, bool visited});

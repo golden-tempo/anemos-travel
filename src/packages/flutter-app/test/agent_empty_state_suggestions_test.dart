@@ -91,7 +91,7 @@ void main() {
         planProvider.overrideWith((ref) => plan),
         authProvider.overrideWith((ref) => _FakeAuthNotifier()),
         notificationsUnreadCountProvider.overrideWith((ref) async => 0),
-        suggestionOrderProvider.overrideWithValue(() {
+        personalizedSuggestionOrderProvider.overrideWithValue(() {
           pickerCalls++;
           return nextPicks;
         }),

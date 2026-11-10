@@ -481,7 +481,11 @@ class _DestinationRail extends ConsumerWidget {
     return RandomSuggestions(
       // The whole pool in a shuffled order, not a three-pick sample: a rail
       // can scroll, so it can carry the full range of destinations.
-      picker: suggestionOrderProvider,
+      // Personalized (specs/personalized-trip-suggestions): a signed-in
+      // traveler's rail biases toward countries their own trip history
+      // hasn't reached yet; a signed-out or trip-less one sees the same
+      // plain shuffle it always has.
+      picker: personalizedSuggestionOrderProvider,
       builder: (context, prompts) => SizedBox(
         height: DestinationSuggestionCard.heightFor(
             cardWidth, MediaQuery.textScalerOf(context)),
