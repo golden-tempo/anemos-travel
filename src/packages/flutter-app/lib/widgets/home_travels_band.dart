@@ -65,6 +65,15 @@ class HomeTravelsBand extends ConsumerWidget {
     // are looking at is all of it.
     final showAtlas = pastTrips(trips, now).length >= 2;
 
+    // Shared by the header's "See all" and the card's own tap: one tile, one
+    // destination, so the two can never quietly disagree about where "Your
+    // travels" leads.
+    void openAtlas() => pushOnce(
+          context,
+          locatedRoute(const TravelAtlasScreen(),
+              utilityLocation(BootUtility.travelAtlas)),
+        );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -83,11 +92,7 @@ class HomeTravelsBand extends ConsumerWidget {
           action: showAtlas
               ? TextButton(
                   key: kHomeTravelAtlasSeeAllKey,
-                  onPressed: () => pushOnce(
-                    context,
-                    locatedRoute(const TravelAtlasScreen(),
-                        utilityLocation(BootUtility.travelAtlas)),
-                  ),
+                  onPressed: openAtlas,
                   // The Trips entry's string, not `commonSeeAll`: one action,
                   // one label, so a future rewording moves both doors at once.
                   child: Text(context.l10n.travelAtlasSeeAll),
@@ -99,6 +104,11 @@ class HomeTravelsBand extends ConsumerWidget {
           pins: pins,
           traveled: stats.traveled,
           planned: stats.planned,
+          // Home's own opt-in into the card's tap target (gated with the
+          // button above, never ahead of it): tapping the tile is the same
+          // door as "See all", not a second, undocumented one that outlives
+          // the button's own gate.
+          onTap: showAtlas ? openAtlas : null,
         ),
         const SizedBox(height: AppSpacing.xl),
       ],

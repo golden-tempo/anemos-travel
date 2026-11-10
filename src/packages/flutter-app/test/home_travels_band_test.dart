@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:travel_route_planner/models/trip.dart';
 import 'package:travel_route_planner/providers/trip_cache_provider.dart';
 import 'package:travel_route_planner/providers/trips_provider.dart';
+import 'package:travel_route_planner/screens/travel_atlas_screen.dart';
 import 'package:travel_route_planner/services/api_client.dart';
 import 'package:travel_route_planner/services/trip_cache.dart';
 import 'package:travel_route_planner/services/trips_api_service.dart';
@@ -134,6 +135,36 @@ void main() {
 
       expect(find.byKey(kHomeTravelAtlasSeeAllKey), findsNothing);
       expect(find.byType(TravelFootprintCard), findsOneWidget);
+    });
+  });
+
+  group('the tile itself', () {
+    // Issue #668: the tile should be a second way through the SAME door as
+    // "See all", not a second, undocumented destination — and it must stay
+    // gated exactly with the button, never outliving it.
+    testWidgets('tapping it opens the atlas, same as "See all"',
+        (tester) async {
+      await _pumpBand(tester, trips: [
+        _trip('past', 'Iberia Loop', start: _rel(-30), end: _rel(-26)),
+        _trip('older', 'Athens Trip', start: _rel(-90), end: _rel(-85)),
+      ]);
+
+      expect(find.byKey(kHomeTravelAtlasSeeAllKey), findsOneWidget);
+      await tester.tap(find.byKey(kTravelFootprintTapKey));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TravelAtlasScreen), findsOneWidget);
+    });
+
+    testWidgets('absent whenever the atlas door itself is absent',
+        (tester) async {
+      await _pumpBand(tester, trips: [
+        _trip('past', 'Iberia Loop', start: _rel(-30), end: _rel(-26)),
+        _trip('next', 'Madrid Trip', start: _rel(10), end: _rel(12)),
+      ]);
+
+      expect(find.byKey(kHomeTravelAtlasSeeAllKey), findsNothing);
+      expect(find.byKey(kTravelFootprintTapKey), findsNothing);
     });
   });
 }
