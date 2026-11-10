@@ -1611,6 +1611,15 @@
       }
     }
   },
+  "tripsListPastShowMore": "{count, plural, one{Show 1 more trip} other{Show {count} more trips}}",
+  "@tripsListPastShowMore": {
+    "description": "Pagination button under the expanded 'Past trips' index, shown only when more finished trips remain past the first page — keeps the section a bounded height instead of growing with a traveler's whole history.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "tripsListUpcoming": "Upcoming",
   "tripsListNewTrip": "New trip",
   "tripsListYourTravels": "Your travels",

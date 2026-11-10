@@ -192,4 +192,74 @@ void main() {
 
     expect(find.text('Old Trip · 8 days'), findsOneWidget);
   });
+
+  // Issue #671: an account with years of trips turned the expanded "Past
+  // trips" row into an unbounded column. It now pages in kPastTripsPageSize
+  // (5) at a time instead of rendering every finished trip at once.
+  testWidgets(
+      'a past list longer than one page hides the rest behind "Show more"',
+      (WidgetTester tester) async {
+    // Tall surface so every row in the expanded section (plus its "Show
+    // more" button) is on-screen without the test driving the page's own
+    // scroll — the assertions below are about the SECTION's content, not
+    // the outer ListView's viewport. devicePixelRatio pinned to 1.0 so the
+    // logical width stays the default 800 (trip_detail_view_tabs_test's
+    // _useTallViewport convention).
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    // Seven past trips, most-recent-first by construction (end date closest
+    // to today is "Past 1"): partitionTripsForList re-sorts the same way, so
+    // the order here just has to match what the section is expected to show.
+    await _pumpList(tester, [
+      for (var i = 1; i <= 7; i++)
+        _trip('past$i', 'Past $i',
+            start: _rel(-10 * i - 2), end: _rel(-10 * i)),
+      _trip('future', 'Prague Trip', start: _rel(18), end: _rel(52)),
+    ]);
+    await tester.pumpAndSettle();
+
+    expect(find.text('7 trips'), findsOneWidget);
+
+    await tester.tap(find.text('Past trips'));
+    await tester.pumpAndSettle();
+
+    // First page: the five most recent past trips.
+    for (var i = 1; i <= 5; i++) {
+      expect(find.text('Past $i'), findsOneWidget);
+    }
+    // The rest stay off until "Show more" is tapped.
+    expect(find.text('Past 6'), findsNothing);
+    expect(find.text('Past 7'), findsNothing);
+    expect(find.text('Show 2 more trips'), findsOneWidget);
+
+    await tester.tap(find.text('Show 2 more trips'));
+    await tester.pumpAndSettle();
+
+    for (var i = 1; i <= 7; i++) {
+      expect(find.text('Past $i'), findsOneWidget);
+    }
+    // Everything is showing now, so the pagination button is gone.
+    expect(find.text('Show 2 more trips'), findsNothing);
+  });
+
+  testWidgets('a past list within one page shows no "Show more" button',
+      (WidgetTester tester) async {
+    await _pumpList(tester, [
+      for (var i = 1; i <= 3; i++)
+        _trip('past$i', 'Past $i',
+            start: _rel(-10 * i - 2), end: _rel(-10 * i)),
+      _trip('future', 'Prague Trip', start: _rel(18), end: _rel(52)),
+    ]);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Past trips'));
+    await tester.pumpAndSettle();
+
+    for (var i = 1; i <= 3; i++) {
+      expect(find.text('Past $i'), findsOneWidget);
+    }
+    expect(find.textContaining('Show'), findsNothing);
+  });
 }

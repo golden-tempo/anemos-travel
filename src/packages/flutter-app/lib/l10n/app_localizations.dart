@@ -4160,6 +4160,12 @@ abstract class AppLocalizations {
   /// **'{count, plural, one{1 trip} other{{count} trips}}'**
   String tripsListPastTripsCount(int count);
 
+  /// Pagination button under the expanded 'Past trips' index, shown only when more finished trips remain past the first page — keeps the section a bounded height instead of growing with a traveler's whole history.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{Show 1 more trip} other{Show {count} more trips}}'**
+  String tripsListPastShowMore(int count);
+
   /// No description provided for @tripsListUpcoming.
   ///
   /// In en, this message translates to:
