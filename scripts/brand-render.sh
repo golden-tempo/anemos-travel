@@ -55,7 +55,7 @@ echo "· PWA icons (ink at 84%)"
 render icon84.html 1024,1024 "$APP/web/icons/Icon-512.png"
 shrink "$APP/web/icons/Icon-512.png" 384 "$APP/web/icons/Icon-192.png"
 
-echo "· PWA maskable icons (ink radius at the 80% safe circle, on white)"
+echo "· PWA maskable icons (ink radius at the 80% safe circle, on Aegean night)"
 render maskable.html 1024,1024 "$APP/web/icons/Icon-maskable-512.png"
 shrink "$APP/web/icons/Icon-maskable-512.png" 384 "$APP/web/icons/Icon-maskable-192.png"
 

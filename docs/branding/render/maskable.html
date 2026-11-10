@@ -1,6 +1,19 @@
-<!-- Render harness: PWA maskable icon — the mark on solid white, sized so
+<!-- Render harness: PWA maskable icon — the light mark on solid Aegean night
+     (#0C1F2C, the same dark-blue field the mark already stands on
+     elsewhere in the brand — see AppColors.aegeanNight.surface), sized so
      every platform mask (circle, squircle, rounded square) keeps the whole
      bezel, rose and route thread inside the safe zone.
+
+     Uses mark-light.svg, not mark.svg: on a dark field the dark mark's
+     azure bezel ring would sink into the background exactly as the brand
+     README's plate policy describes for the gradient app bar and the boot
+     splash, so this follows the same dark-field cut as those. The bronze
+     rose is identical in both variants.
+
+     This replaces a white field, which read as a jarring white square icon
+     on home screens once installed (the fix for issue #678) — an opaque
+     plate is unavoidable here because the maskable spec requires one, but
+     it no longer fights the rest of the dark-mode-first brand.
 
      The spec's guaranteed-visible region is a CIRCLE of 80% of the icon's
      width, so the binding constraint is the ink's furthest RADIUS from
@@ -27,8 +40,8 @@
      flutter_launcher_icons reads for iOS/Android/macOS/Windows. -->
 <!doctype html>
 <html><head><style>
-  html,body{margin:0;padding:0;background:#FFFFFF}
+  html,body{margin:0;padding:0;background:#0C1F2C}
   .frame{width:1024px;height:1024px;display:flex;align-items:center;justify-content:center}
   img{width:790px;height:790px}
 </style></head>
-<body><div class="frame"><img src="../mark.svg"></div></body></html>
+<body><div class="frame"><img src="../mark-light.svg"></div></body></html>

@@ -116,7 +116,7 @@ below is generated — edit the SVGs or harnesses, never the PNGs.**
 | render/mark-light.html (shrunk, 4× the 128dp splash mark) | `flutter-app/assets/splash/mark_light_4x.png` | 512 |
 | render/splash-android12.html (741 mark in the 768 circle) | `flutter-app/assets/splash/mark_light_android12.png` | 1152 |
 | render/icon84.html (913 → ink at 84%, transparent) | `flutter-app/web/icons/Icon-192/512.png` | 384 / 1024 |
-| render/maskable.html (790 → ink inside the 80% safe circle, white) | `flutter-app/web/icons/Icon-maskable-192/512.png` | 384 / 1024 |
+| render/maskable.html (790 → ink inside the 80% safe circle, Aegean night) | `flutter-app/web/icons/Icon-maskable-192/512.png` | 384 / 1024 |
 | render/lockup.html | `flutter-app/assets/images/anemos_logo.png` | 1024 |
 | render/ogcard.html (teal gradient + tagline) | `flutter-app/web/og-card.png` | 1200×630 |
 | ↳ flutter_native_splash (from the mark_light seeds) | iOS LaunchImage*, Android `splash.png`/`android12splash.png` (+night) | ladders |
