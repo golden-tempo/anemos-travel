@@ -154,7 +154,28 @@ that same name: on the host,
 
 **Rollback** = re-deploy an older image: GitHub → Actions → CI →
 *Run workflow* on `main` with `image_tag` set to the git SHA of a previous
-green main build. Manual fallback on the server:
+green main build.
+
+**A rollback is STICKY, and you must release it by hand.** `Run workflow`
+has a `hold` checkbox, **ticked by default**: a held deploy writes the
+`prod-hold` git tag, and while that tag exists a push to `main` will NOT
+auto-deploy. Without it the rollback is temporary in the worst way — you
+back out a bad release, and the next merge to `main` ships it straight back
+over the top.
+
+- **Check whether production is held:** `git ls-remote --tags origin prod-hold`
+  (or look for the ⚠ *Production is held* warning on any recent main CI run —
+  every main run says so while the tag exists, naming the pinned SHA).
+- **Release the hold / go live again:** *Run workflow* with `image_tag` set to
+  the SHA you want live (normally current `main`) and **`hold` unticked**.
+  That deploys it and deletes the tag, so `main` resumes auto-deploying.
+- While held, validation and image builds still run on every `main` push —
+  only the deploy is withheld — so releasing is always a dispatch to an image
+  that already exists.
+- A held deploy that cannot write the tag **fails the run** ("deployed but
+  NOT held") rather than leaving you believing prod is pinned when it isn't.
+
+Manual fallback on the server:
 
 ```bash
 cd /opt/goldentempo

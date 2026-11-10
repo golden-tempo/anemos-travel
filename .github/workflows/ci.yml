@@ -8,12 +8,23 @@ on:
   # previously pushed image (CI tags every main image with its SHA). The
   # build-push job is skipped on dispatch — only deploy runs, pointing the
   # server at the requested tag.
+  #
+  # `hold` makes a rollback STICK. Without it, the next push to main deploys
+  # main straight over the rollback — you roll back because prod is broken,
+  # and the next merge (even a docs one, once the gate diffs against the live
+  # release) re-ships the thing you just backed out of. A held deploy pins
+  # production until somebody explicitly releases it again.
   workflow_dispatch:
     inputs:
       image_tag:
         description: "Image tag to deploy (git SHA of a previous green main build)"
         required: true
         type: string
+      hold:
+        description: "Pin production to this tag — main stops auto-deploying until released (uncheck to RELEASE the hold and resume normal deploys)"
+        required: false
+        default: true
+        type: boolean
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -46,10 +57,59 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       backend: ${{ steps.filter.outputs.backend }}
+      held: ${{ steps.hold.outputs.held }}
+      held_at: ${{ steps.hold.outputs.held_at }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # Is production deliberately pinned? A rollback deployed with hold=true
+      # writes the `prod-hold` tag, and until somebody releases it, a push to
+      # main must NOT deploy over it. Read through the API rather than the
+      # checkout so this cannot depend on whether tags were fetched.
+      #
+      # This blocks the DEPLOY only. Validation still runs (main must stay
+      # tested while pinned) and build-push still builds, so releasing the
+      # hold later is a dispatch to an image that already exists.
+      #
+      # A forgotten hold silently stopping every deploy is the same shape of
+      # bug as the one this gate was hardened against, so being held is
+      # announced as a WARNING on every main run, naming the pinned SHA and
+      # how to clear it. Being unable to ANSWER the question is treated as
+      # "not held": a hold that cannot be read must not become an invisible
+      # deploy freeze, and the worst case is the pre-hold behaviour.
+      - name: Is production held by a rollback?
+        id: hold
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          held=false
+          # Three outcomes, and they must not be conflated: the tag exists
+          # (held), the tag is absent (the normal case — 404, say nothing),
+          # or the question could not be answered at all (say so loudly).
+          # `gh api` prints its error body on STDOUT, so a 404 would
+          # otherwise be captured and read as a garbled answer.
+          body=$(gh api "repos/${{ github.repository }}/git/ref/tags/prod-hold" 2>/dev/null || true)
+          sha=$(printf '%s' "$body" | jq -r '.object.sha // empty' 2>/dev/null || true)
+          if printf '%s' "$sha" | grep -qE '^[0-9a-f]{40}$'; then
+            held=true
+          else
+            sha=""
+            if ! printf '%s' "$body" | grep -q '"status": *"404"'; then
+              echo "::notice::could not determine whether production is held (response: ${body:-<empty>}) — treating it as NOT held"
+            fi
+          fi
+          echo "held=$held" >> "$GITHUB_OUTPUT"
+          echo "held_at=$sha" >> "$GITHUB_OUTPUT"
+          if [ "$held" = "true" ]; then
+            echo "production is HELD at $sha"
+            if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+              echo "::warning title=Production is held::main will NOT auto-deploy: production is pinned to ${sha} by a rollback. Release it with Actions → CI → Run workflow (image_tag=<sha to go live>, hold=unchecked)."
+            fi
+          else
+            echo "production is not held — normal deploy rules apply"
+          fi
 
       - name: Only docs/specs touched? Backend touched?
         id: filter
@@ -554,16 +614,25 @@ jobs:
     name: Deploy to production
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: build-push
+    needs: [build-push, changes]
+    # contents: write is for the `prod-hold` tag below and nothing else; the
+    # repo default is read-only, and a job-level block replaces that default,
+    # so read access (checkout) has to be restated here.
+    permissions:
+      contents: write
     # Two ways in:
     #   - push to main with a successful build-push (normal deploy of the
-    #     freshly pushed :<sha> images);
+    #     freshly pushed :<sha> images) AND production not held by a rollback;
     #   - workflow_dispatch on main (manual deploy/rollback of an existing
     #     tag; build-push is skipped, hence the explicit result check and
     #     !cancelled() to override the implicit success() gate).
+    #
+    # The hold deliberately constrains the PUSH path only: dispatch is how a
+    # hold is both taken and released, so it must always be able to deploy.
     if: >-
       ${{ !cancelled() && github.ref == 'refs/heads/main' &&
-          ((github.event_name == 'push' && needs.build-push.result == 'success') ||
+          ((github.event_name == 'push' && needs.build-push.result == 'success' &&
+            needs.changes.outputs.held != 'true') ||
            github.event_name == 'workflow_dispatch') }}
     env:
       IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.sha }}
@@ -732,6 +801,52 @@ jobs:
           echo "re-checking in 20s (the edge may still be filling)"
           sleep 20
           ./scripts/verify-edge-parity.sh https://anemos.travel
+
+      # Take or release the hold — only after everything above proved the
+      # deploy is actually live, so a hold always describes a real state of
+      # production rather than an intention.
+      #
+      # The marker is a git tag because it has to be readable by a
+      # READ-ONLY token (the `changes` job's) and visible to a human deciding
+      # whether prod is pinned; a server-side file would be neither.
+      #
+      # If a hold was ASKED FOR and cannot be taken, this step FAILS. The
+      # deploy has already happened, so the run goes red saying "deployed but
+      # unheld" — the operator must not be told the rollback is pinned when
+      # the next merge would walk over it.
+      - name: Hold or release production
+        if: github.event_name == 'workflow_dispatch' && steps.gate.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HOLD: ${{ inputs.hold }}
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+
+          if [ "$HOLD" != "true" ]; then
+            if gh api "repos/$repo/git/ref/tags/prod-hold" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$repo/git/refs/tags/prod-hold"
+              echo "released: production is no longer held; main resumes auto-deploying"
+            else
+              echo "no hold was in place; nothing to release"
+            fi
+            exit 0
+          fi
+
+          # A tag ref needs a full 40-char commit sha; IMAGE_TAG may be short.
+          full=$(gh api "repos/$repo/commits/${IMAGE_TAG}" --jq '.sha' 2>/dev/null || true)
+          if ! printf '%s' "$full" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "::error title=Deployed but NOT held::${IMAGE_TAG} deployed successfully, but it does not resolve to a commit in this repo, so the hold could not be taken. The next push to main WILL deploy over it. Re-run with a git-SHA image_tag, or create the prod-hold tag by hand."
+            exit 1
+          fi
+
+          if gh api "repos/$repo/git/ref/tags/prod-hold" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$repo/git/refs/tags/prod-hold" -f sha="$full" -F force=true >/dev/null
+          else
+            gh api -X POST "repos/$repo/git/refs" -f ref=refs/tags/prod-hold -f sha="$full" >/dev/null
+          fi
+          echo "held: production pinned to $full — main will not auto-deploy until released"
+          echo "::notice title=Production is held::Pinned to ${full}. Release with Actions → CI → Run workflow (image_tag=<sha to go live>, hold=unchecked)."
 
       # When verify fails, the detached up's output on the host is the first
       # place to look — and by this point the tunnel is usually back even if
