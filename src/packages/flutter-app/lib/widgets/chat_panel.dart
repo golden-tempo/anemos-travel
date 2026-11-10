@@ -225,6 +225,21 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
   final _scrollController = _StickyBottomScrollController();
   final _inputFocus = FocusNode();
 
+  /// Pins the composer's element identity across the Plan tab's empty-state
+  /// layouts (see [build]'s `emptyBlock` branch). Tapping the composer to
+  /// type is what shrinks the available height past [joinFloor] in the first
+  /// place — opening the keyboard moves `constraints.maxHeight` below it —
+  /// so without a stable key the SAME frame that opens the keyboard also
+  /// swaps the composer from inside the joined scroll view to the floor
+  /// layout's own Column. That move changes its ancestor chain, which without
+  /// a GlobalKey tears down its element (and the TextField's live
+  /// `TextInputConnection` with it) and rebuilds a fresh one in the new
+  /// slot — the keyboard the tap just opened closing again a frame later
+  /// (issue #659). A GlobalKey lets the framework relocate the existing
+  /// element instead of recreating it, so focus and the keyboard survive the
+  /// reflow.
+  final _composerKey = GlobalKey();
+
   /// Removes the web paste listener (no-op off web).
   late final void Function() _cancelPasteListener;
 
@@ -738,6 +753,7 @@ class _ChatPanelState extends ConsumerState<ChatPanel> {
       // placed by the branch below rather than hard-coded to the column's
       // tail.
       final composer = Column(
+        key: _composerKey,
         mainAxisSize: MainAxisSize.min,
         children: [
           if (_pending.isNotEmpty || _processingCount > 0)
