@@ -1,9 +1,17 @@
-# PWA status (2026-09-12, updated same day — #629)
+# PWA status (2026-09-12, updated same day — #629; reconfirmed 2026-11-10 — #666)
 
 > **Update:** action items #1–#4 below have shipped (this same PR wave); #5
 > is scheduled as `specs/web-push-notifications`. The "What's missing" list
 > below is left as written for the record of what the investigation found —
 > see "Action items" for current status.
+
+> **Reconfirmed for #666:** re-checked against the current tree on
+> 2026-11-10 — the manifest, custom install prompt, `share_target`, and the
+> Lighthouse `pwa`-category CI gate (`.github/workflows/ci.yml`) are all
+> still in place and unchanged since the above update, so the verdict below
+> still holds. No code changes were needed; #5 (web push) remains the one
+> open item, still intentionally scoped to its own spec rather than folded
+> into this investigation.
 
 Investigation for #627 — "since it's built with Flutter, I'm assuming there's
 a chance it has a service worker." It does, and it goes further than that: the
