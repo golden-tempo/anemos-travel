@@ -20,7 +20,16 @@ class AuthScreen extends ConsumerStatefulWidget {
   /// Whether the form opens in sign-in (true) or create-account (false) mode.
   final bool initialIsLogin;
 
-  const AuthScreen({super.key, this.initialIsLogin = true});
+  // Injectable so tests can drive the autofill burst heuristic with a
+  // deterministic clock instead of racing real wall-clock time (see
+  // _AuthScreenState's burst-detection comment).
+  final DateTime Function() now;
+
+  const AuthScreen({
+    super.key,
+    this.initialIsLogin = true,
+    this.now = DateTime.now,
+  });
 
   @override
   ConsumerState<AuthScreen> createState() => _AuthScreenState();
@@ -79,7 +88,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     // Any new change invalidates a pending auto-submit; _maybeAutoSubmit
     // re-arms it below only if the fill signature still holds.
     _autoSubmitTimer?.cancel();
-    final now = DateTime.now();
+    final now = widget.now();
     // The burst starts when the field first becomes non-empty; it ends (and
     // the field no longer counts as manager-filled) once changes keep
     // arriving past the burst window — that's a human typing.

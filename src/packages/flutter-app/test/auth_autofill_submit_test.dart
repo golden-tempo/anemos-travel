@@ -57,18 +57,33 @@ class _FakeAuthStorage extends AuthStorage {
   Future<void> clearToken() async => token = null;
 }
 
-Widget _wrap(_FakeAuthService service) {
+Widget _wrap(_FakeAuthService service, {DateTime Function()? now}) {
   return ProviderScope(
     overrides: [
       authServiceProvider.overrideWithValue(service),
       authStorageProvider.overrideWithValue(_FakeAuthStorage()),
     ],
-    child: localizedTestApp(home: const AuthScreen()),
+    child: localizedTestApp(
+      home: now == null ? const AuthScreen() : AuthScreen(now: now),
+    ),
   );
 }
 
 Finder _fieldByLabel(String label) =>
     find.ancestor(of: find.text(label), matching: find.byType(TextFormField));
+
+/// A clock that advances a fixed step on every read. Lets a test assert the
+/// burst heuristic's own logic (every change event lands inside the burst
+/// window) without depending on how fast the host happens to run.
+DateTime Function() _fakeClock(
+    {Duration step = const Duration(milliseconds: 5)}) {
+  var current = DateTime(2026, 1, 1);
+  return () {
+    final value = current;
+    current = current.add(step);
+    return value;
+  };
+}
 
 void main() {
   testWidgets('password-manager style double fill auto-submits sign-in', (
@@ -108,22 +123,20 @@ void main() {
 
   testWidgets('keystroke-simulated burst fill auto-submits', (tester) async {
     final service = _FakeAuthService();
-    await tester.pumpWidget(_wrap(service));
+    // The burst heuristic reads AuthScreen.now (auth_screen.dart) instead of
+    // a real DateTime.now() here, so the test drives it with a fake clock
+    // that advances a fixed, small step per read. That asserts the
+    // classifier's own logic directly — every change event lands inside the
+    // 400ms per-field burst window — instead of racing real wall-clock time,
+    // which used to flip this test under full-suite parallel load on a slow
+    // enough host.
+    await tester.pumpWidget(_wrap(service, now: _fakeClock()));
     await tester.pump();
 
     // Some managers fill by simulating keystrokes: many change events inside
     // one rapid burst. What matters here is the COUNT of change events landing
     // within the 400ms per-field burst window — not any particular gap between
     // them, so this deliberately does not sleep.
-    //
-    // The heuristic reads a real `DateTime.now()` (auth_screen.dart), so this
-    // test spends real wall-clock time and a slow enough machine will push the
-    // burst past the window and flip the expectation. It used to pay a
-    // `runAsync` round trip per character — each one tears down and restores
-    // the fake-async zone — which made 13 characters exceed 400ms as soon as
-    // the suite ran with enough parallel load to slow the host. Keep this loop
-    // free of real delays; the "human typing" case below is the one that wants
-    // them, and load only ever pushes it further into passing.
     Future<void> burstType(String label, String value) async {
       for (var i = 1; i <= value.length; i++) {
         await tester.enterText(_fieldByLabel(label), value.substring(0, i));
