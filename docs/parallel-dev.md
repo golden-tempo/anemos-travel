@@ -124,7 +124,7 @@ template.
 | `api/plan_tool_registry.go` | low freq, **high severity** | **≤ 1 tool-adding lane in flight.** Registry order = the Anthropic prompt-cache prefix; append-at-tail only. A reorder-merge silently destroys prompt caching — no test fails. Tool *implementations* in separate `plan_tools_*.go` files are parallel-safe. | Keep main's order byte-stable; re-append the new entry at the tail. |
 | `store/` (sqlc) | 19% | Never a planning constraint. | Regen, don't merge (§4). |
 | `lib/models/*.g.dart`, `lib/l10n/app_localizations*.dart` | — | Same. | Regen, don't merge (§4). |
-| `.env.sample`, `CLAUDE.md` | 15% / 9% | Append-only; no constraint. | Take both. |
+| `.env.sample`, `CLAUDE.md` | 15% / 9% | Append-only; no constraint. A new **constraint** goes in its topic file under `.claude/rules/`, not in `CLAUDE.md` — one file per area means two lanes documenting different areas no longer touch the same file. Only a new rule's row in `CLAUDE.md`'s index is shared. | Take both. |
 
 ## 4a. Migration numbers only ever go up — 00058 is burned
 
