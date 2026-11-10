@@ -103,6 +103,15 @@ void main() {
       expect(lead + trail, lessThan(1));
     });
 
+    test('leaving the start ramps the fade in rather than snapping to full',
+        () {
+      // One logical pixel past rest: a flash, not a fade, if this were full
+      // strength already.
+      final justOff = _at(2).$1;
+      expect(justOff, greaterThan(0));
+      expect(justOff, lessThan(_at(300).$1));
+    });
+
     test('a viewport with no width yields no fade', () {
       expect(
         fadingEdgeFractions(
