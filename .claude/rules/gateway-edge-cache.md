@@ -1,0 +1,9 @@
+---
+paths:
+  - "dockerize/**/*"
+  - "scripts/verify-edge-parity.sh"
+---
+
+# Gateway asset caching & edge parity
+
+- **The gateway's `/app/assets/**` tree is `no-cache` by necessity, and the edge is verified rather than trusted** (`dockerize/deployment/nginx/snippets/app-locations.conf`, `scripts/verify-edge-parity.sh`): `flutter build web` does not content-hash asset filenames, so those URLs are stable while the BYTES change on any deploy — `--release` re-tree-shakes `MaterialIcons-Regular.otf` to exactly the codepoints the code statically references, so any icon swap rewrites it. Never serve that tree `immutable` or a long `max-age`: the service worker CAN detect the change, but it re-downloads with a DEFAULT-mode fetch that the HTTP cache and the CDN both answer, so it files STALE bytes under the NEW hash and staleness becomes self-certifying — no later deploy evicts them, because the hash is already "right". **Correcting the header does not repair a CDN that already stored the object** (a stored response keeps the freshness lifetime it was stored with), which is the whole reason `scripts/verify-edge-parity.sh` runs in the deploy job: it asserts, for every file the DEPLOYED service worker declares, that the bytes the edge returns equal the bytes the origin returns — the one check that speaks for what a browser actually receives, since "Verify deployed release" appends a cache-busting query and therefore only ever asks for URLs the edge is not answering. The repair is a purge (runbook: `dockerize/production/README.md`). The `flutter-app-manifest-vN` bump in `dockerize/deployment/Dockerfile` is the one-shot client-side eviction, and it is **only valid after a purge verifies clean**: it fires once per client and can never be re-fired, so spending it while the edge is stale refills every client from the stale edge — which is what `v2` did, turning a shipped fix into two more days of blank icons.
