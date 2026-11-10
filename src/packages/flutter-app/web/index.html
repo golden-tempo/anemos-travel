@@ -118,11 +118,16 @@
        deployed in between — so `favicon.png?v=4` served the previous mark from
        edge cache with `age: 3322` after the bezel went live. The version is
        cheap; a stale favicon lasts weeks in Chrome. -->
-  <link rel="apple-touch-icon" href="icons/Icon-192.png?v=6">
+  <!-- iOS ignores the manifest's icons and uses THIS link, and fills any
+       transparency with white. Icon-192.png is a transparent mark (right for
+       the "any" purpose), so pointing here at it put the mark on a white
+       square even after the maskable icons moved to Aegean night (#678).
+       apple-touch-icon.png is the full-bleed maskable art at iOS's 180px. -->
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png?v=7">
 
-  <!-- Favicon: ?v=6 because Chrome's favicon cache is keyed by URL and
+  <!-- Favicon: ?v=7 because Chrome's favicon cache is keyed by URL and
        refreshes lazily — new bytes at the same URL can stay stale for weeks. -->
-  <link rel="icon" type="image/png" href="favicon.png?v=6"/>
+  <link rel="icon" type="image/png" href="favicon.png?v=7"/>
 
   <title>Anemos</title>
   <link rel="manifest" href="manifest.json">
@@ -284,7 +289,7 @@
            file whenever the mark art changes, at a path Cloudflare caches, so
            the boot splash served the PREVIOUS mark from edge cache for ~15
            minutes after that deploy. Bump it with the icons. -->
-      <img src="splash/anemos_mark_light.png?v=6" alt="">
+      <img src="splash/anemos_mark_light.png?v=7" alt="">
     </div>
     <div class="splash-wordmark">Anemos</div>
     <!-- Decorative: the loading state is announced by the app once it boots;
