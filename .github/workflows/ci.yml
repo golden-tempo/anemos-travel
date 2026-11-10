@@ -69,8 +69,45 @@ jobs:
               head="${{ github.event.pull_request.head.sha }}"
               ;;
             *)
-              base="${{ github.event.before }}"
               head="${{ github.sha }}"
+              base="${{ github.event.before }}"
+              # This gate may only skip the DEPLOY if the commit it diffs
+              # against is actually live. `github.event.before` is merely the
+              # previous commit, which equals the deployed one only when every
+              # push deployed -- and main pushes routinely do not:
+              # cancel-in-progress is pull_request-only, so main runs queue and
+              # GitHub keeps just the newest PENDING run. A burst of merges
+              # therefore DISCARDS the intermediate runs, which is safe only
+              # because the surviving run builds current main cumulatively.
+              # A docs-only surviving run broke exactly that invariant
+              # (2026-11-10: #674, #673 and #676 merged in a burst, the
+              # docs-only #677 run survived, skipped the deploy, and prod sat
+              # on #675 with three merged features unbuilt -- nothing in CI
+              # self-heals it, there is no schedule:).
+              # So ask production what it is serving instead of assuming.
+              # Anything we cannot prove is live is treated as a code change:
+              # an unnecessary build is cheap, a silently stranded feature is
+              # not. (A deliberate workflow_dispatch rollback is therefore
+              # re-shipped by the next main push -- intended: a rollback is a
+              # stopgap, and main is the truth.)
+              if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+                live=$(curl -sS -m 10 "https://anemos.travel/api/v1/health" \
+                  | jq -r '.release // empty' 2>/dev/null || true)
+                if ! printf '%s' "$live" | grep -qE '^[0-9a-f]{7,40}$'; then
+                  echo "::notice::could not read the live release (got '${live:-}') -- cannot prove the previous commit shipped, treating as a code change"
+                  echo "code=true" >> "$GITHUB_OUTPUT"
+                  echo "backend=true" >> "$GITHUB_OUTPUT"
+                  exit 0
+                fi
+                if ! git cat-file -e "$live" 2>/dev/null; then
+                  echo "::notice::live release '$live' is not a commit in this repo -- treating as a code change"
+                  echo "code=true" >> "$GITHUB_OUTPUT"
+                  echo "backend=true" >> "$GITHUB_OUTPUT"
+                  exit 0
+                fi
+                echo "live release is $live -- diffing against what is DEPLOYED, not against event.before (${base:-none})"
+                base="$live"
+              fi
               ;;
           esac
 
