@@ -16,6 +16,14 @@ import 'travel_footprint_parts.dart';
 const kTraveledStatsKey = ValueKey('travelStats.traveled');
 const kPlannedStatsKey = ValueKey('travelStats.planned');
 
+/// The stats block's own tap target, present only when a caller opts into
+/// [TravelFootprintCard.onTap]. Named independently of any host's "See all"
+/// key: Home's and the trips list's keys already differ for the reason
+/// documented on [kHomeTravelAtlasSeeAllKey] (home_travels_band.dart), and
+/// this one has to be findable without pulling either host's key into a test
+/// that only cares about the card itself.
+const kTravelFootprintTapKey = ValueKey('travelFootprint.tapTarget');
+
 /// The body of the "Your travels" section on the trips list: a world map
 /// pinning every hub city across the user's owned trips, captioned by the
 /// travel stats. One merged card (not separate stats + map bands) so the
@@ -55,16 +63,26 @@ const kPlannedStatsKey = ValueKey('travelStats.planned');
 /// the list payload (footprintPins over Trip.cityPins), never from the
 /// per-trip detail cache — unlike TripMapBand this band must render for
 /// trips never opened on this device.
+///
+/// [onTap], when a caller supplies one, lands on the STATS block below the
+/// map only — never the map itself. The trips list deliberately leaves this
+/// null (a marked "See all" action, not a tappable card): every pin up there
+/// already owns a 44px hit box spending its tap on a tooltip, and wrapping
+/// the whole card would turn the most inviting part of it into the one tap
+/// that doesn't navigate. Home opts in because its copy of this card sits
+/// under the same "See all" door with nothing else competing for the tap.
 class TravelFootprintCard extends StatelessWidget {
   final List<FootprintPin> pins;
   final TravelStats traveled;
   final TravelStats planned;
+  final VoidCallback? onTap;
 
   const TravelFootprintCard({
     super.key,
     required this.pins,
     required this.traveled,
     required this.planned,
+    this.onTap,
   });
 
   /// Slightly shorter than TripMapBand's 160 hero band so the retrospective
@@ -90,6 +108,28 @@ class TravelFootprintCard extends StatelessWidget {
           stats: planned,
         ),
     ];
+    final stats = Padding(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < groups.length; i++) ...[
+            // A group label has to be nearer its own line than its
+            // neighbour's by a visible margin, or it reads as floating
+            // between the two. lg between groups against xs inside one
+            // is that margin — a 4:1 ratio the eye resolves without
+            // help. (It was xl while each group was a 50px-tall tile
+            // grid; the caption lines need less air to stay grouped.)
+            if (i > 0) const SizedBox(height: AppSpacing.lg),
+            TravelStatGroup(
+              key: groups[i].key,
+              label: groups[i].label,
+              stats: groups[i].stats,
+            ),
+          ],
+        ],
+      ),
+    );
     return Card(
       // The map tiles paint square corners; the card's own clip rounds them.
       clipBehavior: Clip.antiAlias,
@@ -118,28 +158,20 @@ class TravelFootprintCard extends StatelessWidget {
                 ),
               ),
             ),
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var i = 0; i < groups.length; i++) ...[
-                  // A group label has to be nearer its own line than its
-                  // neighbour's by a visible margin, or it reads as floating
-                  // between the two. lg between groups against xs inside one
-                  // is that margin — a 4:1 ratio the eye resolves without
-                  // help. (It was xl while each group was a 50px-tall tile
-                  // grid; the caption lines need less air to stay grouped.)
-                  if (i > 0) const SizedBox(height: AppSpacing.lg),
-                  TravelStatGroup(
-                    key: groups[i].key,
-                    label: groups[i].label,
-                    stats: groups[i].stats,
-                  ),
-                ],
-              ],
-            ),
-          ),
+          // The map (above) keeps its own tap handling for pin tooltips —
+          // the stats block is the only part of the card this InkWell ever
+          // covers, so the two affordances never compete for the same tap.
+          if (onTap != null)
+            Semantics(
+              button: true,
+              child: InkWell(
+                key: kTravelFootprintTapKey,
+                onTap: onTap,
+                child: stats,
+              ),
+            )
+          else
+            stats,
         ],
       ),
     );
