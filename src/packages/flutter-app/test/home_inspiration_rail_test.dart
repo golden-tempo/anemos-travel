@@ -125,7 +125,7 @@ void main() {
           resumableChatsProvider.overrideWith((ref) async => chats),
           planProvider.overrideWith((ref) => plan),
           // Natural pool order so the first (visible) card is a known one.
-          suggestionOrderProvider.overrideWithValue(
+          personalizedSuggestionOrderProvider.overrideWithValue(
               () => List<int>.generate(suggestionPool.length, (i) => i)),
           suggestionPickerProvider.overrideWithValue(() => const [0, 1, 2]),
         ],
@@ -153,7 +153,7 @@ void main() {
     final draws = tester.widget<RandomSuggestions>(find.descendant(
         of: find.byType(HomeInspirationRail),
         matching: find.byType(RandomSuggestions)));
-    expect(draws.picker, same(suggestionOrderProvider));
+    expect(draws.picker, same(personalizedSuggestionOrderProvider));
   });
 
   testWidgets('new account gets the rail below the photo hero',
