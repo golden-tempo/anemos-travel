@@ -13,7 +13,10 @@ VALUES (
     sqlc.narg('work_style'),
     sqlc.narg('fitness_routine'),
     sqlc.narg('outdoor_intensity'),
-    sqlc.narg('companions'),
+    -- A list since 00073, and COALESCEd exactly like interests above: the
+    -- column is NOT NULL, so an omitted argument has to land as '{}' rather
+    -- than NULL.
+    COALESCE(sqlc.narg('companions'), '{}'::text[]),
     sqlc.narg('baggage')
 )
 ON CONFLICT (user_id) DO UPDATE SET

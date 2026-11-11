@@ -24,7 +24,9 @@ class PreferencesApiService {
     String? workStyle,
     String? fitnessRoutine,
     String? outdoorIntensity,
-    String? companions,
+    // A list since 00073. Null omits (keep stored); a list — including an
+    // empty one — replaces, matching how `interests` above behaves.
+    List<String>? companions,
     String? baggage,
   }) async {
     final res = await apiClient.httpClient.put(
@@ -39,6 +41,8 @@ class PreferencesApiService {
         'work_style': workStyle,
         'fitness_routine': fitnessRoutine,
         'outdoor_intensity': outdoorIntensity,
+        // Sent as-is: null omits, [] clears. jsonEncode maps both to the
+        // shapes the handler's *[]string already distinguishes.
         'companions': companions,
         'baggage': baggage,
       }),

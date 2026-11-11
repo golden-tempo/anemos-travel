@@ -48,7 +48,10 @@ VALUES (
     $7,
     $8,
     $9,
-    $10,
+    -- A list since 00073, and COALESCEd exactly like interests above: the
+    -- column is NOT NULL, so an omitted argument has to land as '{}' rather
+    -- than NULL.
+    COALESCE($10, '{}'::text[]),
     $11
 )
 ON CONFLICT (user_id) DO UPDATE SET
@@ -82,7 +85,7 @@ type UpsertPreferencesParams struct {
 	WorkStyle        *string     `json:"work_style"`
 	FitnessRoutine   *string     `json:"fitness_routine"`
 	OutdoorIntensity *string     `json:"outdoor_intensity"`
-	Companions       *string     `json:"companions"`
+	Companions       interface{} `json:"companions"`
 	Baggage          *string     `json:"baggage"`
 	ClearHomeAirport bool        `json:"clear_home_airport"`
 }

@@ -95,7 +95,8 @@ class _OnboardingQuizScreenState extends ConsumerState<OnboardingQuizScreen> {
   String? _pace;
   String? _workStyle;
   final Set<String> _interests = {};
-  String? _companions;
+  /// A set since 00073 — see TravelerPreferences.companions.
+  final Set<String> _companions = {};
   String? _fitnessRoutine;
   String? _outdoorIntensity;
   String? _baggage;
@@ -129,7 +130,7 @@ class _OnboardingQuizScreenState extends ConsumerState<OnboardingQuizScreen> {
     // 00063 it had no field to come back from, so a retake always showed it
     // blank. Every new preference field MUST be added here or an untouched
     // retake shows an empty chip row over a stored value.
-    _companions = prefs.companions;
+    _companions.addAll(prefs.companions);
     _fitnessRoutine = prefs.fitnessRoutine;
     _outdoorIntensity = prefs.outdoorIntensity;
     _baggage = prefs.baggage;
@@ -182,7 +183,7 @@ class _OnboardingQuizScreenState extends ConsumerState<OnboardingQuizScreen> {
           budget: _budget,
           pace: _pace,
           workStyle: _workStyle,
-          companions: _companions,
+          companions: _companions.toList(),
           fitnessRoutine: _fitnessRoutine,
           outdoorIntensity: _outdoorIntensity,
           baggage: _baggage,
@@ -363,11 +364,17 @@ class _OnboardingQuizScreenState extends ConsumerState<OnboardingQuizScreen> {
               _buildStep(
                 title: l10n.quizCompanionsTitle,
                 children: [
-                  ChoiceChipRow(
+                  // Multi-select, like the Travel profile row it feeds: a
+                  // traveler who is both is not made to choose at signup only
+                  // to correct it later.
+                  MultiChoiceChipRow(
                     options: companionOptions,
                     selected: _companions,
-                    onSelected: (v) => setState(() => _companions = v),
+                    onChanged: (next) => setState(() => _companions
+                      ..clear()
+                      ..addAll(next)),
                     labelBuilder: (v) => companionLabel(l10n, v),
+                    exclusiveOptions: const {companionsVaries},
                   ),
                 ],
               ),

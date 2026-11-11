@@ -68,7 +68,7 @@ class _QueuedPrefsApi implements PreferencesApiService {
     String? workStyle,
     String? fitnessRoutine,
     String? outdoorIntensity,
-    String? companions,
+    List<String>? companions,
     String? baggage,
   }) async =>
       const TravelerPreferences(homeAirport: 'EWR');
@@ -92,7 +92,7 @@ class _FakePrefsApi implements PreferencesApiService {
     String? workStyle,
     String? fitnessRoutine,
     String? outdoorIntensity,
-    String? companions,
+    List<String>? companions,
     String? baggage,
   }) async =>
       const TravelerPreferences(homeAirport: 'EWR');

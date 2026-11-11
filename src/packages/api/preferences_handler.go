@@ -27,6 +27,14 @@ var allowedOutdoorIntensities = map[string]bool{"easy": true, "moderate": true, 
 
 var allowedCompanions = map[string]bool{"solo": true, "partner": true, "friends": true, "family_with_kids": true, "varies": true}
 
+// "varies" answers the same question as the other four, but about all of them
+// at once, so it cannot sit beside them: "solo AND it varies" states and
+// unstates a fact in one breath, and the planning brief would tailor to both.
+// It is the LAST word rather than an error — a traveler adding it is saying
+// their earlier picks no longer hold, and rejecting the save would strand them
+// on a selection they had already abandoned.
+const companionsVaries = "varies"
+
 type PreferencesResponse struct {
 	Budget           *string  `json:"budget"`
 	Pace             *string  `json:"pace"`
@@ -36,7 +44,7 @@ type PreferencesResponse struct {
 	WorkStyle        *string  `json:"work_style"`
 	FitnessRoutine   *string  `json:"fitness_routine"`
 	OutdoorIntensity *string  `json:"outdoor_intensity"`
-	Companions       *string  `json:"companions"`
+	Companions       []string `json:"companions"`
 	Baggage          *string  `json:"baggage"`
 }
 
@@ -51,14 +59,21 @@ type PutPreferencesRequest struct {
 	WorkStyle        *string `json:"work_style"`
 	FitnessRoutine   *string `json:"fitness_routine"`
 	OutdoorIntensity *string `json:"outdoor_intensity"`
-	Companions       *string `json:"companions"`
-	Baggage          *string `json:"baggage"`
+	// Pointer for the same reason as Interests: nil -> keep, [] -> clear.
+	Companions *[]string `json:"companions"`
+	Baggage    *string   `json:"baggage"`
 }
 
 func toPreferencesResponse(p store.TravelerPreference) PreferencesResponse {
 	interests := p.Interests
 	if interests == nil {
 		interests = []string{}
+	}
+	// Same non-nil guarantee as interests: clients decode this into a list and
+	// should never have to spell "absent" and "empty" differently.
+	companions := p.Companions
+	if companions == nil {
+		companions = []string{}
 	}
 	return PreferencesResponse{
 		Budget:           p.Budget,
@@ -69,7 +84,7 @@ func toPreferencesResponse(p store.TravelerPreference) PreferencesResponse {
 		WorkStyle:        p.WorkStyle,
 		FitnessRoutine:   p.FitnessRoutine,
 		OutdoorIntensity: p.OutdoorIntensity,
-		Companions:       p.Companions,
+		Companions:       companions,
 		Baggage:          p.Baggage,
 	}
 }
@@ -82,7 +97,12 @@ func getPreferencesHandler(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
 	p, err := store.New(dbPool).GetPreferences(r.Context(), user.ID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeJSON(w, http.StatusOK, PreferencesResponse{Interests: []string{}})
+		// Both list fields spelled out: a profile that does not exist yet has
+		// to answer with the same SHAPE as one that does, or a client decoding
+		// [] everywhere else meets a null on the very first load.
+		writeJSON(w, http.StatusOK, PreferencesResponse{
+			Interests: []string{}, Companions: []string{},
+		})
 		return
 	}
 	if err != nil {
@@ -130,10 +150,15 @@ func putPreferencesHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	companions, err := normalizeChoice(req.Companions, allowedCompanions, "companions")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
+	// nil companions -> leave unchanged; provided (incl. empty) -> set/clear.
+	var companionsArg interface{}
+	if req.Companions != nil {
+		list, err := normalizeCompanions(*req.Companions)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		companionsArg = list
 	}
 	// Same vocabulary as the flight-search tier (duffel_service.go) on purpose:
 	// this preference IS the default for that field, and two spellings of one
@@ -167,7 +192,7 @@ func putPreferencesHandler(w http.ResponseWriter, r *http.Request) {
 		WorkStyle:        workStyle,
 		FitnessRoutine:   fitnessRoutine,
 		OutdoorIntensity: outdoorIntensity,
-		Companions:       companions,
+		Companions:       companionsArg,
 		Baggage:          baggage,
 	})
 	if err != nil {
@@ -239,6 +264,36 @@ func normalizeNotes(v *string) *string {
 
 // normalizeInterests trims, drops blanks, and de-duplicates (case-insensitive,
 // order-preserving). Always returns a non-nil slice so an empty input clears.
+// normalizeCompanions validates a companions list: lowercased, trimmed, blanks
+// dropped, deduped, order preserved. An unrecognized value is an error rather
+// than a silent drop — this is a closed vocabulary, unlike interests, and a
+// typo that vanished would look saved.
+//
+// "varies" wins alone (see [companionsVaries]): if it is present, it is the
+// whole answer.
+func normalizeCompanions(in []string) ([]string, error) {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, s := range in {
+		v := strings.ToLower(strings.TrimSpace(s))
+		if v == "" {
+			continue
+		}
+		if !allowedCompanions[v] {
+			return nil, errors.New("companions is not a recognized value")
+		}
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	if seen[companionsVaries] {
+		return []string{companionsVaries}, nil
+	}
+	return out, nil
+}
+
 func normalizeInterests(in []string) []string {
 	seen := map[string]bool{}
 	out := []string{}

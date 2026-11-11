@@ -178,22 +178,55 @@ func TestPersonalizedSystemPromptOutdoorIntensityBands(t *testing.T) {
 }
 
 func TestPersonalizedSystemPromptCompanions(t *testing.T) {
-	solo := personalizedSystemPrompt("base", &store.TravelerPreference{Companions: strPtr("solo")})
+	solo := personalizedSystemPrompt("base", &store.TravelerPreference{Companions: []string{"solo"}})
 	if !strings.Contains(solo, "traveling: solo") || !strings.Contains(solo, "for one person") {
 		t.Fatalf("solo prompt missing line or note: %q", solo)
 	}
-	kids := personalizedSystemPrompt("base", &store.TravelerPreference{Companions: strPtr("family_with_kids")})
+	kids := personalizedSystemPrompt("base", &store.TravelerPreference{Companions: []string{"family_with_kids"}})
 	if !strings.Contains(kids, "traveling: with kids") || !strings.Contains(kids, "shorter transfers") {
 		t.Fatalf("family prompt missing line or note: %q", kids)
 	}
 	// partner/varies are facts worth stating with nothing extra to instruct.
-	partner := personalizedSystemPrompt("base", &store.TravelerPreference{Companions: strPtr("partner")})
+	partner := personalizedSystemPrompt("base", &store.TravelerPreference{Companions: []string{"partner"}})
 	if !strings.Contains(partner, "traveling: as a couple") {
 		t.Fatalf("partner prompt missing parts line: %q", partner)
 	}
 	if strings.Contains(partner, "shorter transfers") || strings.Contains(partner, "for one person") {
 		t.Fatalf("partner must not borrow another value's note: %q", partner)
 	}
+}
+
+// A list means the brief can no longer speak as if one shape were the whole
+// truth — and must say which trip it is asking about.
+func TestPersonalizedSystemPromptCompanionsMulti(t *testing.T) {
+	both := personalizedSystemPrompt("base", &store.TravelerPreference{
+		Companions: []string{"solo", "family_with_kids"},
+	})
+	if !strings.Contains(both, "traveling: solo, with kids") {
+		t.Fatalf("both shapes must be named: %q", both)
+	}
+	// Each selected shape still contributes its own guidance.
+	if !strings.Contains(both, "comfortable to visit alone") || !strings.Contains(both, "shorter transfers") {
+		t.Fatalf("multi prompt lost a shape's guidance: %q", both)
+	}
+	// The solo-only instruction is FALSE for someone who also travels with
+	// kids: quoting rooms for one person would price the wrong trip.
+	if strings.Contains(both, "for one person") {
+		t.Fatalf("solo-only pricing note leaked into a multi profile: %q", both)
+	}
+	// With more than one shape on file, which one applies cannot be inferred.
+	if !strings.Contains(both, "ask who is coming on THIS trip") {
+		t.Fatalf("multi prompt must ask which shape this trip is: %q", both)
+	}
+	// A single shape has nothing to ask about.
+	if strings.Contains(solo(t), "ask who is coming on THIS trip") {
+		t.Fatal("single-shape prompt must not ask which trip this is")
+	}
+}
+
+func solo(t *testing.T) string {
+	t.Helper()
+	return personalizedSystemPrompt("base", &store.TravelerPreference{Companions: []string{"solo"}})
 }
 
 // The bag tier is the one preference the model never has to act on —

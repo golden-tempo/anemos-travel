@@ -66,7 +66,8 @@ func TestNormalizeActiveProfileChoices(t *testing.T) {
 	}{
 		{"fitness_routine", allowedFitnessRoutines, []string{"gym", "running", "both", "none"}, "lifting"},
 		{"outdoor_intensity", allowedOutdoorIntensities, []string{"easy", "moderate", "challenging"}, "extreme"},
-		{"companions", allowedCompanions, []string{"solo", "partner", "friends", "family_with_kids", "varies"}, "family with kids"},
+		// companions left this table at 00073 — it is a list now, with its own
+		// normalizer and its own rules. See TestNormalizeCompanions.
 		// Shares its vocabulary with the flight-search tier (duffel_service.go)
 		// because it IS that field's default — two spellings would drift.
 		{"baggage", allowedBaggageTiers, []string{"personal_item", "carry_on", "checked"}, "carryon"},
@@ -79,8 +80,6 @@ func TestNormalizeActiveProfileChoices(t *testing.T) {
 					t.Fatalf("normalizeChoice(%q) = %v, %v; want accepted", v, got, err)
 				}
 			}
-			// The pre-00063 quiz sent companions as "family with kids"; the
-			// column is snake_case, so the old spelling must NOT sneak through.
 			if _, err := normalizeChoice(strPtr(c.invalid), c.allowed, c.field); err == nil {
 				t.Fatalf("normalizeChoice(%q) should be rejected", c.invalid)
 			}
@@ -94,6 +93,51 @@ func TestNormalizeActiveProfileChoices(t *testing.T) {
 			}
 		})
 	}
+}
+
+// companions is a LIST since 00073 — travel is often more than one shape, and
+// a single choice forced anyone whose isn't to pick one and lose the rest.
+func TestNormalizeCompanions(t *testing.T) {
+	t.Run("keeps every selection, in order", func(t *testing.T) {
+		got, err := normalizeCompanions([]string{"solo", "family_with_kids"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 2 || got[0] != "solo" || got[1] != "family_with_kids" {
+			t.Fatalf("got %v, want [solo family_with_kids]", got)
+		}
+	})
+
+	t.Run("trims, lowercases and dedupes", func(t *testing.T) {
+		got, _ := normalizeCompanions([]string{" Solo ", "solo", "", "  ", "FRIENDS"})
+		if len(got) != 2 || got[0] != "solo" || got[1] != "friends" {
+			t.Fatalf("got %v, want [solo friends]", got)
+		}
+	})
+
+	t.Run("varies swallows the rest — it answers for all of them", func(t *testing.T) {
+		// "solo AND it varies" states and unstates a fact in one breath, and
+		// the planning brief would tailor to both.
+		got, _ := normalizeCompanions([]string{"solo", "varies", "friends"})
+		if len(got) != 1 || got[0] != "varies" {
+			t.Fatalf("got %v, want [varies]", got)
+		}
+	})
+
+	t.Run("an unknown member rejects the whole list", func(t *testing.T) {
+		// A closed vocabulary, unlike interests: a typo that vanished silently
+		// would look saved. The pre-00063 spaced spelling is the live example.
+		if _, err := normalizeCompanions([]string{"solo", "family with kids"}); err == nil {
+			t.Fatal("spaced spelling should be rejected, not dropped")
+		}
+	})
+
+	t.Run("empty clears rather than erroring", func(t *testing.T) {
+		got, err := normalizeCompanions([]string{})
+		if err != nil || got == nil || len(got) != 0 {
+			t.Fatalf("got %v, %v; want an empty non-nil list", got, err)
+		}
+	})
 }
 
 // Home airport is the one field on this profile that CAN be emptied, so its

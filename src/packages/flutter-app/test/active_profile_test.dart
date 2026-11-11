@@ -21,7 +21,7 @@ class _FakePrefsApi implements PreferencesApiService {
   TravelerPreferences prefs;
   String? savedFitnessRoutine;
   String? savedOutdoorIntensity;
-  String? savedCompanions;
+  List<String>? savedCompanions;
   int saveCalls = 0;
 
   _FakePrefsApi({this.prefs = const TravelerPreferences()});
@@ -42,7 +42,7 @@ class _FakePrefsApi implements PreferencesApiService {
     String? workStyle,
     String? fitnessRoutine,
     String? outdoorIntensity,
-    String? companions,
+    List<String>? companions,
     String? baggage,
   }) async {
     saveCalls++;
@@ -101,7 +101,7 @@ void main() {
           prefs: const TravelerPreferences(
             fitnessRoutine: 'both',
             outdoorIntensity: 'easy',
-            companions: 'solo',
+            companions: ['solo'],
           ),
         ),
       );
@@ -132,7 +132,93 @@ void main() {
       expect(api.savedOutdoorIntensity, 'challenging');
       // Snake_case, matching the column — the pre-00063 quiz spelled this
       // "family with kids" and the server now rejects that.
-      expect(api.savedCompanions, 'family_with_kids');
+      expect(api.savedCompanions, ['family_with_kids']);
+    });
+
+    // "Who you travel with" is a multi-select since 00073: one answer is a lie
+    // for anyone who flies solo for work and takes the kids in August.
+    group('companions is multi-select', () {
+      testWidgets('two shapes both stay lit and both save', (tester) async {
+        final api = _FakePrefsApi();
+        await _pump(tester, api);
+
+        await _tapVisible(tester, find.widgetWithText(ChoiceChip, 'solo'));
+        await _tapVisible(
+            tester, find.widgetWithText(ChoiceChip, 'family with kids'));
+
+        // The old row cleared the first pick; this is the whole point.
+        expect(_chipSelected(tester, 'solo'), isTrue);
+        expect(_chipSelected(tester, 'family with kids'), isTrue);
+
+        await _tapVisible(tester, find.text('Save'));
+        await tester.pumpAndSettle();
+        expect(api.savedCompanions, ['solo', 'family_with_kids']);
+      });
+
+      testWidgets('tapping a lit chip turns it off', (tester) async {
+        // With no single-select fallback there must still be a way back to
+        // "I never said".
+        final api = _FakePrefsApi();
+        await _pump(tester, api);
+
+        await _tapVisible(tester, find.widgetWithText(ChoiceChip, 'friends'));
+        expect(_chipSelected(tester, 'friends'), isTrue);
+        await _tapVisible(tester, find.widgetWithText(ChoiceChip, 'friends'));
+        expect(_chipSelected(tester, 'friends'), isFalse);
+
+        await _tapVisible(tester, find.text('Save'));
+        await tester.pumpAndSettle();
+        expect(api.savedCompanions, isEmpty);
+      });
+
+      testWidgets('"it varies" clears the specific shapes', (tester) async {
+        // It answers the same question, about all of them at once — "solo AND
+        // it varies" states and unstates a fact in one breath.
+        final api = _FakePrefsApi();
+        await _pump(tester, api);
+
+        await _tapVisible(tester, find.widgetWithText(ChoiceChip, 'solo'));
+        await _tapVisible(tester, find.widgetWithText(ChoiceChip, 'friends'));
+        await _tapVisible(tester, find.widgetWithText(ChoiceChip, 'it varies'));
+
+        expect(_chipSelected(tester, 'it varies'), isTrue);
+        expect(_chipSelected(tester, 'solo'), isFalse);
+        expect(_chipSelected(tester, 'friends'), isFalse);
+
+        await _tapVisible(tester, find.text('Save'));
+        await tester.pumpAndSettle();
+        expect(api.savedCompanions, ['varies']);
+      });
+
+      testWidgets('and a specific shape clears "it varies"', (tester) async {
+        final api = _FakePrefsApi();
+        await _pump(tester, api);
+
+        await _tapVisible(tester, find.widgetWithText(ChoiceChip, 'it varies'));
+        await _tapVisible(tester, find.widgetWithText(ChoiceChip, 'partner'));
+
+        expect(_chipSelected(tester, 'partner'), isTrue);
+        expect(_chipSelected(tester, 'it varies'), isFalse);
+
+        await _tapVisible(tester, find.text('Save'));
+        await tester.pumpAndSettle();
+        expect(api.savedCompanions, ['partner']);
+      });
+
+      testWidgets('a stored pair seeds both chips', (tester) async {
+        await _pump(
+          tester,
+          _FakePrefsApi(
+            prefs: const TravelerPreferences(
+              companions: ['solo', 'friends'],
+            ),
+          ),
+        );
+
+        expect(_chipSelected(tester, 'solo'), isTrue);
+        expect(_chipSelected(tester, 'friends'), isTrue);
+        expect(_chipSelected(tester, 'partner'), isFalse);
+      });
     });
 
     testWidgets('"not a factor" saves as a value, not as an absence',

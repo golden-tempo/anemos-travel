@@ -63,7 +63,8 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
   String? _budget;
   String? _pace;
   String? _workStyle;
-  String? _companions;
+  /// A set since 00073 — see TravelerPreferences.companions.
+  final Set<String> _companions = {};
   String? _fitnessRoutine;
   String? _outdoorIntensity;
   String? _baggage;
@@ -109,7 +110,7 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
         _budget = prefs.budget;
         _pace = prefs.pace;
         _workStyle = prefs.workStyle;
-        _companions = prefs.companions;
+        _companions.addAll(prefs.companions);
         _fitnessRoutine = prefs.fitnessRoutine;
         _outdoorIntensity = prefs.outdoorIntensity;
         _baggage = prefs.baggage;
@@ -164,7 +165,7 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
           budget: _budget,
           pace: _pace,
           workStyle: _workStyle,
-          companions: _companions,
+          companions: _companions.toList(),
           fitnessRoutine: _fitnessRoutine,
           outdoorIntensity: _outdoorIntensity,
           baggage: _baggage,
@@ -310,11 +311,16 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                         const Divider(height: AppSpacing.xxl),
                         _PrefRow(
                           label: l10n.prefsCompanions,
-                          child: ChoiceChipRow(
+                          // Multi-select: one answer is a lie for anyone whose
+                          // travel takes more than one shape.
+                          child: MultiChoiceChipRow(
                             options: companionOptions,
                             selected: _companions,
-                            onSelected: (v) => setState(() => _companions = v),
+                            onChanged: (next) => setState(() => _companions
+                              ..clear()
+                              ..addAll(next)),
                             labelBuilder: (v) => companionLabel(l10n, v),
+                            exclusiveOptions: const {companionsVaries},
                           ),
                         ),
                       ],
