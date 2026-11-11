@@ -17,7 +17,8 @@ import 'support/l10n_test_app.dart';
 /// Today mode (specs/today-mode PR 3): one-shot auto-scroll to today's day
 /// header, the pinned "Today" jump chip, and the header highlight.
 ///
-/// Dates are computed relative to DateTime.now() so "today" is always live.
+/// Dates are computed relative to DateTime.now() so "today" is always live
+/// (read per test — see [_nowClearOfMidnight]).
 /// Items carry zero coordinates so the map sliver is skipped — the scroll
 /// math must land correctly with the map-hidden pinned-chrome height.
 class _FakeTripsApiService extends TripsApiService {
@@ -93,11 +94,30 @@ Finder _todayPill() => find.widgetWithText(StatusPill, 'Today');
 
 Finder _todayChip() => find.widgetWithText(ActionChip, 'Today');
 
-void main() {
+/// The screen reads DateTime.now() on every render, so the fixture's "today"
+/// has to be the screen's "today" for the whole test. Read the clock per test,
+/// never once at file load: a CI run that crossed 00:00 UTC between loading
+/// this file and reaching these tests built yesterday's trip and failed three
+/// of them (PR #682's run, 2026-11-11T00:00:01Z). And if midnight is under a
+/// minute away, wait it out, so no single test can straddle it either.
+Future<DateTime> _nowClearOfMidnight() async {
   final now = DateTime.now();
+  final left = DateTime(now.year, now.month, now.day + 1).difference(now);
+  if (left >= const Duration(minutes: 1)) return now;
+  await Future<void>.delayed(left + const Duration(seconds: 1));
+  return DateTime.now();
+}
+
+void main() {
+  late DateTime now;
   // Today is day 2 of a 3-day trip that started yesterday.
-  final start = _iso(now.subtract(const Duration(days: 1)));
-  final end = _iso(now.add(const Duration(days: 1)));
+  late String start;
+  late String end;
+  setUp(() async {
+    now = await _nowClearOfMidnight();
+    start = _iso(now.subtract(const Duration(days: 1)));
+    end = _iso(now.add(const Duration(days: 1)));
+  });
 
   testWidgets(
       'live trip auto-scrolls once to today: header rests just below the '
