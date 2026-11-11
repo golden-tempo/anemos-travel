@@ -50,6 +50,8 @@ class _FakePrefsApi implements PreferencesApiService {
     List<String>? companions,
     String? baggage,
     String? gender,
+    String? passportCountry,
+    String? residenceCountry,
   }) async {
     saveCalls++;
     homeAirportArgs.add(homeAirport);

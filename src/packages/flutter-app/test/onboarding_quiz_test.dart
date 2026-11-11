@@ -89,6 +89,8 @@ class _FakePrefsService implements PreferencesApiService {
     List<String>? companions,
     String? baggage,
     String? gender,
+    String? passportCountry,
+    String? residenceCountry,
   }) async {
     savedWorkStyle = workStyle;
     savedGender = gender;

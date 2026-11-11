@@ -365,7 +365,7 @@ var createItineraryTool = anthropic.ToolParam{
 
 var savePrefsTool = anthropic.ToolParam{
 	Name:        "save_preferences",
-	Description: anthropic.String("Save what you learn about the traveler so future trips are personalized. Call this when the user reveals a budget level, trip pace, interests, which airport they fly from, whether they work while traveling, whether they keep a fitness routine on the road, how demanding they like their outdoor days, who they travel with, what luggage they fly with, their gender when they state it themselves, or any other durable fact about how they travel. Only include fields you actually learned."),
+	Description: anthropic.String("Save what you learn about the traveler so future trips are personalized. Call this when the user reveals a budget level, trip pace, interests, which airport they fly from, whether they work while traveling, whether they keep a fitness routine on the road, how demanding they like their outdoor days, who they travel with, what luggage they fly with, their gender when they state it themselves, which passport they hold or where they live, or any other durable fact about how they travel. Only include fields you actually learned."),
 	InputSchema: anthropic.ToolInputSchemaParam{
 		Properties: map[string]any{
 			"budget": map[string]any{
@@ -423,6 +423,14 @@ var savePrefsTool = anthropic.ToolParam{
 				"type":        "string",
 				"enum":        []string{"personal_item", "carry_on", "checked"},
 				"description": "The biggest bag this traveler normally flies with — personal_item (one small under-seat bag), carry_on (a cabin bag), checked (a checked suitcase). Save it when they say how they pack in general ('I only ever fly carry-on', 'I always check a bag'). It becomes the default bags every flight search is priced for, so fares include the bag fees they will actually pay.",
+			},
+			"passport_country": map[string]any{
+				"type":        "string",
+				"description": "The country that issued the traveler's passport, as an ISO 3166-1 alpha-2 code, e.g. US. Save it only when they state their nationality or which passport they hold ('I travel on a Canadian passport'); storage only for now — entry requirements are not yet derived from it.",
+			},
+			"residence_country": map[string]any{
+				"type":        "string",
+				"description": "The country the traveler lives in, as an ISO 3166-1 alpha-2 code, e.g. US. Save it only when they state where they live now ('I'm based in Germany'); distinct from passport_country — a resident is not necessarily a citizen.",
 			},
 		},
 	},
@@ -1093,6 +1101,8 @@ func runSavePreferencesTool(s *planSession, input json.RawMessage) (string, bool
 		Companions       []string `json:"companions"`
 		Baggage          *string  `json:"baggage"`
 		Gender           *string  `json:"gender"`
+		PassportCountry  *string  `json:"passport_country"`
+		ResidenceCountry *string  `json:"residence_country"`
 	}
 	json.Unmarshal(input, &in)
 
@@ -1119,6 +1129,8 @@ func runSavePreferencesTool(s *planSession, input json.RawMessage) (string, bool
 	// Set-only here, like every agent write: "" reads as nothing-to-say, and
 	// only the traveler (PUT) can clear a stored gender.
 	gender := keep(normalizeChoice(in.Gender, allowedGenders, "gender"))
+	passportCountry := keep(normalizeCountryCode(in.PassportCountry, "passport_country"))
+	residenceCountry := keep(normalizeCountryCode(in.ResidenceCountry, "residence_country"))
 
 	// A list since 00079, and reported through the same `rejected` channel as
 	// the scalars: one bad member rejects the whole list rather than saving a
@@ -1153,6 +1165,7 @@ func runSavePreferencesTool(s *planSession, input json.RawMessage) (string, bool
 	_, err := store.New(dbPool).UpsertPreferences(s.ctx, store.UpsertPreferencesParams{
 		UserID: s.uid, Budget: budget, Pace: pace, Interests: interestsArg, HomeAirport: homeAirport, ProfileNotes: notes, WorkStyle: workStyle,
 		FitnessRoutine: fitnessRoutine, OutdoorIntensity: outdoorIntensity, Companions: companionsArg, Baggage: baggage, Gender: gender,
+		PassportCountry: passportCountry, ResidenceCountry: residenceCountry,
 	})
 	if err != nil {
 		return fmt.Sprintf("Could not save preferences: %v", err), true
@@ -1187,6 +1200,12 @@ func runSavePreferencesTool(s *planSession, input json.RawMessage) (string, bool
 	}
 	if baggage != nil {
 		changed = append(changed, "baggage")
+	}
+	if passportCountry != nil {
+		changed = append(changed, "passport_country")
+	}
+	if residenceCountry != nil {
+		changed = append(changed, "residence_country")
 	}
 	if len(changed) > 0 {
 		sendSSE(s.w, "profile_updated", map[string]any{

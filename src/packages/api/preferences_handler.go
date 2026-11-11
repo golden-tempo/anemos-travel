@@ -51,6 +51,8 @@ type PreferencesResponse struct {
 	Companions       []string `json:"companions"`
 	Baggage          *string  `json:"baggage"`
 	Gender           *string  `json:"gender"`
+	PassportCountry  *string  `json:"passport_country"`
+	ResidenceCountry *string  `json:"residence_country"`
 }
 
 type PutPreferencesRequest struct {
@@ -70,6 +72,10 @@ type PutPreferencesRequest struct {
 	// Pointer distinguishes omitted (nil -> keep) from cleared ("" -> clear):
 	// gender is removable, unlike the other enum fields (see 00076).
 	Gender *string `json:"gender"`
+	// Entry-requirements storage only (see 00081): no clear semantics yet,
+	// same as budget/pace/work_style — "" reads as omitted, keep what's there.
+	PassportCountry  *string `json:"passport_country"`
+	ResidenceCountry *string `json:"residence_country"`
 }
 
 func toPreferencesResponse(p store.TravelerPreference) PreferencesResponse {
@@ -95,6 +101,8 @@ func toPreferencesResponse(p store.TravelerPreference) PreferencesResponse {
 		Companions:       companions,
 		Baggage:          p.Baggage,
 		Gender:           p.Gender,
+		PassportCountry:  p.PassportCountry,
+		ResidenceCountry: p.ResidenceCountry,
 	}
 }
 
@@ -200,6 +208,17 @@ func putPreferencesHandler(w http.ResponseWriter, r *http.Request) {
 		interestsArg = normalizeInterests(*req.Interests)
 	}
 
+	passportCountry, err := normalizeCountryCode(req.PassportCountry, "passport_country")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	residenceCountry, err := normalizeCountryCode(req.ResidenceCountry, "residence_country")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	p, err := store.New(dbPool).UpsertPreferences(r.Context(), store.UpsertPreferencesParams{
 		UserID:           user.ID,
 		Budget:           budget,
@@ -215,6 +234,8 @@ func putPreferencesHandler(w http.ResponseWriter, r *http.Request) {
 		Baggage:          baggage,
 		Gender:           gender,
 		ClearGender:      clearGender,
+		PassportCountry:  passportCountry,
+		ResidenceCountry: residenceCountry,
 	})
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "could not save preferences")
@@ -235,6 +256,28 @@ func normalizeChoice(v *string, allowed map[string]bool, field string) (*string,
 	}
 	if !allowed[s] {
 		return nil, errors.New(field + " is not a recognized value")
+	}
+	return &s, nil
+}
+
+// normalizeCountryCode mirrors normalizeChoice but validates shape rather than
+// membership in a fixed vocabulary: ISO 3166-1 alpha-2 is two letters, and the
+// full list of assigned codes changes often enough that hard-coding it would
+// go stale, while the shape itself never does. nil -> nil (omit, keep
+// existing); "" -> nil (omit, same as every other non-clearable field on this
+// profile — passport/residence country have no clear path yet, see 00081);
+// anything else must be exactly two letters or it is rejected outright rather
+// than silently stored.
+func normalizeCountryCode(v *string, field string) (*string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	s := strings.ToUpper(strings.TrimSpace(*v))
+	if s == "" {
+		return nil, nil
+	}
+	if len(s) != 2 || !isAlpha(s) {
+		return nil, errors.New(field + " must be an ISO 3166-1 alpha-2 country code")
 	}
 	return &s, nil
 }

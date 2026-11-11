@@ -1155,6 +1155,16 @@ func personalizedSystemPrompt(base string, p *store.TravelerPreference) string {
 		// genuinely depends on it: what to wear, safety-relevant framing.
 		parts = append(parts, "gender: "+*p.Gender)
 	}
+	// Storage only (00081/#686): no entry-requirements advice is derived from
+	// these yet, so they are listed for the model's awareness and nothing
+	// else — a later provider-integration issue adds the note that acts on
+	// them.
+	if p.PassportCountry != nil && *p.PassportCountry != "" {
+		parts = append(parts, "passport country: "+*p.PassportCountry)
+	}
+	if p.ResidenceCountry != nil && *p.ResidenceCountry != "" {
+		parts = append(parts, "residence country: "+*p.ResidenceCountry)
+	}
 	var homeNote string
 	if p.HomeAirport != nil && *p.HomeAirport != "" {
 		parts = append(parts, "home airport: "+*p.HomeAirport)

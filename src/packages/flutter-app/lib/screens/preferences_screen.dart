@@ -74,6 +74,8 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
   String? _loadedGender;
   final Set<String> _interests = {};
   Airport? _homeAirport;
+  final _passportCountryController = TextEditingController();
+  final _residenceCountryController = TextEditingController();
 
   /// Mirror of the airport field's raw text. `_homeAirport == null` is two
   /// different states — "no home airport" and "typed something, never picked
@@ -123,6 +125,8 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
         _interests.addAll(prefs.interests);
         _seedHomeAirport(prefs.homeAirport);
         _notesController.text = prefs.profileNotes ?? '';
+        _passportCountryController.text = prefs.passportCountry ?? '';
+        _residenceCountryController.text = prefs.residenceCountry ?? '';
       }
       _initialized = true;
     });
@@ -146,6 +150,8 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
   @override
   void dispose() {
     _notesController.dispose();
+    _passportCountryController.dispose();
+    _residenceCountryController.dispose();
     super.dispose();
   }
 
@@ -182,13 +188,21 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
           homeAirport: _homeAirport?.iataCode ?? '',
           // Always send the field's text: an emptied field clears the notes.
           profileNotes: _notesController.text.trim(),
+          // No clear path yet (00081): an emptied field reads as omitted on
+          // the server, same as budget/pace/work_style above.
+          passportCountry: _passportCountryController.text.trim(),
+          residenceCountry: _residenceCountryController.text.trim(),
         );
     if (!mounted) return;
     if (ok) {
       // Re-seed from what the server actually stored, so the form shows the
       // post-state rather than a hopeful local one (docs/zen.md).
-      setState(
-          () => _seedHomeAirport(ref.read(preferencesProvider).prefs?.homeAirport));
+      final saved = ref.read(preferencesProvider).prefs;
+      setState(() {
+        _seedHomeAirport(saved?.homeAirport);
+        _passportCountryController.text = saved?.passportCountry ?? '';
+        _residenceCountryController.text = saved?.residenceCountry ?? '';
+      });
     }
     showSnack(
         context, ok ? context.l10n.prefsSaved : context.l10n.prefsSaveFailed);
@@ -449,6 +463,46 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                             selected: _baggage,
                             onSelected: (v) => setState(() => _baggage = v),
                             labelBuilder: (v) => baggageLabel(l10n, v),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xxl),
+                  // Storage only for now (00081/#686): nothing reads these
+                  // yet, so this section says as much rather than implying
+                  // it already shapes advice.
+                  _Section(
+                    title: l10n.prefsSectionEntryRequirements,
+                    help: l10n.prefsSectionEntryRequirementsHelp,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _PrefRow(
+                          label: l10n.prefsPassportCountry,
+                          help: l10n.prefsPassportCountryHelp,
+                          child: TextField(
+                            controller: _passportCountryController,
+                            maxLength: 2,
+                            textCapitalization: TextCapitalization.characters,
+                            decoration: InputDecoration(
+                              hintText: l10n.prefsCountryCodeHint,
+                              counterText: '',
+                            ),
+                          ),
+                        ),
+                        const Divider(height: AppSpacing.xxl),
+                        _PrefRow(
+                          label: l10n.prefsResidenceCountry,
+                          help: l10n.prefsResidenceCountryHelp,
+                          child: TextField(
+                            controller: _residenceCountryController,
+                            maxLength: 2,
+                            textCapitalization: TextCapitalization.characters,
+                            decoration: InputDecoration(
+                              hintText: l10n.prefsCountryCodeHint,
+                              counterText: '',
+                            ),
                           ),
                         ),
                       ],

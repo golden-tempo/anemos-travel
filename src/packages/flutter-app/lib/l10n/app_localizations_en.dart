@@ -235,6 +235,29 @@ class AppLocalizationsEn extends AppLocalizations {
   String get prefsGenderFemale => 'Female';
 
   @override
+  String get prefsSectionEntryRequirements => 'Entry requirements';
+
+  @override
+  String get prefsSectionEntryRequirementsHelp =>
+      'Stored for future use — visa and entry advice from this is coming soon.';
+
+  @override
+  String get prefsPassportCountry => 'Passport country';
+
+  @override
+  String get prefsPassportCountryHelp =>
+      'The country that issued your passport.';
+
+  @override
+  String get prefsResidenceCountry => 'Country of residence';
+
+  @override
+  String get prefsResidenceCountryHelp => 'The country you currently live in.';
+
+  @override
+  String get prefsCountryCodeHint => 'e.g. US';
+
+  @override
   String get prefsPaceRelaxed => 'relaxed';
 
   @override

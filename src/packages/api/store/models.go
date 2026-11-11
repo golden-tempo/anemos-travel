@@ -299,6 +299,8 @@ type TravelerPreference struct {
 	Companions       []string  `json:"companions"`
 	Baggage          *string   `json:"baggage"`
 	Gender           *string   `json:"gender"`
+	PassportCountry  *string   `json:"passport_country"`
+	ResidenceCountry *string   `json:"residence_country"`
 }
 
 type Trip struct {

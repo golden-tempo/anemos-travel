@@ -2,7 +2,7 @@
 SELECT * FROM traveler_preferences WHERE user_id = $1;
 
 -- name: UpsertPreferences :one
-INSERT INTO traveler_preferences (user_id, budget, pace, interests, home_airport, profile_notes, work_style, fitness_routine, outdoor_intensity, companions, baggage, gender)
+INSERT INTO traveler_preferences (user_id, budget, pace, interests, home_airport, profile_notes, work_style, fitness_routine, outdoor_intensity, companions, baggage, gender, passport_country, residence_country)
 VALUES (
     sqlc.arg('user_id'),
     sqlc.narg('budget'),
@@ -18,7 +18,9 @@ VALUES (
     -- than NULL.
     COALESCE(sqlc.narg('companions'), '{}'::text[]),
     sqlc.narg('baggage'),
-    sqlc.narg('gender')
+    sqlc.narg('gender'),
+    sqlc.narg('passport_country'),
+    sqlc.narg('residence_country')
 )
 ON CONFLICT (user_id) DO UPDATE SET
     budget            = COALESCE(sqlc.narg('budget'), traveler_preferences.budget),
@@ -44,5 +46,7 @@ ON CONFLICT (user_id) DO UPDATE SET
     gender            = CASE
         WHEN sqlc.arg('clear_gender')::boolean THEN NULL
         ELSE COALESCE(sqlc.narg('gender'), traveler_preferences.gender)
-    END
+    END,
+    passport_country  = COALESCE(sqlc.narg('passport_country'), traveler_preferences.passport_country),
+    residence_country = COALESCE(sqlc.narg('residence_country'), traveler_preferences.residence_country)
 RETURNING *;
