@@ -109,7 +109,7 @@ class _FakeBaggagePrefsApi extends PreferencesApiService {
     String? workStyle,
     String? fitnessRoutine,
     String? outdoorIntensity,
-    String? companions,
+    List<String>? companions,
     String? baggage,
     String? gender,
   }) async =>

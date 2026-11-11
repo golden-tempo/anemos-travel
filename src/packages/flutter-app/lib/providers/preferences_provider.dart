@@ -71,7 +71,7 @@ class PreferencesNotifier extends StateNotifier<PreferencesState> {
     String? workStyle,
     String? fitnessRoutine,
     String? outdoorIntensity,
-    String? companions,
+    List<String>? companions,
     String? baggage,
     String? gender,
   }) async {

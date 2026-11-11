@@ -20,7 +20,9 @@ const fitnessRoutineOptions = ['gym', 'running', 'both', 'none'];
 const outdoorIntensityOptions = ['easy', 'moderate', 'challenging'];
 
 /// Who the traveler usually travels with. Collected by the quiz since it
-/// shipped, but only stored as a real field from migration 00063 on.
+/// shipped, stored as a real field from migration 00063, and a MULTI-select
+/// from 00079 — travel is often more than one shape, and one answer made
+/// anyone whose isn't pick a single shape and lose the rest.
 const companionOptions = [
   'solo',
   'partner',
@@ -28,6 +30,13 @@ const companionOptions = [
   'family_with_kids',
   'varies',
 ];
+
+/// The one companion value that cannot share the row: it answers the same
+/// question as the other four, about all of them at once, so "solo AND it
+/// varies" states and unstates a fact in one breath. Enforced by the pickers
+/// (`MultiChoiceChipRow.exclusiveOptions`) and again server-side, so the chips
+/// always show what will actually be stored.
+const companionsVaries = 'varies';
 
 /// The biggest bag the traveler normally flies with. Unlike the rows above,
 /// this one also drives a request parameter: it is the default tier every

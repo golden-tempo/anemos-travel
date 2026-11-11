@@ -60,7 +60,7 @@ class _FakePrefsService implements PreferencesApiService {
   int getCalls = 0;
   String? savedWorkStyle;
   String? savedGender;
-  String? savedCompanions;
+  List<String>? savedCompanions;
   String? savedFitnessRoutine;
   String? savedOutdoorIntensity;
 
@@ -86,7 +86,7 @@ class _FakePrefsService implements PreferencesApiService {
     String? workStyle,
     String? fitnessRoutine,
     String? outdoorIntensity,
-    String? companions,
+    List<String>? companions,
     String? baggage,
     String? gender,
   }) async {
@@ -327,7 +327,7 @@ void main() {
         ..result = const TravelerPreferences(
           fitnessRoutine: 'running',
           outdoorIntensity: 'moderate',
-          companions: 'family_with_kids',
+          companions: ['family_with_kids'],
         );
       await _pumpRetake(tester, service);
       await tester.pump();

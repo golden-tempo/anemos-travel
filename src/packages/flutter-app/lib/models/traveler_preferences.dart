@@ -26,8 +26,19 @@ class TravelerPreferences {
   @JsonKey(name: 'outdoor_intensity')
   final String? outdoorIntensity;
 
-  /// `solo` | `partner` | `friends` | `family_with_kids` | `varies`.
-  final String? companions;
+  /// Any of `solo` | `partner` | `friends` | `family_with_kids` | `varies`.
+  ///
+  /// A LIST since migration 00079: travel is often more than one shape, and a
+  /// single choice made anyone who flies solo for work AND takes the kids in
+  /// August pick one and lose the other. Empty means never said — the same
+  /// non-nil contract [interests] has, so no caller has to spell "absent" and
+  /// "empty" differently.
+  ///
+  /// `varies` is exclusive: it answers the same question as the other four,
+  /// about all of them at once, so any list containing it collapses to
+  /// `['varies']` alone (server-side, in normalizeCompanions).
+  @JsonKey(defaultValue: <String>[])
+  final List<String> companions;
 
   /// `personal_item` | `carry_on` | `checked` — the biggest bag this traveler
   /// normally flies with. It is the default every flight search is priced for,
@@ -47,7 +58,7 @@ class TravelerPreferences {
     this.workStyle,
     this.fitnessRoutine,
     this.outdoorIntensity,
-    this.companions,
+    this.companions = const [],
     this.baggage,
     this.gender,
   });
