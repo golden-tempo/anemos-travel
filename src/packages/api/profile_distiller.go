@@ -86,8 +86,10 @@ func distillTravelerProfile(ctx context.Context, client anthropic.Client, uid uu
 					"description": "How demanding they want active outings to be. Separate from pace.",
 				},
 				"companions": map[string]any{
-					"type": "string", "enum": []string{"solo", "partner", "friends", "family_with_kids", "varies"},
-					"description": "Who they usually travel with — not who was on this one trip.",
+					"type":  "array",
+					"items": map[string]any{"type": "string", "enum": []string{"solo", "partner", "friends", "family_with_kids", "varies"}},
+					"description": "Who they usually travel with — a LIST, since travel is often more than one shape. Not who was on this one trip. " +
+						"It replaces the stored list, so include every shape that still applies. \"varies\" goes alone, and only when no specific shapes were named.",
 				},
 				"baggage": map[string]any{
 					"type": "string", "enum": []string{"personal_item", "carry_on", "checked"},

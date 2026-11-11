@@ -412,9 +412,12 @@ var savePrefsTool = anthropic.ToolParam{
 				"description": "How demanding an active outing should be — easy (flat walks, viewpoints), moderate (half-day hikes), challenging (full-day, long and steep). Separate from pace, which is how many things happen in a day rather than how hard they are. Save it when they say how hard they want their hikes or outdoor days.",
 			},
 			"companions": map[string]any{
-				"type":        "string",
-				"enum":        []string{"solo", "partner", "friends", "family_with_kids", "varies"},
-				"description": "Who the traveler usually travels with. Save it when they say who they travel with in general — not who is on this one trip, which is a trip detail and not a profile fact.",
+				"type":  "array",
+				"items": map[string]any{"type": "string", "enum": []string{"solo", "partner", "friends", "family_with_kids", "varies"}},
+				"description": "Who the traveler usually travels with — a LIST, because travel is often more than one shape (solo for work, with the kids in summer). " +
+					"Save it when they say who they travel with in general, not who is on this one trip, which is a trip detail and not a profile fact. " +
+					"This REPLACES the stored list, so send every shape that still applies, not only the newly mentioned one. " +
+					"Send \"varies\" on its own, and only when they say it depends without naming specific shapes.",
 			},
 			"baggage": map[string]any{
 				"type":        "string",
@@ -1087,7 +1090,7 @@ func runSavePreferencesTool(s *planSession, input json.RawMessage) (string, bool
 		WorkStyle        *string  `json:"work_style"`
 		FitnessRoutine   *string  `json:"fitness_routine"`
 		OutdoorIntensity *string  `json:"outdoor_intensity"`
-		Companions       *string  `json:"companions"`
+		Companions       []string `json:"companions"`
 		Baggage          *string  `json:"baggage"`
 		Gender           *string  `json:"gender"`
 	}
@@ -1112,11 +1115,23 @@ func runSavePreferencesTool(s *planSession, input json.RawMessage) (string, bool
 	workStyle := keep(normalizeChoice(in.WorkStyle, allowedWorkStyles, "work_style"))
 	fitnessRoutine := keep(normalizeChoice(in.FitnessRoutine, allowedFitnessRoutines, "fitness_routine"))
 	outdoorIntensity := keep(normalizeChoice(in.OutdoorIntensity, allowedOutdoorIntensities, "outdoor_intensity"))
-	companions := keep(normalizeChoice(in.Companions, allowedCompanions, "companions"))
 	baggage := keep(normalizeChoice(in.Baggage, allowedBaggageTiers, "baggage"))
 	// Set-only here, like every agent write: "" reads as nothing-to-say, and
 	// only the traveler (PUT) can clear a stored gender.
 	gender := keep(normalizeChoice(in.Gender, allowedGenders, "gender"))
+
+	// A list since 00079, and reported through the same `rejected` channel as
+	// the scalars: one bad member rejects the whole list rather than saving a
+	// partial answer the model would then believe was complete.
+	var companionsArg interface{}
+	if in.Companions != nil {
+		list, err := normalizeCompanions(in.Companions)
+		if err != nil {
+			rejected = append(rejected, err.Error())
+		} else {
+			companionsArg = list
+		}
+	}
 
 	// The clear flag is deliberately dropped: like profile_notes below, only the
 	// user (PUT) can empty a home airport — an agent sending "" means it had
@@ -1137,7 +1152,7 @@ func runSavePreferencesTool(s *planSession, input json.RawMessage) (string, bool
 	}
 	_, err := store.New(dbPool).UpsertPreferences(s.ctx, store.UpsertPreferencesParams{
 		UserID: s.uid, Budget: budget, Pace: pace, Interests: interestsArg, HomeAirport: homeAirport, ProfileNotes: notes, WorkStyle: workStyle,
-		FitnessRoutine: fitnessRoutine, OutdoorIntensity: outdoorIntensity, Companions: companions, Baggage: baggage, Gender: gender,
+		FitnessRoutine: fitnessRoutine, OutdoorIntensity: outdoorIntensity, Companions: companionsArg, Baggage: baggage, Gender: gender,
 	})
 	if err != nil {
 		return fmt.Sprintf("Could not save preferences: %v", err), true
@@ -1167,7 +1182,7 @@ func runSavePreferencesTool(s *planSession, input json.RawMessage) (string, bool
 	if outdoorIntensity != nil {
 		changed = append(changed, "outdoor_intensity")
 	}
-	if companions != nil {
+	if companionsArg != nil {
 		changed = append(changed, "companions")
 	}
 	if baggage != nil {

@@ -1225,22 +1225,47 @@ func personalizedSystemPrompt(base string, p *store.TravelerPreference) string {
 	// Companions used to live as a "- Travels with: X" bullet inside the profile
 	// notes; migration 00063 gave it a column so the distiller can't reword it
 	// away. profileNotesInstruction no longer names it — one home only.
+	// A LIST since migration 00079, which changes what this guidance may claim.
+	// The solo note used to say "quote prices and rooms for one person" — true
+	// of someone who ONLY travels solo, and wrong the moment they also travel
+	// with kids. So every selected shape is named, and the solo instruction
+	// narrows to advice that survives company unless solo is the whole answer.
 	var companionsNote string
-	if p.Companions != nil && *p.Companions != "" {
-		switch *p.Companions {
-		case "solo":
-			parts = append(parts, "traveling: solo")
-			companionsNote = " They travel alone: quote prices and rooms for one person unless told otherwise, and favor places that are comfortable to visit solo — counter seating, walkable evenings, joinable day tours when they want company."
-		case "partner":
-			parts = append(parts, "traveling: as a couple")
-		case "friends":
-			parts = append(parts, "traveling: with friends")
-			companionsNote = " Favor group-friendly tables and shared apartments over single rooms."
-		case "family_with_kids":
-			parts = append(parts, "traveling: with kids")
-			companionsNote = " Favor shorter transfers and places that work with children, and flag age limits, long queues and anything that will eat a nap."
-		case "varies":
-			parts = append(parts, "traveling: varies by trip")
+	if len(p.Companions) > 0 {
+		soloOnly := len(p.Companions) == 1 && p.Companions[0] == "solo"
+		var shapes, notes []string
+		for _, c := range p.Companions {
+			switch c {
+			case "solo":
+				shapes = append(shapes, "solo")
+				if soloOnly {
+					notes = append(notes, "They travel alone: quote prices and rooms for one person unless told otherwise, and favor places that are comfortable to visit solo — counter seating, walkable evenings, joinable day tours when they want company.")
+				} else {
+					notes = append(notes, "When the trip is solo, favor places that are comfortable to visit alone — counter seating, walkable evenings, joinable day tours.")
+				}
+			case "partner":
+				shapes = append(shapes, "as a couple")
+			case "friends":
+				shapes = append(shapes, "with friends")
+				notes = append(notes, "For trips with friends, favor group-friendly tables and shared apartments over single rooms.")
+			case "family_with_kids":
+				shapes = append(shapes, "with kids")
+				notes = append(notes, "When the kids come, favor shorter transfers and places that work with children, and flag age limits, long queues and anything that will eat a nap.")
+			case "varies":
+				shapes = append(shapes, "varies by trip")
+			}
+		}
+		if len(shapes) > 0 {
+			parts = append(parts, "traveling: "+strings.Join(shapes, ", "))
+		}
+		// With more than one shape on file, WHICH one this trip is cannot be
+		// inferred — so ask rather than average the guidance together. That
+		// question is the reason the field is a list.
+		if len(p.Companions) > 1 {
+			notes = append(notes, "Their travel takes more than one of these shapes, so ask who is coming on THIS trip before tailoring, and then apply only the matching guidance.")
+		}
+		if len(notes) > 0 {
+			companionsNote = " " + strings.Join(notes, " ")
 		}
 	}
 	// The bag tier is the ONE preference the model doesn't have to act on:

@@ -19,7 +19,10 @@ TravelerPreferences _$TravelerPreferencesFromJson(Map<String, dynamic> json) =>
       workStyle: json['work_style'] as String?,
       fitnessRoutine: json['fitness_routine'] as String?,
       outdoorIntensity: json['outdoor_intensity'] as String?,
-      companions: json['companions'] as String?,
+      companions: (json['companions'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
       baggage: json['baggage'] as String?,
       gender: json['gender'] as String?,
     );
