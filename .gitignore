@@ -76,3 +76,8 @@ content/local/*
 !content/local/_example/
 # seeder ledgers are machine state, never committed (including the fixture's)
 .ingested
+
+# DevTools / profiling captures are large, machine-local, and regenerable —
+# a 45 MB timeline is evidence for one afternoon, not a repo artifact.
+performance-profile*.json
+performance-profile*.json.gz
