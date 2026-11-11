@@ -12,7 +12,7 @@ import (
 )
 
 const getPreferences = `-- name: GetPreferences :one
-SELECT user_id, budget, pace, interests, created_at, updated_at, home_airport, profile_notes, work_style, fitness_routine, outdoor_intensity, companions, baggage, gender FROM traveler_preferences WHERE user_id = $1
+SELECT user_id, budget, pace, interests, created_at, updated_at, home_airport, profile_notes, work_style, fitness_routine, outdoor_intensity, companions, baggage, gender, passport_country, residence_country FROM traveler_preferences WHERE user_id = $1
 `
 
 func (q *Queries) GetPreferences(ctx context.Context, userID uuid.UUID) (TravelerPreference, error) {
@@ -33,12 +33,14 @@ func (q *Queries) GetPreferences(ctx context.Context, userID uuid.UUID) (Travele
 		&i.Companions,
 		&i.Baggage,
 		&i.Gender,
+		&i.PassportCountry,
+		&i.ResidenceCountry,
 	)
 	return i, err
 }
 
 const upsertPreferences = `-- name: UpsertPreferences :one
-INSERT INTO traveler_preferences (user_id, budget, pace, interests, home_airport, profile_notes, work_style, fitness_routine, outdoor_intensity, companions, baggage, gender)
+INSERT INTO traveler_preferences (user_id, budget, pace, interests, home_airport, profile_notes, work_style, fitness_routine, outdoor_intensity, companions, baggage, gender, passport_country, residence_country)
 VALUES (
     $1,
     $2,
@@ -54,7 +56,9 @@ VALUES (
     -- than NULL.
     COALESCE($10, '{}'::text[]),
     $11,
-    $12
+    $12,
+    $13,
+    $14
 )
 ON CONFLICT (user_id) DO UPDATE SET
     budget            = COALESCE($2, traveler_preferences.budget),
@@ -65,7 +69,7 @@ ON CONFLICT (user_id) DO UPDATE SET
     -- ever be set or replaced, never emptied. Writes a real NULL rather than an
     -- empty-string sentinel, so "no home airport" has exactly one representation.
     home_airport      = CASE
-        WHEN $13::boolean THEN NULL
+        WHEN $15::boolean THEN NULL
         ELSE COALESCE($5, traveler_preferences.home_airport)
     END,
     profile_notes     = COALESCE($6, traveler_preferences.profile_notes),
@@ -78,10 +82,12 @@ ON CONFLICT (user_id) DO UPDATE SET
     -- stored gender the traveler cannot remove is not acceptable, so ""
     -- on the PUT becomes a real NULL here.
     gender            = CASE
-        WHEN $14::boolean THEN NULL
+        WHEN $16::boolean THEN NULL
         ELSE COALESCE($12, traveler_preferences.gender)
-    END
-RETURNING user_id, budget, pace, interests, created_at, updated_at, home_airport, profile_notes, work_style, fitness_routine, outdoor_intensity, companions, baggage, gender
+    END,
+    passport_country  = COALESCE($13, traveler_preferences.passport_country),
+    residence_country = COALESCE($14, traveler_preferences.residence_country)
+RETURNING user_id, budget, pace, interests, created_at, updated_at, home_airport, profile_notes, work_style, fitness_routine, outdoor_intensity, companions, baggage, gender, passport_country, residence_country
 `
 
 type UpsertPreferencesParams struct {
@@ -97,6 +103,8 @@ type UpsertPreferencesParams struct {
 	Companions       interface{} `json:"companions"`
 	Baggage          *string     `json:"baggage"`
 	Gender           *string     `json:"gender"`
+	PassportCountry  *string     `json:"passport_country"`
+	ResidenceCountry *string     `json:"residence_country"`
 	ClearHomeAirport bool        `json:"clear_home_airport"`
 	ClearGender      bool        `json:"clear_gender"`
 }
@@ -115,6 +123,8 @@ func (q *Queries) UpsertPreferences(ctx context.Context, arg UpsertPreferencesPa
 		arg.Companions,
 		arg.Baggage,
 		arg.Gender,
+		arg.PassportCountry,
+		arg.ResidenceCountry,
 		arg.ClearHomeAirport,
 		arg.ClearGender,
 	)
@@ -134,6 +144,8 @@ func (q *Queries) UpsertPreferences(ctx context.Context, arg UpsertPreferencesPa
 		&i.Companions,
 		&i.Baggage,
 		&i.Gender,
+		&i.PassportCountry,
+		&i.ResidenceCountry,
 	)
 	return i, err
 }

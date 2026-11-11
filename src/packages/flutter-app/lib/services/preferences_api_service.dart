@@ -29,6 +29,8 @@ class PreferencesApiService {
     List<String>? companions,
     String? baggage,
     String? gender,
+    String? passportCountry,
+    String? residenceCountry,
   }) async {
     final res = await apiClient.httpClient.put(
       Uri.parse('${apiClient.baseUrl}/preferences'),
@@ -48,6 +50,10 @@ class PreferencesApiService {
         'baggage': baggage,
         // null keeps the stored value; '' clears it (00076's clear flag).
         'gender': gender,
+        // null keeps the stored value; no clear path yet (00081), same as
+        // budget/pace/work_style above.
+        'passport_country': passportCountry,
+        'residence_country': residenceCountry,
       }),
     );
     if (res.statusCode == 200) {

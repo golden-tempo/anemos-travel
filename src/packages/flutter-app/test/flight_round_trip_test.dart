@@ -112,6 +112,8 @@ class _FakeBaggagePrefsApi extends PreferencesApiService {
     List<String>? companions,
     String? baggage,
     String? gender,
+    String? passportCountry,
+    String? residenceCountry,
   }) async =>
       TravelerPreferences(baggage: baggage);
 }

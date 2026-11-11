@@ -238,6 +238,28 @@ class AppLocalizationsEs extends AppLocalizations {
   String get prefsGenderFemale => 'Mujer';
 
   @override
+  String get prefsSectionEntryRequirements => 'Requisitos de entrada';
+
+  @override
+  String get prefsSectionEntryRequirementsHelp =>
+      'Guardado para uso futuro: pronto llegarán consejos de visado y entrada basados en esto.';
+
+  @override
+  String get prefsPassportCountry => 'País del pasaporte';
+
+  @override
+  String get prefsPassportCountryHelp => 'El país que emitió tu pasaporte.';
+
+  @override
+  String get prefsResidenceCountry => 'País de residencia';
+
+  @override
+  String get prefsResidenceCountryHelp => 'El país donde vives actualmente.';
+
+  @override
+  String get prefsCountryCodeHint => 'p. ej. US';
+
+  @override
   String get prefsPaceRelaxed => 'relajado';
 
   @override

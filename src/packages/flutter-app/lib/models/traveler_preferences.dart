@@ -49,6 +49,18 @@ class TravelerPreferences {
   /// 'male' | 'female'; null = not stated (a first-class state, see 00076).
   final String? gender;
 
+  /// ISO 3166-1 alpha-2, e.g. 'US'; null = not stated — no default
+  /// nationality. Storage only for now (00081/#686): entry requirements
+  /// (visas, ESTA/ETA/ETIAS-class authorizations, passport-validity windows)
+  /// aren't derived from this yet.
+  @JsonKey(name: 'passport_country')
+  final String? passportCountry;
+
+  /// ISO 3166-1 alpha-2, e.g. 'US'; null = not stated. Distinct from
+  /// [passportCountry] — a resident is not necessarily a citizen.
+  @JsonKey(name: 'residence_country')
+  final String? residenceCountry;
+
   const TravelerPreferences({
     this.budget,
     this.pace,
@@ -61,6 +73,8 @@ class TravelerPreferences {
     this.companions = const [],
     this.baggage,
     this.gender,
+    this.passportCountry,
+    this.residenceCountry,
   });
 
   factory TravelerPreferences.fromJson(Map<String, dynamic> json) =>

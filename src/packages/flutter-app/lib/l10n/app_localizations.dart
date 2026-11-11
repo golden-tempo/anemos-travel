@@ -518,6 +518,48 @@ abstract class AppLocalizations {
   /// **'Female'**
   String get prefsGenderFemale;
 
+  /// No description provided for @prefsSectionEntryRequirements.
+  ///
+  /// In en, this message translates to:
+  /// **'Entry requirements'**
+  String get prefsSectionEntryRequirements;
+
+  /// No description provided for @prefsSectionEntryRequirementsHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Stored for future use — visa and entry advice from this is coming soon.'**
+  String get prefsSectionEntryRequirementsHelp;
+
+  /// No description provided for @prefsPassportCountry.
+  ///
+  /// In en, this message translates to:
+  /// **'Passport country'**
+  String get prefsPassportCountry;
+
+  /// No description provided for @prefsPassportCountryHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'The country that issued your passport.'**
+  String get prefsPassportCountryHelp;
+
+  /// No description provided for @prefsResidenceCountry.
+  ///
+  /// In en, this message translates to:
+  /// **'Country of residence'**
+  String get prefsResidenceCountry;
+
+  /// No description provided for @prefsResidenceCountryHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'The country you currently live in.'**
+  String get prefsResidenceCountryHelp;
+
+  /// No description provided for @prefsCountryCodeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. US'**
+  String get prefsCountryCodeHint;
+
   /// Trip pace option shown on a chip; the stored API value stays 'relaxed'.
   ///
   /// In en, this message translates to:

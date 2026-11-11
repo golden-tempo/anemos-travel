@@ -145,6 +145,13 @@
   "prefsGenderHelp": "Optional — used only for advice that depends on it, like what to pack or safety tips. Tap your selection again to remove it.",
   "prefsGenderMale": "Male",
   "prefsGenderFemale": "Female",
+  "prefsSectionEntryRequirements": "Entry requirements",
+  "prefsSectionEntryRequirementsHelp": "Stored for future use — visa and entry advice from this is coming soon.",
+  "prefsPassportCountry": "Passport country",
+  "prefsPassportCountryHelp": "The country that issued your passport.",
+  "prefsResidenceCountry": "Country of residence",
+  "prefsResidenceCountryHelp": "The country you currently live in.",
+  "prefsCountryCodeHint": "e.g. US",
   "prefsPaceRelaxed": "relaxed",
   "@prefsPaceRelaxed": {
     "description": "Trip pace option shown on a chip; the stored API value stays 'relaxed'."
